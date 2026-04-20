@@ -10,6 +10,14 @@ tags:
 authors:
   - name: Nadine Mohamed
     affiliation: 1
+  - name: Guillaume Dumas
+    affiliation: # TODO
+  - name: Elise Devoie
+    affiliation: # TODO
+  - name: Benjamin Rossman
+    affiliation: # TODO
+  - name: Christofer Brandtner
+    affiliation: # TODO
 affiliations:
   - name: Mila - Quebec AI Institute, Université de Montréal, Canada
     index: 1
@@ -21,7 +29,7 @@ bibliography: paper.bib
 
 Sustainable resource management problems often involve multiple agents interacting within shared environments, where individual incentives can conflict with long-term system stability.
 
-`Bilevel-Fishery` is a Python framework for studying **mechanism design in multi-agent reinforcement learning (MARL)** using a bilevel optimization approach. The framework combines:
+`Bilevel-Fishery` is a Python framework for studying mechanism design in multi-agent reinforcement learning (MARL) using a bilevel optimization approach. The framework combines:
 
 - an **inner loop** where agents learn policies via reinforcement learning,
 - an **outer loop** where regulatory mechanisms governing the environment are optimized.
@@ -32,7 +40,7 @@ The package provides a configurable simulation environment for renewable resourc
 
 # Statement of Need
 
-Most reinforcement learning frameworks assume fixed environments and reward structures. However, many real-world systems require optimizing **the rules of the environment itself**, not just agent behavior.
+Most reinforcement learning frameworks assume fixed environments and reward structures. However, many real-world systems require optimizing the rules of the environment itself, not just agent behavior.
 
 Mechanism design in reinforcement learning is particularly challenging due to:
 
@@ -70,7 +78,7 @@ The framework is structured around three main components:
 
 Implements renewable resource dynamics (e.g., fish–algae systems), supporting:
 
-- continuous state variables,
+- continuous state variables (e.g., real-valued fish and algae population levels evolving over time),
 - stochastic or deterministic transitions,
 - configurable ecological parameters.
 
@@ -261,7 +269,12 @@ It serves as a research tool for reinforcement learning, computational economics
 ---
 
 # Acknowledgements
-TODO 
+
+This work was supported in part by the CIFAR Catalyst Fund (CF-0360) under the project *“Cooperative AI for Climate Action Coordination”*, led by :contentReference[oaicite:2]{index=2}.
+
+The project brought together an interdisciplinary collaboration spanning machine learning, computational neuroscience, environmental science, and organizational research, including contributions from researchers affiliated with CIFAR programs.
+
+The author also acknowledges discussions and collaborative exchanges with members of this project, as well as participants from workshops held in Lausanne (2025) and Toronto (2026), which contributed to the development of the ideas underlying this software.
 
 ---
 # References
