@@ -23,28 +23,32 @@ and with a ``reporter_cfg`` a ``Reporter`` renders the configured ``queries``
 against it (see ``core.callbacks``).
 """
 
+from dataclasses import dataclass, field
 import logging
 from abc import abstractmethod
-from typing import Any, ClassVar, Optional, SupportsFloat
+from typing import Any, ClassVar, Optional, SupportsFloat, TypeAlias, TypeVar
 
+from gym import spaces
 import numpy as np
 
 # TODO remove ray and gymnasium dependency
 from gymnasium.core import ActType, ObsType
-from gymnasium import spaces
+import gymnasium as gym
 import ray
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 from core.annotations import override
 from core.mechanism.base import Mechanism
+from core.metrics.logger import MetricLogger
+from core.metrics.schemas import MetricSchema
+from core.reporting.base import Reporter
+from core.reporting.config import ReporterConfig
+from core.reporting.query import Query
 from core.types import AgentID, MultiAgentDict
 from core.utils import sigmoid
 from core.types import OptimizerID
 from core.world.base import World
 from core.world.context import (
-    Context, 
-    ContextSchema, 
-    EnvStepContext, 
     MechanismStatus,
     MechanismContext
 )
@@ -57,7 +61,29 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # TODO create a reward type
+# TODO separate reported vs type message from agent to principal
+# TODO wrapper for MultiAgentEnv adaptor to work with ray
+# TODO gym wrapper.
 
+StateType = TypeVar("StateType")
+@dataclass
+class Information:
+    states: list[StateType] = field(default_factory=list)
+    actions: list[MultiAgentDict] = field(default_factory=list)
+    obs: list[MultiAgentDict] = field(default_factory=list)
+@dataclass
+class Message:
+    t : int
+    horizon: Optional[int] = None
+    action_spaces : Optional[dict[AgentID, gym.Space]] = None
+    observation_spaces: Optional[dict[AgentID, gym.Space]] = None
+    state_space: Optional[gym.Space] = None
+    info : Optional[Information] = None
+    rewards: Optional[MultiAgentDict] = None
+    terminateds: Optional[MultiAgentDict] = None
+    truncateds: Optional[MultiAgentDict] = None
+
+# TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
 class MultiAgentRegulatedEnv(MultiAgentEnv):
     """Base class for mechanism-regulated multi-agent benchmarks.
 
@@ -67,6 +93,8 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         Ray actor handle of the shared blackboard.
     opt_id : OptimizerID, optional
         Identifier of the optimizer owning this env (set on published contexts).
+    env_name : str, optional
+        Label prefix of the env-level reporter.
     horizon : int, optional
         Episode length in steps.
     mechanism_id : str
@@ -76,6 +104,12 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         Environment RNG seed and seed of the associated policy.
     mode : {"train", "eval"}
         Lifecycle status stamped on published contexts.
+    reporter_cfg : ReporterConfig, optional
+        Builds the env-level ``Reporter``; ``None`` disables reporting.
+    queries : tuple[AnyQuery, ...], optional
+        Queries rendered by the env-level reporter.
+    schema : type[MetricSchema], optional
+        Metric schema of the env logger; ``None`` disables logging.
     agents : list[AgentID]
         Agent identifiers; ``possible_agents`` is a copy of this list.
     action_spaces, observation_spaces : dict, optional
@@ -85,23 +119,36 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         Forwarded to :class:`MultiAgentEnv`.
     """
 
+    _state: StateType | None = None
+    _t: int = 0
+    __observation_spaces: Optional[dict[AgentID, gym.Space]] = None
+    __action_spaces: Optional[dict[AgentID, gym.Space]] = None
+    __state_space: Optional[gym.Space] = None
+    
     _reset: ClassVar[str | None] = None
     _action: ClassVar[str | None] = None
     _reward: ClassVar[str | None] = None
     _observation: ClassVar[str | None] = None
     _transition: ClassVar[str | None] = None
+    _observation_spaces: ClassVar[str | None] = None
+    _action_spaces: ClassVar[str | None] = None
+    _state_space: ClassVar[str | None] = None
 
     def __init__(
         self,
         *,
         world: World,
         opt_id: Optional[OptimizerID] = None,
+        env_name: Optional[str] = None,
         horizon: Optional[int] = None,
         mechanism_id: str,
         seed: Optional[int] = None,
         policy_seed: Optional[int] = None,
         mode: Optional[str] = "train",
         agents: list[AgentID],
+        reporter_cfg: Optional[ReporterConfig] = None,
+        queries: Optional[tuple[Query]] = None,
+        schema: Optional[MetricSchema] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -110,7 +157,6 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
 
         # training
         self.horizon = horizon
-        self._t = 0
         self.env_id = None
 
         # seeding
@@ -137,6 +183,26 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         self.action_space = spaces.Dict(self.action_spaces)
         self._infos : MultiAgentDict = {agent_id: {} for agent_id in self.agents}
 
+        # Logger
+        self.logger: Optional[MetricLogger] = (
+            MetricLogger.from_schema(schema) if schema else None
+        )
+
+        # reporter
+        mechanism_id = getattr(self, "mechanism_id", None)
+        reporting_env_id = (
+            f"{env_name}"
+            f"|mode={mode}"
+            f"{f'|m={mechanism_id}' if mechanism_id is not None else ''}"
+            f"|ps={policy_seed}"
+            f"|ss={self.seed}"
+        )
+        self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
+        self.reporter.schema = schema
+
+        self.reporter.add_query(*(queries or ()))
+
+
     def __init_subclass__(
             cls,
             **kwargs,
@@ -149,6 +215,9 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
             if getattr(func, "reward", False): cls._reward = name
             if getattr(func, "observation", False): cls._observation = name  # o_i = O_i(S_t)
             if getattr(func, "transition", False): cls._transition = name  # S_{t+1} = T(S_t, A_t)
+            if getattr(func, "action_spaces", False): cls._action_spaces = name
+            if getattr(func, "observation_spaces", False): cls._observation_spaces = name
+            if getattr(func, "state_space", False): cls._state_space = name
 
     @property
     def mechanism(self) -> Mechanism:
@@ -160,31 +229,43 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
     def published_mechanism_assigned(self) -> bool:
         return self.m is not None and not self._using_default_mechanism
 
+    @property
+    def action_spaces(
+        self,
+    ) -> dict[AgentID, gym.Space]:
+        return self.__action_spaces
+
+    @action_spaces.setter
+    def action_spaces(self, state: StateType) -> None:
+        if self._action_spaces is not None:
+            self.__action_spaces = getattr(self, self._action_spaces)(state)
+
+    @property
+    def observation_spaces(
+        self,
+    ) -> dict[AgentID, gym.Space]:
+        return self.__observation_spaces
+
+    @observation_spaces.setter
+    def observation_spaces(self, state: StateType):
+        if self._observation_spaces is not None:
+            self.__observation_spaces = getattr(self, self._observation_spaces)(state)
+
+    @property
+    def state_space(self) -> gym.Space:
+        return self.__state_space
+
+    @state_space.setter
+    def state_space(self, state: StateType) -> None:
+        if self._state_space is not None:
+            self.__state_space = getattr(
+                self,
+                self._state_space,
+            )(state)
+
     # Setter
     def set_opt_id(self, opt_id: OptimizerID) -> None:
         self._opt_id = opt_id
-
-    # private methods
-    def _publish(self, payload: ContextSchema):
-        ctx = Context(
-            id=None,
-            opt_id=self._opt_id,
-            step=self._t,
-            env=self.__class__.__name__,
-            payload=payload,
-        )
-        ray.get(self.world.append_context.remote(ctx))
-
-
-    def _update_infos(self, key: str, values: MultiAgentDict | SupportsFloat):
-        values = (
-            values
-            if isinstance(values, dict)
-            else {agent_id: values for agent_id in self._infos}
-        )
-
-        for agent_id, value in values.items():
-            self._infos[agent_id][key] = value
 
     # TODO make this configurable in future
     def _normalize_action(
@@ -195,7 +276,6 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
         temperature = 4.0
         return np.asarray([sigmoid(float(value) / temperature) for value in z], dtype=np.float32)
     
-
     # TODO options doesnt get consumed
     @override(MultiAgentEnv)
     def reset(
@@ -267,13 +347,56 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
 
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:
-            self.S_t = getattr(self, self._reset)()
-        self._infos = {agent_id: {} for agent_id in self.agents}
+            self._state = getattr(self, self._reset)()
 
-        # Start with an empty observation dictionary.
-        # The benchmark hook may construct or transform it.
-        obs = self.observation({})
-        return obs, self._infos
+        # Native constraints at x_0
+        self.action_spaces = self._state
+        self.observation_spaces = self._state
+        self.state_space = self._state
+
+        obs = self.observation(self._state)
+
+        message = Message(
+            t=0,
+            horizon=self.horizon,
+            action_spaces=self.action_spaces,
+            observation_spaces=self.observation_spaces,
+            state_space=self.state_space,
+            info=Information(
+                states=[self._state],
+                obs=[obs],
+            ),
+        )
+        message : Message = self.mechanism.apply(message)
+
+        self._state = message.info.states[-1]
+        self.__action_spaces = message.action_spaces
+        self.__observation_spaces = message.observation_spaces
+        self.__state_space = message.state_space
+
+        obs = message.info.obs[-1]
+
+        return obs, {}
+
+
+    def transition(
+            self, 
+            state: StateType,
+            action_dict: MultiAgentDict,
+    ) -> StateType:
+        if self._transition is not None:
+            return getattr(self, self._transition)(A_t=action_dict, state=state)
+        return state
+
+    def termination(
+            self,
+    ) -> tuple[MultiAgentDict, MultiAgentDict]:
+        time_limit = self.horizon is not None and (self._t + 1) >= self.horizon
+        terminateds = {aid: False for aid in self.agents}
+        terminateds["__all__"] = False
+        truncateds = {aid: time_limit for aid in self.agents}
+        truncateds["__all__"] = time_limit
+        return terminateds, truncateds
 
     @override(MultiAgentEnv)
     def step(
@@ -304,74 +427,72 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
             agent ID; ``terminated`` and ``truncated`` also carry ``"__all__"``.
         """
         # Policy outputs -> normalized semantic actions -> mechanisms.
+        state = self._state
         actions = self.action(action_dict)
+        obs = self.observation(self._state)
 
-        # Benchmark intrinsic utility using current state + delivered actions.
-        if self._reward is not None:
-            intrinsic_rewards = getattr(self, self._reward)(actions)
-        else:
-            intrinsic_rewards = {agent_id: 0.0 for agent_id in self.agents}
-
-        if not self.published_mechanism_assigned:
-            obs = {
-                agent_id: self.observation(agent_id, self.S_t)
-                for agent_id in self.agents
-            }
-            rewards = {agent_id: 0.0 for agent_id in self.agents}
-            terminated = {agent_id: False for agent_id in self.agents}
-            terminated["__all__"] = False
-            truncated = {agent_id: False for agent_id in self.agents}
-            truncated["__all__"] = False
-            self._t += 1
-
-            self.logger.push(key=("iter",), value=self._t)
-
-            return obs, rewards, terminated, truncated, self._infos
-
-        # Dynamics
-        S_t = self.S_t.copy()
-
-        if self._transition is not None:
-            self.S_t = getattr(self, self._transition)(A_t=actions, S_t=S_t.copy())
-
-        rewards = self.mechanism.reward(intrinsic_rewards, env=self, action_after=actions)
-        [
-            self.logger.push(key=("by_agent", aid, "reward"), value=r)
-            for aid, r in rewards.items()
-        ]
-
-        obs = self.observation({})
-
-        time_limit = self.horizon is not None and (self._t + 1) >= self.horizon
-
-        terminated = {aid: False for aid in self.agents}
-        terminated["__all__"] = False
-
-        truncated = {aid: time_limit for aid in self.agents}
-        truncated["__all__"] = time_limit
-
-        self._update_infos(key="intrinsic_utility", values=intrinsic_rewards)
-
-        self._publish(
-            EnvStepContext(
-                env_id=self.env_id,
-                seed=self.seed,
-                policy_seed=self.policy_seed,
-                status=MechanismStatus(self.mode),
-                mechanism=self.mechanism_id,
-                observation=obs,
-                observation_map=self.obs_map,
-                reward=rewards,
-                action=actions,
-                info=self._infos,
-            )
+        # pre-transition intervention
+        message = Message(
+            t=self._t,
+            horizon=self.horizon,
+            action_spaces=self.action_spaces,
+            observation_spaces=self.observation_spaces,
+            state_space=self.state_space,
+            information=Information(
+                state=[state],
+                actions=[actions],
+                obs=[obs],
+            ),
         )
+        message : Message = self.mechanism.apply(message)
+        actions = message.info.actions[0]
+
+        state_next = self.transition(state, actions)
+        obs_next = self.observation(state_next)
+        rewards = self.reward(actions)
+        terminateds, truncateds = self.termination()
+        self.action_spaces = state_next
+        self.observation_spaces = state_next
+        self.state_space = state_next
+
+
+        message.info.states.append(state_next)
+        message.info.obs.append(obs_next)
+        message.rewards = rewards
+        message.terminateds = terminateds
+        message.truncateds = truncateds
+        message.action_spaces = self.action_spaces
+        message.observation_spaces = self.observation_spaces
+        message.state_space = self.state_space
+
+        message = self.mechanism.apply(message)
+
+        self._state = message.info.states[-1]
+        obs_next = message.info.obs[-1]
+        rewards = message.rewards
+        terminateds = message.terminateds
+        truncateds = message.truncateds
+        self.__action_spaces = message.action_spaces
+        self.__observation_spaces = message.observation_spaces
+        self.__state_space = message.state_space
+
+        # TODO remove this block
+        # if not self.published_mechanism_assigned:
+        #     obs = self.observation(self._state)
+        #     rewards = {agent_id: 0.0 for agent_id in self.agents}
+        #     terminated = {agent_id: False for agent_id in self.agents}
+        #     terminated["__all__"] = False
+        #     truncated = {agent_id: False for agent_id in self.agents}
+        #     truncated["__all__"] = False
+        #     self._t += 1
+        #     self.logger.push(key=("iter",), value=self._t)
+        #     return obs, rewards, terminated, truncated, self._infos
 
         self._t += 1
 
         self.logger.push(key=("iter",), value=self._t)
 
-        return obs, rewards, terminated, truncated, self._infos
+        return obs_next, rewards, terminateds, truncateds, self._infos
 
     @override(MultiAgentEnv)
     def action(
@@ -380,55 +501,38 @@ class MultiAgentRegulatedEnv(MultiAgentEnv):
     ) -> MultiAgentDict:
         # apply normalization to action components
         # TODO provide wrapper hooks for benchmark envs
-        action_dict = {aid: self._normalize_action(action) for aid, action in action_dict.items()}
-
+        actions = {aid: self._normalize_action(a) for aid, a in action_dict.items()}
         if self._action is not None:
-            action_dict = getattr(self, self._action)(action_dict)
+            actions = getattr(self, self._action)(actions)
+        [self.logger.push(key=("by_agent", aid, "actions"), value=a) for aid, a in actions]
+        return actions
 
-        # TODO choose the action components
-        return self.mechanism.action(action_dict, env=self)
 
     @override(MultiAgentEnv)
     def reward(
         self,
-        reward_dict: MultiAgentDict,
+        action_dict: MultiAgentDict,
     ) -> MultiAgentDict:
         if self._reward is not None:
-            reward_dict = getattr(self, self._reward)(reward_dict)
-
-        # TODO provide wrapper hooks for benchmark envs
-        return self.mechanism.action(
-            reward_dict,
-            env=self,
-        )
+            rewards = getattr(self, self._reward)(action_dict)
+        else:
+            rewards = {agent_id: 0.0 for agent_id in self.agents}
+        [self.logger.push(key=("by_agent", aid, "base_reward"), value=r) for aid, r in rewards]
+        return rewards
 
     @override(MultiAgentEnv)
     def observation(
         self,
-        observation_dict: MultiAgentDict,
+        state: StateType,
     ) -> MultiAgentDict:
-        """o_i = O_i(S_t, theta)"""
+        """o_i = O_i(x_t)"""
         if self._observation is not None:
-            observation_dict = getattr(
+            observations = getattr(
                 self,
                 self._observation,
-            )(observation_dict)
-
-        # move this to mechanism
-        theta = self.mechanism.to_vector()
-        obs_with_theta = np.concatenate([observation_dict, theta], axis=0)
-
-        # TODO provide wrapper hooks for benchmark envs
-        return self.mechanism.action(
-            obs_with_theta,
-            env=self,
-        )
-
-    # TODO these could be decorators for sub_envs!
-    # TODO : unnecessary ?
-    # @abstractmethod
-    # def _step(
-    #     self, action: ActType = None
-    # ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-    #     """Run one timestep of the environment's dynamics using the agent actions."""
-    #     raise NotImplementedError
+            )(state)
+        else:
+            """default to fully observable distributed MDP"""
+            observations = {aid: state for aid in self.agents}
+        [self.logger.push(key=("by_agent", aid, "observation"), value=o) for aid, o in observations]
+        return observations

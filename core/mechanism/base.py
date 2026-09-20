@@ -74,13 +74,30 @@ class Mechanism(ABC):
         bindings = getattr(self, "bindings", {})
         return {name: binding(env) for name, binding in bindings.items()}
 
+    def reset(
+        self,
+        observation_dict: MultiAgentDict,
+        info_dict: MultiAgentDict,
+    ) -> tuple[MultiAgentDict, MultiAgentDict]:
+        """Transform initial **observed** state of OCP I_0[x_0] s.t.
+            y : x_0 \mapsto \delta x_0'.
+        whereby y is the mechanism transformation and \delta x_0 is the residual vector after
+        applying the mechanism transformation w.t.r to x_0
+        returns : `MultiAgentDict` delta x_0
+        """
+        return observation_dict, info_dict
 
     def action(
             self,
             action_dict: MultiAgentDict,
             **kwargs,
     ) -> MultiAgentDict:
-        """Transform agent actions."""
+        """Transform control at step t u_t of s.t.
+            y : u_t \mapsto \delta u_t'.
+        whereby y is the mechanism transformation and \delta u_t is the residual vector after
+        applying the mechanism transformation w.t.r to u_t
+        returns : `MultiAgentDict` delta u_t
+        """
         return action_dict
 
     def observation(
@@ -88,7 +105,12 @@ class Mechanism(ABC):
             observation_dict: MultiAgentDict,
             **kwargs,
     ) -> MultiAgentDict:
-        """Transform agent observations."""
+        """Transform observation at step t o_t of s.t.
+            y : o_t \mapsto \delta o_t'.
+        whereby y is the mechanism transformation and \delta o_t is the residual vector after
+        applying the mechanism transformation w.t.r to o_t
+        returns : `MultiAgentDict` delta o_t
+        """
         return observation_dict
 
     def reward(
@@ -96,5 +118,19 @@ class Mechanism(ABC):
             reward_dict: MultiAgentDict,
             **kwargs,
     ) -> MultiAgentDict:
-        """Transform agent rewards."""
+        """Transform observation at step t o_t of s.t.
+            y : o_t \mapsto \delta o_t'.
+        whereby y is the mechanism transformation and \delta o_t is the residual vector after
+        applying the mechanism transformation w.t.r to o_t
+        returns : `MultiAgentDict` delta o_t
+        """
         return reward_dict
+
+    def step(
+            self,
+            action_dict: MultiAgentDict
+    ) -> tuple[
+        MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
+    ]:
+        """Transform agent rewards."""
+        ...
