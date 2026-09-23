@@ -65,12 +65,14 @@ class QuotaMechanism(Mechanism):
     # TODO action needs to know about #1 current resource level and #2 full required
     # TODO we assume prior normalizaiton of action space 
     # TODO we assume prior selection of action component.
+    # TODO maybe this should be mapped to constraint rather action projection
     @override(Mechanism)
     def action(
         self,
         action_dict: MultiAgentDict,
         **kwargs,
     ) -> MultiAgentDict:
+        # TODO pass the state to action projection ?
         resource_level = kwargs["resource_level"]
 
         width = max(self.quota_transition_width, EPS)
@@ -82,11 +84,12 @@ class QuotaMechanism(Mechanism):
         self._context["allowed_frac"] = allowed_frac
 
         requested = {}
-        regulated = {}
+        delivered = {}
+        delta = {}
 
         for agent_id, action in action_dict.items():
             action = np.asarray(action, dtype=np.float32)
-            requested[agent_id] = action.copy()
+            requested_action = action.copy()
             regulated_action = action.copy()
             requested_frac = float(action[self.action_component])
             regulated_action[self.action_component] = (
@@ -95,11 +98,14 @@ class QuotaMechanism(Mechanism):
                     self.usage_transition_width,
                 )
             )
-            regulated[agent_id] = regulated_action
+            requested[agent_id] = requested_action
+            delivered[agent_id] = regulated_action 
+            delta[agent_id] = regulated_action - requested_action
 
         self._context["requested_action_dict"] = requested
-        self._context["delivered_action_dict"] = regulated
-        return regulated
+        self._context["delivered_action_dict"] = delivered
+        self._context["action_delta_dict"] = delta
+        return delta
 
 
     # TODO this can be potentially removed
