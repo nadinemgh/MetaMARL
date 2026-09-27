@@ -6,8 +6,7 @@ from core.mechanism.base import Mechanism
 from core.types import MultiAgentDict
 
 
-@dataclass(frozen=True)
-class SocialInfluenceMechanism(Mechanism):
+class SocialInfluence(Mechanism):
     influence_weight: float
 
     def observation(

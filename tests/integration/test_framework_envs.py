@@ -55,7 +55,7 @@ def test_es_regulator_loop():
 
     # TODO we need a main orchestrator
     for _ in range(3):
-        es.run()
+        es.train()
 
     assert len(ray.get(world.get_opt_ctx_ids.remote(es.id))) > 0
 
@@ -102,7 +102,7 @@ def test_ppo_with_regulated_env():
 
     # Run a few iterations
     for _ in range(3):
-        result = ppo.run()
+        result = ppo.train()
 
     assert result["learners"]["default_policy"]["num_module_steps_trained"] > 0
     ids = ray.get(world.get_opt_ctx_ids.remote(ppo.id))
@@ -210,7 +210,7 @@ def test_full_bilevel_es_ppo_loop():
 
     # --- Run full bilevel loop ---
     for _ in range(5):
-        es.run()
+        es.train()
 
     assert len(ray.get(world.get_ctx_ids.remote())) > 1
     assert len(ray.get(world.get_opt_registry.remote())) > 1

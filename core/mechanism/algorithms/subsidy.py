@@ -7,7 +7,7 @@ from core.types import MultiAgentDict
 
 
 @dataclass(frozen=True)
-class SubsidyMechanism(Mechanism):
+class Subsidy(Mechanism):
     subsidy: float
     cost: float
     action_component: int = 1

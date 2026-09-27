@@ -14,7 +14,7 @@ def test_ppo_cartpole_training():
 
     opt = cfg.build_optimizer()
 
-    result = opt.run()
+    result = opt.train()
 
     reward = result.get("env_runners", {}).get("episode_return_mean", 0)
     assert reward > 10

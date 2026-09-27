@@ -7,8 +7,7 @@ from core.mechanism.base import Mechanism
 from core.types import MultiAgentDict
 
 
-@dataclass(frozen=True)
-class ThresholdPenaltyMechanism(Mechanism):
+class ThresholdPenalty(Mechanism):
     """
     Smoothly penalize rewards when a normalized signal falls below
     a specified threshold.
