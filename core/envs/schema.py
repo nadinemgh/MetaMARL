@@ -20,12 +20,19 @@ class AgentEnvStepSchema(MetricSchema):
     """Generic metrics produced for one agent during environment steps."""
 
     # statistics collected at env-step level
+    base_action: Optional[float] = Field(
+            default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
+        )
+    
     action: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     observation: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
+    base_reward: Optional[float] = Field(
+            default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
+        )
     reward: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
@@ -56,16 +63,6 @@ class AgentEnvStepSchema(MetricSchema):
     )
     q_pred: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-    )
-
-    # TODO is this necessary ?
-    intrinsic_utility: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
-    )
-    violation_signal: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
     )
 
 
