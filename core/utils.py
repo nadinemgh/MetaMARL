@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import AbstractSet, Any, Optional
 
 import numpy as np
+from gymnasium import spaces
 
 # Generic utils
 
@@ -194,9 +195,6 @@ def sigmoid(x: float) -> float:
     >>> sigmoid(0.0)
     0.5
     """
-
-    x = float(x)
-
     if x >= 0.0:
         z = np.exp(-x)
 
@@ -231,20 +229,10 @@ def smooth_positive(x: float, width: float) -> float:
 
     width = max(float(width), EPS)
 
-    return float(
-        width
-        * np.logaddexp(
-            0.0,
-            float(x) / width,
-        )
-    )
+    return float(width * np.logaddexp(0.0, float(x) / width))
 
 
-def smooth_min(
-    a: float,
-    b: float,
-    width: float,
-) -> float:
+def smooth_min(a: float, b: float, width: float) -> float:
     """Smooth transition between ``a`` and ``b`` approximating ``min(a, b)``.
 
     Returns a sigmoid-weighted blend ``(1 - w) * a + w * b`` where
@@ -286,10 +274,7 @@ def smooth_cap_01(x: float) -> float:
     return float(1.0 - np.exp(-x))
 
 
-def smooth_positive_zero_at_origin(
-    x: float,
-    width: float,
-) -> float:
+def smooth_positive_zero_at_origin(x: float, width: float) -> float:
     """Smooth approximation of ``max(x, 0)`` that is exactly zero at ``x=0``.
 
     Shifts ``smooth_positive`` down by ``width * ln 2`` so that the origin maps
@@ -314,3 +299,107 @@ def smooth_positive_zero_at_origin(
     value = width * (np.logaddexp(0.0, float(x) / width) - np.log(2.0))
 
     return float(max(0.0, value))
+
+
+def intersect(
+    x: spaces.Space | None, dxs: list[spaces.Space | None]
+) -> spaces.Space | None:
+    dxs = [dx for dx in dxs if dx is not None]
+
+    if not dxs:
+        return x
+
+    if x is None:
+        if len(dxs) == 1:
+            return dxs[0]
+
+        x = dxs[0]
+        dxs = dxs[1:]
+
+    if isinstance(x, spaces.Dict):
+        result = dict(x.spaces)
+        keys = set(result)
+
+        for dx in dxs:
+            if not isinstance(dx, spaces.Dict):
+                raise TypeError(f"Cannot intersect Dict with {type(dx).__name__}")
+
+            keys.update(dx.spaces)
+
+        composed = {}
+
+        for key in keys:
+            base = result.get(key)
+            child_dxs = [dx.spaces[key] for dx in dxs if key in dx.spaces]
+            composed[key] = intersect(base, child_dxs)
+
+        return spaces.Dict(composed)
+
+    if isinstance(x, spaces.Box):
+        low = x.low.copy()
+        high = x.high.copy()
+
+        for dx in dxs:
+            if not isinstance(dx, spaces.Box):
+                raise TypeError(f"Cannot intersect Box with {type(dx).__name__}")
+
+            np.maximum(low, dx.low, out=low)
+            np.minimum(high, dx.high, out=high)
+
+        if np.any(low > high):
+            raise ValueError("Mechanism composition produced an empty space.")
+
+        return spaces.Box(low=low, high=high, dtype=x.dtype)
+
+    raise TypeError(f"Cannot intersect spaces of type {type(x).__name__}")
+
+
+def add(x, dxs):
+    dxs = [dx for dx in dxs if dx is not None]
+
+    if not dxs:
+        return x
+
+    if x is None:
+        if len(dxs) == 1:
+            return dxs[0]
+
+        x = dxs[0]
+        dxs = dxs[1:]
+
+    if isinstance(x, dict):
+        result = dict(x)
+        keys = set().union(result, *(dx.keys() for dx in dxs if isinstance(dx, dict)))
+
+        for key in keys:
+            base = result.get(key)
+            deltas = [dx[key] for dx in dxs if isinstance(dx, dict) and key in dx]
+            result[key] = add(base, deltas)
+
+        return result
+
+    value = x
+
+    for dx in dxs:
+        value = value + dx
+
+    return value
+
+
+def logical_or_dict(x, dxs):
+    x = x or {}
+    result = dict(x)
+    keys = set(result)
+
+    for dx in dxs:
+        if dx:
+            keys.update(dx)
+
+    for key in keys:
+        result[key] = bool(x.get(key, False)) or any(
+            dx.get(key, False)
+            for dx in dxs
+            if dx is not None
+        )
+
+    return result

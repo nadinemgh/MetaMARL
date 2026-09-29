@@ -64,3 +64,42 @@ AgentID = Hashable
 
 MultiAgentDict = dict[AgentID, Any]
 """A dict keyed by agent ids, e.g. {"agent-1": value}."""
+
+
+PolicyID: TypeAlias = str
+"""
+Unique identifier for a policy.
+
+Used to associate agents with the policy that controls their behavior and to
+distinguish policies in multi-policy or multi-agent optimization settings.
+"""
+
+
+EpisodeID: TypeAlias = str
+"""
+Unique identifier for an environment episode.
+
+Used to associate trajectories, metrics, contexts, and other runtime data with
+the episode in which they were generated.
+"""
+
+
+MechanismID: TypeAlias = str
+"""
+Unique identifier for a action instance.
+Note a mechanism is a specialized form of action
+
+Used to distinguish mechanisms within composite or multi-mechanism settings
+and to associate mechanism-specific parameters, contexts, or metrics with
+their producing mechanism.
+"""
+
+
+SeedID: TypeAlias = str
+"""
+Unique identifier for an experimental seed.
+
+Used to distinguish independent seeded runs and to associate evaluations,
+trajectories, metrics, or other experiment data with the seed that generated
+them.
+"""

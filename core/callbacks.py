@@ -12,6 +12,7 @@ loop with a strict single round.
 """
 
 import logging
+import gymnasium as gym
 import time
 
 from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
@@ -20,8 +21,6 @@ from ray.rllib.env.vector.vector_multi_agent_env import VectorMultiAgentEnv
 from ray.rllib.evaluation.metrics import summarize_episodes
 from ray.rllib.utils.metrics import ENV_RUNNER_RESULTS, EVALUATION_RESULTS, NUM_EPISODES
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
-
-from core.envs.base import BaseEnv
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ def tag_episode_with_env_idx(
     to ``env_index``; ``EnvStepContext.env_id`` is ``None`` before that.
     """
 
-    env: BaseEnv = env_runner.env.envs[env_index].unwrapped
+    env: gym.Env = env_runner.env.envs[env_index].unwrapped
 
     # Access env seed and mechanism id
     if getattr(env, "mechanism_id", None) is None:
@@ -152,7 +151,7 @@ def log_and_report_episode_metrics(
         Other callback arguments, ignored.
     """
 
-    env: BaseEnv = env_runner.env.envs[env_index].unwrapped
+    env: gym.Env = env_runner.env.envs[env_index].unwrapped
 
     metrics = env.logger.peek()
 
