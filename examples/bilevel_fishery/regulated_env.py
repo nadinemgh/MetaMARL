@@ -1,9 +1,50 @@
+"""Single-stock fishery benchmark regulated by a ``FisheryMechanism`` vector.
+
+``N`` fishers share a stock ``B_t`` (biomass) with Pella-Tomlinson growth
+
+    B_{t+1} = B_t + (r / p) * B_t * (1 - (B_t / K)^p) + noise + restoration - H_t
+
+where ``K`` is the carrying capacity, ``r`` the intrinsic growth rate, ``p`` the
+shape parameter (``p = 1`` gives the Schaefer logistic model), ``noise`` is
+multiplicative Gaussian process noise and ``H_t`` the realized total harvest.
+Each agent's action has two unbounded components squashed through a sigmoid:
+
+- ``action[0]``: harvest fraction of its maximal request
+  ``full_required_harvest = m * F_msy * B_t / N`` (``m`` the unregulated
+  fishing-mortality multiplier);
+- ``action[1]``: restoration effort, converted to biomass through
+  ``restoration_effectiveness``, charged quadratically through
+  ``restoration_effort_cost`` and rewarded linearly through the mechanism's
+  ``restoration_subsidy``.
+
+The regulation is applied inside the environment itself from the six fields
+of the current ``FisheryMechanism``: the quota (``fixed_quota``,
+``max_demand_frac``) caps the delivered harvest smoothly, the fine
+(``fine_amount``) and the risk penalty (``risk_penalty_scale``,
+``risk_penalty_power``) are subtracted from the reward, and a collapse
+penalty kicks in when the next-step biomass falls below
+``collapse_stock_frac``. Every step pushes the ``FisheryMetricSchema``
+series (stock, growth, harvests, reference points, quota allowance) and the
+per-agent harvest requests into the env's metric logger.
+
+References
+----------
+Pella, J. J., & Tomlinson, P. K. (1969). A generalized stock production
+model. Inter-American Tropical Tuna Commission Bulletin, 13(3), 416-497.
+"""
+
 import logging
+from typing import ClassVar
+from gymnasium.core import ActType
 import numpy as np
 
-from core.envs.marl_regulated import MultiAgentRegulatedEnv
-from core.envs.hooks import observation, reset, reward, transition
+from core.agents.base import Agent, AgentConfig
+from core.envs.marl_regulated import MultiAgentEnv
+from core.envs.hooks import reset, transition
+from core.mechanism.base import MDPState, Mechanism
+from core.mechanism.config import MechanismConfig
 from core.types import MultiAgentDict
+from core.utils import sigmoid
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,9 +54,63 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 EPS = 1e-8
+# observation layout
+# [fish_norm, usage_norm, harvest, restoration]
+FISH_NORM = 0
+USAGE_NORM = 1
+HARVEST = 2
+RESTORATION = 3
+
+class Fisherman(Agent):
+    def observation(self, mdp: MDPState) -> MDPState:
+        fish_norm = mdp.state["fish"][mdp.t] / max(mdp.params["K"], EPS)
+        usage_norm = mdp.state["usage"][mdp.t] / max(mdp.params["K"], EPS)
+        mdp = mdp.add(MDPState(obs={self.id: np.asarray([fish_norm, usage_norm, 0.0, 0.0], dtype=np.float32)}))
+        return mdp
+    
+    def reward(self, mdp: MDPState) -> MDPState:
+        # TODO must be residual
+        mdp.rewards = {self.id: mdp.obs[self.id][HARVEST] - mdp.obs[self.id][RESTORATION]}
+        return mdp
+class FishermanConfig(AgentConfig):
+    agent_cls: ClassVar[type[Agent]] = Fisherman
 
 
-class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
+class Fishing(Mechanism):
+    def decode(self, action: ActType) -> ActType:
+        z = np.asarray(action, dtype=np.float32).reshape(-1)
+        temperature = 4.0
+        return sigmoid(float(z[0]) / temperature)
+        
+    def apply(self, mdp: MDPState, harvest_fraction: ActType) -> MDPState:
+        fish = mdp.state["fish"][mdp.t]
+        n_fishers = len(mdp.aids)
+        max_harvest_multiplier =  mdp.params["unregulated_f_multiplier"] # allow unsustainable
+        catch_capaciy = max_harvest_multiplier * mdp.params["F_msy"] * fish / n_fishers
+        harvest = harvest_fraction * catch_capaciy
+        mdp.obs[self.aid][HARVEST] = harvest
+        return mdp.add(MDPState(state={"fish": -harvest}))
+        
+class Restore(Mechanism):
+    def decode(self, action: ActType) -> ActType:
+        z = np.asarray(action, dtype=np.float32).reshape(-1)
+        temperature = 4.0
+        return sigmoid(float(z[0]) / temperature)
+    
+    def apply(self, mdp: MDPState, restoration_effort: ActType) -> MDPState:
+        n_fishers = len(mdp.aids)
+        restoration_power = mdp.params["restoration_effectiveness"]
+        restoration = restoration_power * mdp.params["K"] * restoration_effort / n_fishers
+        mdp.obs[self.aid][RESTORATION] = restoration
+        return mdp.add(MDPState(state={"fish": restoration}))
+
+class FishingConfig(MechanismConfig):
+    mechanism_cls: ClassVar[type[Mechanism]] = Fishing
+
+class RestoreConfig(MechanismConfig):
+    mechanism_cls: ClassVar[type[Mechanism]] = Restore
+
+class FisheryRegulatedEnv(MultiAgentEnv):
     def __init__(
         self,
         *,
@@ -24,105 +119,67 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
     ):
         super().__init__(**kwargs)
 
-        self.r = ecology_cfg.get("r", 0.3)
+        r = ecology_cfg.get("r", 0.3)
         self.K = max(ecology_cfg.get("K", ecology_cfg.get("max_fish", 1000.0)), EPS)
-        self.p = max(ecology_cfg.get("p", 1.0), EPS)
+        p = max(ecology_cfg.get("p", 1.0), EPS)
+        B_msy = max(self.K * (1.0 / (p + 1.0)) ** (1.0 / p), EPS)
+        MSY = (r * self.K / (p + 1.0) ** ((p + 1.0) / p))
+
         self.fish_init = ecology_cfg.get("fish_init", ecology_cfg.get("B0", self.K))
-
-        # stochasticity
-        self.sigma = ecology_cfg.get("sigma", 0.05)
-        self.initial_stock_log_sigma = float(ecology_cfg.get("initial_stock_log_sigma", 0.05))
-
-        self.B_msy = max(self.K * (1.0 / (self.p + 1.0)) ** (1.0 / self.p), EPS)
-        self.MSY = self.r * self.K / (self.p + 1.0) ** ((self.p + 1.0) / self.p)
-        self.F_msy = self.MSY / max(self.B_msy, EPS)
-
-
-        # TODO move collapse also out of env or should be a mechanism
-        self.unregulated_f_multiplier = ecology_cfg.get("unregulated_f_multiplier", 2.0)
-        self.obs_map = ["fish_norm", "total_usage_norm"] #unnecessary
+        self.initial_stock_log_sigma =  ecology_cfg.get("initial_stock_log_sigma",0.05,)
         
+        self.ecology = {
+            "r": r,
+            "p": p,
+            "K": self.K,
+            "B_msy": B_msy,
+            "MSY": MSY,
+            "F_msy": MSY / B_msy,
+            "sigma": ecology_cfg.get("sigma", 0.05),
+            "unregulated_f_multiplier": ecology_cfg.get("unregulated_f_multiplier", 2.0),
+            "restoration_effectiveness": float(ecology_cfg.get("restoration_effectiveness", 0.05)),
+        }
 
-    def _full_required_harvest(
-        self,
-        fish: float,
-    ) -> float:
-        return (
-            self.unregulated_f_multiplier
-            * self.F_msy
-            * fish
-            / len(self.agents)
-        )
-
-    
+    # TODO (nadine) reset should not take mdp and init params should not be stateful
     @reset
-    def reset_fishery(self) -> dict[str, float]:
+    def reset_fishery(self, mdp: MDPState) -> MDPState:
         if self.initial_stock_log_sigma == 0.0:
-            initial_fish = self.fish_init
+            fish_init = self.fish_init
         else:
-            initial_fish = self.rng.lognormal(
+            fish_init = self.rng.lognormal(
                 mean=np.log(max(self.fish_init, EPS)),
                 sigma=self.initial_stock_log_sigma, #sigma around sampling from lognormal distribution
             )
-        return {
-            "fish": np.clip(initial_fish, EPS, self.K),
-            "last_usage": 0.0,
-        }
+        # fish_init = [np.clip(fish_init, EPS, self.K)]
+        return mdp.add(MDPState(state={"fish": fish_init, "usage": 0.0}, params=self.ecology))
+
 
     @transition
-    def pella_tomlinson(
-        self,
-        *,
-        A_t: MultiAgentDict,
-        S_t: MultiAgentDict,
-        **kwargs
-    ) -> dict[str, float]:
-        fish = S_t["fish"]
-        full_required_harvest = self._full_required_harvest(fish)
-        delivered_harvest = {
-            agent_id: action * full_required_harvest  for agent_id, action in A_t.items()
-        }
+    def pella_tomlinson(self, mdp: MDPState) -> dict[str, float]:
+        # intervention already happened
+        r = mdp.params["r"]
+        p = mdp.params["p"]
+        H = mdp.state["fish"][mdp.t-1] - mdp.state["fish"][mdp.t]
+        B = mdp.state["fish"][mdp.t-1]
+        noise = mdp.params["sigma"] * self.rng.normal() * mdp.state["fish"][mdp.t-1]
 
-        H = sum(delivered_harvest.values())
-        B = max(fish, EPS)
-
-        noise = self.sigma * self.rng.normal() * fish
-
-        biological_growth = (self.r / self.p) * B * (1.0 - (B / self.K) ** self.p)
-        growth = biological_growth + noise + kwargs["restoration"]
+        biological_growth = (r / p) * B * (1.0 - (B / self.K) ** p)
+        growth = biological_growth + noise
         available = max(B + growth, 0.0)
 
         H_realized = min(H, available)
         fish_next = available - H_realized
-        fish_next = float(np.clip(fish_next, 0.0, K)) # TODO remove clipping
+        # fish_next = float(np.clip(fish_next, 0.0, self.K)) # TODO remove clipping
 
-        new_state = {
-            "fish": fish_next,
-            "last_usage": H_realized,
-        }
+        self.logger.push(key=("fish_stock",), value=mdp.state["fish"][mdp.t])
+        self.logger.push(key=("fish_stock_next",), value=fish_next)
+        self.logger.push(key=("fish_norm_next_mean",), value=fish_next / max(self.K, EPS))
+        self.logger.push(key=("fish_norm_next_min",), value=fish_next / max(self.K, EPS))
+        self.logger.push(key=("fish_norm_next_max",), value=fish_next / max(self.K, EPS))
+        self.logger.push(key=("fish_norm_next_last",), value=fish_next / max(self.K, EPS))
+        self.logger.push(key=("growth",), value=growth)
+        self.logger.push(key=("growth_noise",), value=noise)
+        self.logger.push(key=("H_realized",), value=H_realized)
+        self.logger.push(key=("total_usage_norm",), value=H_realized / max(EPS, self.K))
 
-        self._update_infos(key="fish", values=fish)
-        self._update_infos(key="fish_next", values=fish_next)
-        self._update_infos(key="fish_norm", values=fish / max(self.K, EPS))
-        self._update_infos(key="fish_norm_next", values=fish_next / max(self.K, EPS))
-        self._update_infos(key="growth", values=growth)
-        self._update_infos(key="growth_noise", values=noise)
-        self._update_infos(key="H_attempted", values=H)
-        self._update_infos(key="H_realized", values=H_realized)
-        self._update_infos(key="total_usage_norm", values=H_realized / max(EPS, self.K))
-        self._update_infos(key="B_msy", values=self.B_msy)
-        self._update_infos(key="MSY", values=self.MSY)
-        self._update_infos(key="F_msy", values=self.F_msy)
-
-        self.S_t = new_state
-        return self.S_t
-
-    @observation
-    def fishery_observation(
-        self,
-        observation_dict: MultiAgentDict,
-    ) -> MultiAgentDict:
-        fish_norm = self.S_t["fish"] / max(self.K, EPS)
-        total_usage_norm = self.S_t.get("last_usage", 0.0) / max(EPS, self.K)
-        observation = np.array([fish_norm, total_usage_norm])
-        return {agent_id: observation.copy() for agent_id in self.agents}
+        return mdp.advance({"fish": fish_next, "usage": H_realized})

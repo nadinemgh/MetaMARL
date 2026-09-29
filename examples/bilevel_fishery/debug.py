@@ -14,13 +14,17 @@ Smoke configuration::
 Full configuration: the defaults.
 """
 
+from typing import TypeAlias
+
 import numpy as np
 import ray
 from gymnasium import spaces
 
-
 from core.adaptors.ray.schema import RaySchema
+from core.agents.base import AgentConfig
 from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
+from core.mechanism.algorithms.social_influence import SocialInfluence
+from core.mechanism.config import MechanismConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
@@ -28,15 +32,14 @@ from core.optimizers.es.schema import ESSchema
 from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
 from core.callbacks import tag_episode_with_env_idx
-from core.mechanism.algorithms.quota import QuotaMechanism
-from core.mechanism.algorithms.social_influence import SocialInfluenceMechanism
-from core.mechanism.algorithms.subsidy import SubsidyMechanism
-from core.mechanism.algorithms.penalty import ThresholdPenaltyMechanism
-from core.mechanism.composition.chained_mechanism import ChainedMechanism
-from core.optimizers.bilevel import BilevelConfig
+from core.mechanism.algorithms.quota import Quota
+from core.mechanism.algorithms.subsidy import Subsidy
 from core.optimizers.es.config import ESConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
+from examples.bilevel_fishery.regulated_env import FishermanConfig as Fisherman
+from examples.bilevel_fishery.regulated_env import FishingConfig as Fishing
+from examples.bilevel_fishery.regulated_env import RestoreConfig as Restore
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 from examples.bilevel_fishery.queries import (
     ES_QUERIES,
@@ -47,6 +50,8 @@ from examples.bilevel_fishery.queries import (
 ray.shutdown()
 
 EPS = 1e-8
+
+FisheriesRegulator: TypeAlias = AgentConfig
 
 bilevel_opt_cfg: BilevelConfig = (
     BilevelConfig()
@@ -61,41 +66,6 @@ bilevel_opt_cfg: BilevelConfig = (
             max_end_of_run_history_metrics=0,
         )
     )
-    .mechanism(
-        mechanism = ChainedMechanism(
-            children=(
-                QuotaMechanism(
-                    action_component=0,
-                    bindings={
-                        "resource_level": lambda env: (
-                            env.S_t["fish"] / max(env.K, EPS)
-                        ),
-                    },
-                    optimize_params=["fixed_quota"],
-                    default_fixed_quota=0.56224, #0.90 #0.52
-                    default_max_demand_frac=1.0,
-
-                ),
-                SubsidyMechanism(
-                    action_component=1,
-                    optimize_params=["restoration_subsidy"],
-                    default_restoration_subsidy=0.10,
-                ),
-                SocialInfluenceMechanism(
-                    influence_weight=...,
-                    bindings={
-                        "previous_actions": lambda env: (
-                            env.previous_actions
-                        ),
-                        "agent_ids": lambda env: (
-                            tuple(env.agents)
-                        ),
-                    },
-                )
-            )
-        )
-    )
-    .training(outer_iters=1000)
     .ray(
         device="cpu",
         num_cpus=4,
@@ -112,7 +82,7 @@ bilevel_opt_cfg: BilevelConfig = (
             ]
         },
     )
-    .outer(
+    .regulator(
         ESConfig()
         .training(
             sigma=0.15,
@@ -121,29 +91,66 @@ bilevel_opt_cfg: BilevelConfig = (
             sigma_lr=0.00,
             min_sigma=0.15,
             max_sigma=0.15,
+            episodes=1000,
         )
-        .environment(
-            env=FisheryRegulatorEnv,
-            env_config={
-                "ecology_cfg": {
-                    "sustainability_weight": 2,  # assert between 0 and 5
-                    "sustainability_threshold": 0.20,
-                    "K": 5_000,  # HAS to match environmnet K
-                },
-            },
-            horizon=100,
-            train_iters=50,
-        )
-        .debugging(
-            seed=42,
-            num_seeds=1,
-        )
-        .reporting(
-            schema=ESSchema,
-            queries=ES_QUERIES,
+        .agents(
+            FisheriesRegulator(
+                policy_id="quota_policy",
+                mechanisms=(
+                    Quota(
+                        id = "quota",
+                        action_space=spaces.Box(
+                            low=0,
+                            high=1.0,
+                            shape=(1,), # TODO maybe constrain this to always be (1,)
+                            dtype=np.float32,
+                        ),
+                        # TODO (nadine) better name ?
+                        # TODO (nadine) what if acts on another type of object such as observation ?
+                        acts_on=("fisher", "harvest"),
+                        obs_map={"resource_level": "fish"},
+                        default=np.asarray(0.56224)
+                    ),
+                    # Subsidy(
+                    #     action_component=1,
+                    #     optimize_params=["restoration_subsidy"],
+                    #     default_restoration_subsidy=0.10,
+                    # ),
+                    # SocialInfluence(
+                    #     influence_weight=...,
+                    #     bindings={
+                    #         "previous_actions": lambda env: (
+                    #             env.previous_actions
+                    #         ),
+                    #         "agent_ids": lambda env: (
+                    #             tuple(env.agents)
+                    #         ),
+                    #     },
+                    # )
+                )
+            ),
         )
     )
-    .inner(
+    .environment(
+        horizon=1,
+        env=FisheryRegulatorEnv,
+        env_config={
+            "ecology_cfg": {
+                "sustainability_weight": 2,  # assert between 0 and 5
+                "sustainability_threshold": 0.20,
+                "K": 5_000,  # HAS to match environmnet K
+            },
+        },
+    )
+    .debugging(
+        seed=42,
+        num_seeds=1,
+    )
+    .reporting(
+        schema=ESSchema,
+        queries=ES_QUERIES,
+    )
+    .society(
         APPOptimizerConfig()
         .resources(
             num_cpus_for_main_process=1,
@@ -195,6 +202,7 @@ bilevel_opt_cfg: BilevelConfig = (
             on_episode_end=log_and_report_episode_metrics,
         )
         .training(
+            episodes=50,
             vtrace=True,
             circular_buffer_num_batches=4,
             circular_buffer_iterations_per_batch=1,
@@ -225,24 +233,38 @@ bilevel_opt_cfg: BilevelConfig = (
             num_seeds=3,
         )
         .agents(
-            {
-                "utilizer": {
-                    "count": 10,
-                    "policy": "fisher_policy",
-                    "observation_space": spaces.Box(
+            Fisherman(
+                id = "fisherman",
+                policy_id = "fisher_policy",
+                shared_policy=True,
+                mechanisms=(
+                    Fishing(
+                        id="harvest",
+                        action_space = spaces.Box(
                         low=-np.inf,
                         high=np.inf,
-                        shape=(3 + FisheryMechanismSpace().full_dimension,),
+                        shape=(1,), #TODO (nadine) enforce strict shape
                         dtype=np.float32,
+                        ),
                     ),
-                    "action_space": spaces.Box(
+                    Restore(
+                        id="restore",
+                        action_space = spaces.Box(
                         low=-np.inf,
                         high=np.inf,
-                        shape=(2,), # TODO action shape must match the mechanism space components -> dynamically initiate this
+                        shape=(1,), #TODO (nadine) enforce strict shape
                         dtype=np.float32,
-                    ),
-                }
-            }
+                        ),
+                    )
+                ),
+                count = 10,
+                observation_space = spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(4,), # TODO (nadine) maybe an observation object needed to avoid hardcoding this
+                    dtype=np.float32,
+                ),
+            )
         )
         .fault_tolerance(
             restart_failed_env_runners=False,
@@ -265,17 +287,5 @@ bilevel_opt_cfg: BilevelConfig = (
 
 bilevel_opt = bilevel_opt_cfg.build_optimizer()
 
-bilevel_opt.run()
+bilevel_opt.train()
 ray.shutdown()
-
-
-# #                 ThresholdPenaltyMechanism(
-#                     threshold=0.20,
-#                     penalty_amount=0.10,
-#                     transition_width=0.03,
-#                     bindings={
-#                         "resource_level": lambda env: (
-#                             env.S_t["fish"] / max(env.K, EPS)
-#                         ),
-#                     },
-#                 ),

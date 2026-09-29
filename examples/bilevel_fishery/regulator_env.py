@@ -73,7 +73,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
         return 0.0
 
     @override(RegulatorEnv)
-    def aggregate_rewards(self, metrics: MetricSchema) -> list[float]:
+    def reward(self, metrics: MetricSchema) -> list[float]:
         """Compute one fitness per candidate from the inner optimizer's metrics.
 
         ``metrics`` is the inner ``RaySchema`` peeked after training; the
