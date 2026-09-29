@@ -24,14 +24,14 @@ are created with ``env_seed`` drawn from the evaluation seeds while
 ``policy_seed`` still names the trained module to test.
 """
 
-import uuid
-from dataclasses import dataclass
+import uuid 
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
 
 import numpy as np
 import ray
 import torch
-from gymnasium import Space
+from gymnasium import Space, spaces
 from ray.actor import ActorHandle
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
@@ -42,7 +42,9 @@ from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.utils.typing import AgentID
 from ray.tune.registry import register_env
 
+from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.adaptors.ray.optimizer import RayOptimizer
+from core.agents.base import Agent
 from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
 from core.metrics.schemas import MetricSchema
@@ -53,35 +55,6 @@ from core.world.base import World
 
 # TODO override environment to attach docstrings
 P = ParamSpec("P")
-
-
-@dataclass
-class AgentSpec:
-    """Declaration of one agent type in a multi-agent environment.
-
-    Attributes
-    ----------
-    count : int
-        Number of agent instances of this type; instances are named
-        ``"<agent_type>:<i>"``.
-    policy : str
-        Base policy name. The actual RLModule IDs are derived from it as
-        ``<policy>_m<mechanism_idx>_s<seed>``.
-    observation_space, action_space : gymnasium.Space
-        Spaces shared by all instances of the type.
-
-    Notes
-    -----
-    ``RayOptimizerConfig.agents`` and ``_apply_agents_to_rllib`` currently
-    read the specs as plain dicts (``spec["count"]``, ``spec.get(...)``), so
-    callers pass dicts with these keys rather than ``AgentSpec`` instances.
-    """
-
-    count: int
-    policy: str
-    observation_space: Space
-    action_space: Space
-
 
 FnID: TypeAlias = str
 
@@ -149,7 +122,6 @@ class RayOptimizerConfig(OptimizerConfig):
         # TODO termporary setting until find out how to share world context accross runners
         self._cfg_ops: dict[FnID, RLlibConfigOp] = {}
         self.rllib_cfg: AlgorithmConfig | None = None
-        self.agent_specs: Optional[dict] = None  # TODO default
         self.world_name: Optional[str] = None
         self.num_mechanisms: Optional[int] = None
         self.eval_episodes: Optional[int] = None
@@ -548,8 +520,6 @@ class RayOptimizerConfig(OptimizerConfig):
         policies = {}
         agent_type_map = {}
 
-        agents: list[AgentID] = []
-
         observation_spaces = {}
         action_spaces = {}
 
@@ -565,11 +535,13 @@ class RayOptimizerConfig(OptimizerConfig):
         # Get number of mechanisms (one policy per mechanism, per seed)
         num_mechanisms = num_envs // num_seeds
         module_specs = {}
+        agent_cfgs = {}
 
-        for agent_type, spec in self.agent_specs.items():
-            obs_space = spec.get("observation_space")
-            act_space = spec.get("action_space")
-            base_policy = spec.get("policy")
+        for aid, agent in self.agent_cfgs.items():
+            obs_space = agent.observation_space
+            act_space = spaces.Dict({m.id: m.action_space for m in agent.mechanisms})
+            base_policy = agent.policy_id
+            count = agent.count
 
             # TODO (nadinemgh) this does not guarantee tht different mechanism's policy will be
             # initiated with the same seed !
@@ -586,8 +558,8 @@ class RayOptimizerConfig(OptimizerConfig):
                     policy_id = f"{base_policy}_m{m_idx}_s{seed}"
                     policies[policy_id] = (
                         None,
-                        spec.get("observation_space"),
-                        spec.get("action_space"),
+                        obs_space,
+                        act_space,
                         {},
                     )
                     module_specs[policy_id] = RLModuleSpec(
@@ -604,11 +576,9 @@ class RayOptimizerConfig(OptimizerConfig):
                         ),
                     )
 
-            for i in range(spec.get("count")):
-                agent_id = f"{agent_type}:{i}"
-
-                agents.append(agent_id)
-
+            for i in range(count):
+                agent_id = f"{aid}:{i}"
+                agent_cfgs[agent_id] = replace(agent,id=agent_id, count=1)
                 agent_type_map[agent_id] = base_policy
                 observation_spaces[agent_id] = obs_space
                 action_spaces[agent_id] = act_space
@@ -617,6 +587,7 @@ class RayOptimizerConfig(OptimizerConfig):
             rl_module_spec=MultiRLModuleSpec(rl_module_specs=module_specs)
         )
 
+        # TODO not needed ?
         self.env_config.update({"observation_spaces": observation_spaces})
         self.env_config.update({"action_spaces": action_spaces})
 
@@ -654,29 +625,7 @@ class RayOptimizerConfig(OptimizerConfig):
             policies_to_train=all_policies,
         )
 
-        return agents
-
-    # TODO agent spec for stricter schema enforcement
-    def agents(self, agents: dict[str, AgentSpec]) -> Self:
-        """Declare the agent types of the environment.
-
-        Parameters
-        ----------
-        agents : dict[str, AgentSpec]
-            Mapping ``agent_type -> spec``. In practice the specs are plain
-            dicts with ``count``, ``policy``, ``observation_space`` and
-            ``action_space`` keys, because ``_apply_agents_to_rllib`` indexes
-            them with ``spec.get(...)``.
-
-        Returns
-        -------
-        RayOptimizerConfig
-            ``self`` for chaining.
-        """
-
-        self.agent_specs = agents
-
-        return self
+        return agent_cfgs
 
     # lazy resolution : better encapsulation ?
     # @cached_property
@@ -786,7 +735,7 @@ class RayOptimizerConfig(OptimizerConfig):
                 world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
             )
 
-        if self.agent_specs:
+        if self.agent_cfgs:
             agents = self._apply_agents_to_rllib()
 
         env_counter = {"train": 0, "eval": 0}
@@ -843,19 +792,18 @@ class RayOptimizerConfig(OptimizerConfig):
             env_ctx["seed"] = env_seed
             env_ctx["policy_seed"] = policy_seed
 
-            return self._env_creator(
+            env = self._env_creator(
                 world=world,
                 opt_id=opt_id,
                 env_name=env_name,
-                agents=agents,
+                agents_cfg_dict=agents,
                 mechanism_id=mechanism_idx,
-                reporter_cfg=self._reporter_cfg.copy()
-                if self._reporter_cfg is not None
-                else None,
+                reporter_cfg=self._reporter_cfg.copy() if self._reporter_cfg is not None else None,
                 queries=self._reporting_queries_env,
                 schema=self._reporting_schema_env,
                 **dict(env_ctx),
             )
+            return RLlibMultiAgentEnvAdapter(env)
 
         register_env(env_name, env_creator)
 
@@ -868,21 +816,15 @@ class RayOptimizerConfig(OptimizerConfig):
 
         cfg = self.copy(copy_frozen=True)
 
-        # TODO do not give world to ray optimizer. temp solution until environment factory
-        opt = RayOptimizer(config=cfg)
-        opt.world = world
-
         # Build reporter
         reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
         reporter.schema = self._reporting_schema
-
         reporter.add_query(*(self._reporting_queries or ()))
 
-        opt.reporting = reporter
+        opt = RayOptimizer(world=world, reporter=reporter, config=cfg)
 
-        # register optimizer in world to link contexts to optimizers
         if world is not None:
-            opt.set_id(opt_id)
+            opt.id = opt_id
 
         return opt
 
@@ -899,11 +841,16 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.freeze(**kwargs)
 
     @rllib_config_mutator
-    @override(OptimizerConfig)
-    def training(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
+    def _training_rllb(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
         """Deferred ``AlgorithmConfig.training`` (algorithm hyperparameters)."""
 
         return cfg.training(**kwargs)
+
+    @override(OptimizerConfig)
+    def training(self, *, episodes: Optional[int] = None, **kwargs: Any) -> AlgorithmConfig:
+        """Deferred ``AlgorithmConfig.training`` (algorithm hyperparameters)."""
+        super().training(episodes=episodes)
+        return self._training_rllb(**kwargs)
 
     @rllib_config_mutator
     def _debugging_rllib(

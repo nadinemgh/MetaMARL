@@ -7,19 +7,14 @@ learner statistics and performance timers. Instances are produced by the
 builders in ``core.adaptors.ray.utils``.
 """
 
-from typing import Optional, TypeAlias
+from typing import Optional
 
 from pydantic import Field
 
 from core.envs.schema import EpisodeRolloutSchema
 from core.metrics.enums import ReduceProtocol
 from core.metrics.schemas import MetricSchema
-
-PolicyID: TypeAlias = str
-EpisodeID: TypeAlias = str
-MechanismID: TypeAlias = str
-SeedID: TypeAlias = str
-
+from core.types import EpisodeID, MechanismID, PolicyID, SeedID
 
 class PolicyLearnerSchema(MetricSchema):
     """Learner statistics of one RLModule (policy) for one training iteration.

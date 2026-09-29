@@ -34,6 +34,7 @@ from core.optimizers.base import Optimizer
 
 # Deprecated
 from core.utils import to_float
+from core.world.context import MechanismStatus
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +74,10 @@ class RayOptimizer(Optimizer):
 
     def __init__(
         self,
-        # algo: Algorithm,
         config: RayOptimizerConfig,
+        **kwargs,
     ):
-        super().__init__(config)
+        super().__init__(config=config, **kwargs)
 
         # self.algo = algo
 
@@ -99,7 +100,6 @@ class RayOptimizer(Optimizer):
         # Track training metrics for plotting
         self._training_rewards: list[float] = []
         self._training_losses: list[float] = []
-        self._inner_iter: int = 0
         self._es_round: int = 0
 
     @property
@@ -202,7 +202,7 @@ class RayOptimizer(Optimizer):
         return RaySchema(train=train, eval=evaluation)
 
     @override(Optimizer)
-    def run(self) -> None:
+    def train(self) -> None:
         """Run one RLlib training iteration on the policy actor.
 
         Increments the inner iteration counter, extracts the mean episode
@@ -213,48 +213,49 @@ class RayOptimizer(Optimizer):
         Reporting to W&B is currently disabled (commented out).
         """
 
-        logger.info("[PPO] Training step started")
+        for episode in range(self.episodes):
+            logger.info("[PPO] Training step started")
+            result = ray.get(self.policy_actor.train.remote())
 
-        result = ray.get(self.policy_actor.train.remote())
+            # step = int(to_float(result.get("training_iteration")) or 0)
+            self.logger.push(key=("iter",), value=episode)
 
-        # step = int(to_float(result.get("training_iteration")) or 0)
+            # RLlib's own lifetime training counter, retained only for debugging.
+            rllib_training_iteration = int(to_float(result.get("training_iteration")) or 0)
+            metrics = self._to_logger_payload(result)
 
-        # Local inner-loop iteration. This resets for each outer ES round.
-        self._inner_iter += 1
-        step = self._inner_iter
+            self.logger.push_data(metrics)
 
-        self.logger.push(key=("iter",), value=step)
+            # TODO temporary to be moved to a logger Extract metrics
+            ep_return = get_episode_return_mean(result)
+            steps_iter, steps_life = get_env_steps(result)
 
-        # RLlib's own lifetime training counter, retained only for debugging.
-        rllib_training_iteration = int(to_float(result.get("training_iteration")) or 0)
-        metrics = self._to_logger_payload(result)
+            # Track metrics
+            self._training_rewards.append(ep_return)
 
-        self.logger.push_data(metrics)
+            policy_loss = get_policy_loss_if_present(result)
 
-        # TODO temporary to be moved to a logger Extract metrics
-        ep_return = get_episode_return_mean(result)
-        steps_iter, steps_life = get_env_steps(result)
+            self._training_losses.append(policy_loss)
+            logger.info(
+                "[PPO] Training step completed | "
+                "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
+                "ep_return=%.4f | env_steps_iter=%d | "
+                "env_steps_lifetime=%d | policy_loss=%s",
+                self._es_round,
+                episode,
+                rllib_training_iteration,
+                ep_return,
+                steps_iter,
+                steps_life,
+                f"{policy_loss:.6f}" if np.isfinite(policy_loss) else "NA",
+            )
+        self.evaluate()
 
-        # Track metrics
-        self._training_rewards.append(ep_return)
+        self.report_metrics()
+        return self.logger.peek()
 
-        policy_loss = get_policy_loss_if_present(result)
 
-        self._training_losses.append(policy_loss)
-        logger.info(
-            "[PPO] Training step completed | "
-            "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
-            "ep_return=%.4f | env_steps_iter=%d | "
-            "env_steps_lifetime=%d | policy_loss=%s",
-            self._es_round,
-            step,
-            rllib_training_iteration,
-            ep_return,
-            steps_iter,
-            steps_life,
-            f"{policy_loss:.6f}" if np.isfinite(policy_loss) else "NA",
-        )
-
+    # TODO (nadine) future support for async eval, otherwise must publish eval mechanism obj
     @override(Optimizer)
     def evaluate(self) -> None:
         """Run one evaluation pass on the policy actor and log start/end.
@@ -263,7 +264,6 @@ class RayOptimizer(Optimizer):
         publish their ``EnvStepContext`` records to the World, which is where
         the regulator reads the outcome.
         """
-
         logger.info("[PPO] Evaluation started")
 
         result = ray.get(self.policy_actor.evaluate.remote())
@@ -271,6 +271,8 @@ class RayOptimizer(Optimizer):
 
         self.logger.push_data(metrics)
         logger.info("[PPO] Evaluation completed")
+
+        ray.get(self.world.flush.remote(status=MechanismStatus.eval))
 
     @override(Optimizer)
     def reset(self) -> None:

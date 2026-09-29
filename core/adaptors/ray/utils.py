@@ -17,19 +17,21 @@ from ray.rllib.utils.typing import ResultDict
 
 from core.adaptors.ray.schema import (
     LearnerSchema,
-    MechanismID,
     MechanismLearnerSchema,
     MechanismRolloutSchema,
     PerformanceSchema,
-    PolicyID,
     PolicyLearnerSchema,
     RolloutSchema,
-    SeedID,
     SeedLearnerSchema,
     SeedRolloutSchema,
 )
 from core.envs.schema import EpisodeRolloutSchema
 from core.utils import finite, safe_ratio, to_float
+from core.types import (
+    MechanismID,
+    PolicyID,
+    SeedID,
+)
 
 
 def _get_env(result: dict) -> dict:
