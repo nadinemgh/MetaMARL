@@ -36,6 +36,7 @@ class ESConfig(OptimizerConfig):
     def training(
         self,
         *,
+        episodes: Optional[int] = None,
         sigma: Optional[float] = None,
         mean_lr: Optional[float] = None,
         sigma_lr: Optional[float] = None,
@@ -77,6 +78,7 @@ class ESConfig(OptimizerConfig):
         ESConfig
             ``self``, for chaining.
         """
+        super().training(episodes=episodes)
 
         if sigma is not None:
             self.sigma = sigma
