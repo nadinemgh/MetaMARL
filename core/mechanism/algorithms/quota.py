@@ -1,12 +1,11 @@
-# core/mechanism/quota.py
-
-from dataclasses import dataclass, field
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import ClassVar, Optional
 
 import numpy as np
 
 from core.annotations import override
-from core.mechanism.base import Mechanism
+from core.mechanism.base import Mechanism, MDPState
+from core.mechanism.config import MechanismConfig
 from core.types import MultiAgentDict
 from core.utils import (
     sigmoid,
@@ -16,83 +15,65 @@ from core.utils import (
 
 EPS = 1e-8
 
-
 # TODO what if two mechanisms interfere by requiring context from each other ? 
 # for example a penalty based on how much quota is violated ?
-@dataclass(frozen=True)
 class QuotaMechanism(Mechanism):
-    fixed_quota: float
-
-    # NOTE why reinstantiate in subclass ?
-    bindings: dict[str, Callable[[Any], Any]] = field(
-        repr=False,
-        compare=False,
-    )
-    action_component: int = 0
-
     # Fixed algorithmic parameters.
     quota_transition_width: float = 0.03
     usage_transition_width: float = 0.005
     violation_transition_width: float = 0.03
 
-    _context: dict[str, Any] = field(
-        default_factory=dict,
-        init=False,
-        repr=False,
-        compare=False,
-    )
+    def __init__(
+            self,
+            *,
+            quota_transition_width: Optional[float] = 0.03,
+            usage_transition_width: Optional[float] = 0.005,
+            violation_transition_width: Optional[float] = 0.03,
+            **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.quota_transition_width = quota_transition_width
+        self.usage_transition_width = usage_transition_width
+        self.violation_transition_width = violation_transition_width
 
-    def __post_init__(self) -> None:
-        required = {"resource_level"}
+        if self.quota_transition_width <= 0:
+            raise ValueError("quota_transition_width must be > 0.")
+        if self.usage_transition_width <= 0:
+            raise ValueError("usage_transition_width must be > 0.")
+        if self.violation_transition_width <= 0:
+            raise ValueError("violation_transition_width must be > 0.")
 
-        missing = required - self.bindings.keys()
-        if missing: raise ValueError(f"Missing quota bindings: {missing}")
-
-        assert 0.0 <= self.fixed_quota <= 1.0
-        assert self.quota_transition_width > 0.0
-        assert self.usage_transition_width > 0.0
-        assert self.violation_transition_width > 0.0
-
-    def to_vector(self) -> np.ndarray:
-        return np.array([self.fixed_quota], dtype=np.float32)
-
-    def param_names(self) -> list[str]:
-        return ["fixed_quota"]
-
-    def observation_names(self) -> list[str]:
-        return ["effective_quota"]
 
     # TODO action needs to know about #1 current resource level and #2 full required
     # TODO we assume prior normalizaiton of action space 
     # TODO we assume prior selection of action component.
     # TODO maybe this should be mapped to constraint rather action projection
     @override(Mechanism)
-    def action(
-        self,
-        action_dict: MultiAgentDict,
-        **kwargs,
-    ) -> MultiAgentDict:
+    def apply(self, mdp_state: MDPState, **kwargs) -> MDPState:
         # TODO pass the state to action projection ?
-        resource_level = kwargs["resource_level"]
+        resource_level = mdp_state.obs[self.obs_map["resource_level"]]
 
         width = max(self.quota_transition_width, EPS)
-        lower = sigmoid((0.0 - self.fixed_quota) / width)
-        upper = sigmoid((1.0 - self.fixed_quota) / width)
-        current = sigmoid((resource_level - self.fixed_quota) / width)
+        lower = sigmoid((0.0 - self.u) / width)
+        upper = sigmoid((1.0 - self.u) / width)
+        current = sigmoid((resource_level - self.u) / width)
 
         allowed_frac = (current - lower) / max(upper - lower, EPS)
-        self._context["allowed_frac"] = allowed_frac
+        mdp_state.state["allowed_frac"] = allowed_frac
 
         requested = {}
         delivered = {}
         delta = {}
 
-        for agent_id, action in action_dict.items():
+        for agent_id, action in mdp_state.actions.items():
+            # TODO (nadine) temp cloning only identifiable with parsing
+            if not str(agent_id).startswith(f"{self.acts_on[0]}:"):
+                continue
             action = np.asarray(action, dtype=np.float32)
             requested_action = action.copy()
             regulated_action = action.copy()
-            requested_frac = float(action[self.action_component])
-            regulated_action[self.action_component] = (
+            requested_frac = float(action[self.acts_on[1]])
+            regulated_action[self.acts_on[1]] = (
                 requested_frac - smooth_positive_zero_at_origin(
                     requested_frac - allowed_frac,
                     self.usage_transition_width,
@@ -102,24 +83,19 @@ class QuotaMechanism(Mechanism):
             delivered[agent_id] = regulated_action 
             delta[agent_id] = regulated_action - requested_action
 
-        self._context["requested_action_dict"] = requested
-        self._context["delivered_action_dict"] = delivered
-        self._context["action_delta_dict"] = delta
+        mdp_state.state["requested_action_dict"] = requested
+        mdp_state.state["delivered_action_dict"] = delivered
+        mdp_state.state["action_delta_dict"] = delta
+
+        # add allowed fraction into obs
+        mdp_state.obs = {aid: np.array([mdp_state.state["allowed_frac"]], dtype=np.float32)
+            for aid, _ in mdp_state.obs.items()
+        }
         return delta
 
-
-    # TODO this can be potentially removed
-    @override(Mechanism)
-    def observation(
-        self,
-        observation_dict: MultiAgentDict,
-        **kwargs,
-    ) -> MultiAgentDict:
-        if "allowed_frac" not in self._context:
-            return observation_dict
-        return {
-            agent_id: np.concatenate(
-                [observation, np.array([self._context["allowed_frac"]], dtype=np.float32)]
-            )
-            for agent_id, observation in observation_dict.items()
-        }
+@dataclass(frozen=True, kw_only=True)
+class Quota(MechanismConfig):
+    mechanism_cls: ClassVar[type[Mechanism]] = QuotaMechanism
+    quota_transition_width: float = 0.03
+    usage_transition_width: float = 0.005
+    violation_transition_width: float = 0.03
