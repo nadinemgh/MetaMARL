@@ -195,7 +195,7 @@ class World:
         for this optimizer, then advance the cursor.
 
         This is used for reduced env plotting so we capture both train
-        and eval contexts produced during one optimizer run().
+        and eval contexts produced during one optimizer train().
         """
 
         ctx_ids = (
