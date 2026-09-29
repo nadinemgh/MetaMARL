@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Optional
 
 # TODO move ray dependencies out of ray optimizer
+import gymnasium as gym
 from ray.actor import ActorHandle
-from core.envs.base import BaseEnv
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.optimizers.config import OptimizerConfig
@@ -50,6 +50,7 @@ class Optimizer(ABC):
     ):
         from core.optimizers.config import OptimizerConfig
 
+        self.episodes : int = config.episodes
         self.config: OptimizerConfig = config
         self.world = world  # TODO replace by envFactory
         self.reporting: Optional[Reporter] = reporting
@@ -60,7 +61,7 @@ class Optimizer(ABC):
 
         # Optional environment (may be None for meta-optimizers)
         # TODO review
-        self._env: BaseEnv | None = config.env
+        self._env: gym.Env | None = config.env if config else None
 
         # Optimizer Graph connectivity
         self._downstream: set["Optimizer"] = set()
@@ -87,7 +88,7 @@ class Optimizer(ABC):
     #     self._reporting = reporting
 
     @property
-    def env(self) -> BaseEnv | None:
+    def env(self) -> gym.Env | None:
         """Environment attached to this optimizer.
 
         Initialised from ``config.env`` (which may be an env *class* rather
@@ -99,7 +100,7 @@ class Optimizer(ABC):
         return self._env
 
     @env.setter
-    def env(self, value: BaseEnv | None) -> None:
+    def env(self, value: gym.Env | None) -> None:
         """Attach an environment and fire ``_on_env_init`` if it is not None."""
 
         self._env = value
@@ -107,7 +108,7 @@ class Optimizer(ABC):
         if value is not None:
             self._on_env_init(value)
 
-    def _on_env_init(self, env: BaseEnv) -> None:
+    def _on_env_init(self, env: gym.Env) -> None:
         """Hook called after a runtime env is attached"""
 
         pass
@@ -140,8 +141,8 @@ class Optimizer(ABC):
 
         return self._batch_capacity
 
-    # TODO make id immutable
-    def set_id(self, id: OptimizerID) -> None:
+    @id.setter
+    def id(self, id: OptimizerID) -> None:
         """Assign the optimizer ID once.
 
         Raises
@@ -232,7 +233,7 @@ class Optimizer(ABC):
 
     # TODO change this to training step
     @abstractmethod
-    def run(self) -> None:
+    def train(self) -> None:
         """
         Implementations may publish Context objects to the World, invoke downstream
         optimizers via `self._downstream`, and retrieve or aggregate contexts from
@@ -251,7 +252,7 @@ class Optimizer(ABC):
         >>>
         >>>     # Execute downstream optimizers
         >>>     for opt in self._downstream:
-        >>>         opt.run(world)
+        >>>         opt.train(world)
         >>>
         >>>     # Retrieve downstream contexts ---
         >>>     for opt in self._downstream:

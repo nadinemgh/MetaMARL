@@ -10,20 +10,21 @@ extend it with backend-specific builders.
 from __future__ import annotations
 
 import copy
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import TYPE_CHECKING, Any, Optional, Self, Type, Union
 
 import numpy as np
 import ray
-from gymnasium import Space
+import gymnasium as gym
 from ray.actor import ActorHandle
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
-from core.envs.base import BaseEnv
+from core.agents.base import AgentConfig
 from core.metrics.schemas import MetricSchema
 from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
-from core.types import EnvConfigDict, EnvType
+from core.types import AgentID, EnvConfigDict, EnvType
+from core.utils import generate_uuid
 from core.world.base import World
 
 if TYPE_CHECKING:
@@ -96,24 +97,24 @@ class OptimizerConfig(_Config, ABC):
 
         self.opt_class = opt_class
 
-        # -- lifecycle --
+        # lifecycle
         self._is_frozen = False
 
-        # --- world / environment ---
+        # environment
         self.env: Optional[Union[str, EnvType]] = None
         self.env_config: dict = {}
         self.horizon: int = None  # TODO default value
+        self.agent_cfgs: Optional[dict[AgentID, AgentConfig]] = None  # TODO default
 
-        # --- debugging ---
+        # debugging
         self.base_seed: Optional[int] = None
         self.seeds: list[int] = []
 
-        # --- eval ---
+        # eval
         self.evaluation_config: Optional["OptimizerConfig"] = None
         self.eval_seeds: Optional[list[int]] = None
 
-        # TODO
-        # --- reporting ---
+        # reporting
         self.stats_cls_lookup = DEFAULT_STATS_CLS_LOOKUP
         self._reporter_cfg: Optional[ReporterConfig] = None
         self._reporting_schema: Optional[type[MetricSchema]] = None
@@ -227,7 +228,7 @@ class OptimizerConfig(_Config, ABC):
     def _env_creator(
         self,
         **env_ctx,
-    ) -> BaseEnv:
+    ) -> gym.Env:
         """Instantiate ``self.env`` with the given keyword arguments.
 
         Parameters
@@ -272,30 +273,20 @@ class OptimizerConfig(_Config, ABC):
         if cfg.opt_class is None:
             raise ValueError("OptimizerConfig has no opt_class")
 
-        # TODO remove this in the future and create registry for world and optimizer. keep for now as safety guard
-        opt: Optimizer = cfg.opt_class(config=cfg)
-
-        opt.world = world
-
         # Build reporter
         reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
         reporter.schema = self._reporting_schema
-
         reporter.add_query(*(self._reporting_queries or ()))
 
-        opt.reporting = reporter
-
-        # register optimizer in world to link contexts to optimizers
-        opt_id = None
+        opt: Optimizer = cfg.opt_class(world=world, reporter=reporter, config=cfg)
 
         if world is not None:
-            opt_id = ray.get(world._set_new_opt_id.remote(opt_id=opt.opt_id))
-
-            opt.set_id(opt_id)
+            registry = ray.get(world.get_opt_registry.remote())
+            opt.id = ray.get(world._set_new_opt_id.remote(opt_id=generate_uuid(registry)))
 
         env = cfg._env_creator(
             world=world,
-            opt_id=opt_id,
+            opt_id=opt.id,
             optimizer=inner_opt,
             reporter_cfg=cfg.reporter_cfg.copy()
             if cfg.reporter_cfg is not None
@@ -312,14 +303,13 @@ class OptimizerConfig(_Config, ABC):
     def environment(
         self,
         env: Optional[Union[str, EnvType]] = None,
-        train_iters: Optional[int] = None,
         horizon: Optional[int] = None,
         queries: Optional[tuple[Query]] = None,
         schema: Optional[type[MetricSchema]] = None,
         *,
         env_config: Optional[EnvConfigDict] = None,
-        observation_space: Optional[Space] = None,
-        action_space: Optional[Space] = None,
+        observation_space: Optional[gym.Space] = None,
+        action_space: Optional[gym.Space] = None,
         disable_env_checking: Optional[bool] = None,
     ) -> Self:
         """Set the environment class and the keyword arguments it is built with.
@@ -359,9 +349,6 @@ class OptimizerConfig(_Config, ABC):
         if env is not None:
             self.env = env
 
-        if train_iters is not None:
-            self.env_config.update({"train_iters": train_iters})
-
         if observation_space is not None:
             self.env_config.update({"observation_space": observation_space})
 
@@ -385,14 +372,17 @@ class OptimizerConfig(_Config, ABC):
 
         return self
 
-    @abstractmethod
-    def training(self) -> Self:
+    def training(
+        self,
+        *,
+        episodes: Optional[int] = None,
+        ) -> Self:
         """Set the optimizer's training hyperparameters (backend specific).
 
         Subclasses define the accepted keyword arguments and return ``self``.
         """
-
-        raise NotImplementedError
+        if episodes is not None:
+            self.episodes = episodes
 
     def debugging(
         self,
@@ -443,6 +433,18 @@ class OptimizerConfig(_Config, ABC):
         if queries is not None:
             self._reporting_queries = tuple(queries)
 
+        return self
+
+    def agents(
+        self,
+        agents: AgentConfig | tuple[AgentConfig, ...],
+    ) -> Self:
+        if isinstance(agents, tuple):
+            if len(agents) < 1:
+                raise ValueError("agents cannot be empty")
+        else:
+            agents = (agents,)
+        self.agent_cfgs = {agent.id: agent for agent in agents}
         return self
 
     # TODO Docstring explanation

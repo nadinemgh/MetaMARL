@@ -20,7 +20,7 @@ Example
 ...     .outer(ESConfig().training(sigma=0.15).environment(env=FisheryRegulatorEnv, ...))
 ...     .inner(APPOptimizerConfig().environment(env=FisheryRegulatedEnv, ...))
 ... )
->>> result = cfg.build_optimizer().run()
+>>> result = cfg.build_optimizer().train()
 
 See ``examples/bilevel_fishery/debug.py`` for a complete configuration.
 """
@@ -32,7 +32,6 @@ from typing import Any, Optional, Self
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
 from core.mechanism.base import Mechanism
-from core.mechanism.space import MechanismSpace
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 from core.reporting.base import Reporter
@@ -55,13 +54,8 @@ class BilevelConfig(OptimizerConfig):
 
         self.outer_cfg = None
         self.inner_cfg = None
-        self.outer_iters = 10
-
-        # TODO what is the point of having seed here
-        self.seed = None
         self.world_name: Optional[str] = None
         self.ray_cfg = None
-        self.mechanism_space: Optional[MechanismSpace] = None
         self.default_mechanism: Optional[Mechanism] = None
         self.output_dir: str | None = None
 
@@ -72,7 +66,7 @@ class BilevelConfig(OptimizerConfig):
     #         outer: self.inner_cfg._get_logger_schema
     #     )
 
-    def inner(self, cfg: Optional[OptimizerConfig] = None) -> Self:
+    def society(self, cfg: Optional[OptimizerConfig] = None) -> Self:
         """Set the inner (policy learning) config, typically an ``APPOptimizerConfig``.
 
         The inner optimizer trains the agents' policies against each mechanism
@@ -85,7 +79,7 @@ class BilevelConfig(OptimizerConfig):
 
         return self
 
-    def outer(self, cfg: Optional[OptimizerConfig] = None) -> Self:
+    def regulator(self, cfg: Optional[OptimizerConfig] = None) -> Self:
         """Set the outer (mechanism search) config, typically an ``ESConfig``.
 
         ``build_optimizer`` sets its ``dimension`` from the mechanism space,
@@ -103,39 +97,6 @@ class BilevelConfig(OptimizerConfig):
 
         if world_name is not None:
             self.world_name = f"{world_name}_{uuid.uuid4().hex[:8]}"
-
-        return self
-
-    def mechanism(
-        self,
-        *,
-        space: MechanismSpace,
-        default: Optional[Mechanism] = None,
-        **kwargs: Any,
-    ) -> Self:
-        """Set the mechanism space shared by the inner and outer optimizers.
-
-        The space fixes the optimizer dimension (``space.dimension``) and the
-        ``encode``/``decode`` mapping; ``default`` (or ``space.default()``
-        when omitted) is the mechanism the regulated environments apply until
-        a candidate is published.
-        """
-
-        if space is not None:
-            self.mechanism_space = space
-            self.default_mechanism = default or space.default()
-
-        return self
-
-    def training(
-        self, *, outer_iters: int, output_dir: str | None = None, **kwargs: Any
-    ) -> Self:
-        """Set the number of outer (ES) generations and an optional output directory."""
-
-        if outer_iters is not None:
-            self.outer_iters = outer_iters
-
-        self.output_dir = output_dir
 
         return self
 
@@ -198,42 +159,13 @@ class BilevelConfig(OptimizerConfig):
 
         # Setup reporting
         self.reporter_cfg.world = self.world_name
-        self.reporter_cfg.outer_iters = self.outer_iters
-        primary_reporter = self.reporter_cfg.build(label="bilvel")
+        primary_reporter = self.reporter_cfg.build(label="bilevel")
         inner_cfg.reporter_cfg = self.reporter_cfg.copy()
         outer_cfg.reporter_cfg = self.reporter_cfg.copy()
 
-        if self.mechanism_space is not None:
-            outer_cfg.dimension = self.mechanism_space.dimension
-            inner_cfg = inner_cfg._merge_env_config(
-                {
-                    "mechanism_space": self.mechanism_space,
-                }
-            )
-
         # Assign see to outer cfg for looping
         if inner_cfg.seeds is not None:
-            outer_cfg._merge_env_config(
-                {
-                    "seeds": inner_cfg.seeds,
-                }
-            )
-
-            # inner_cfg.seed = None
-
-        if inner_cfg.eval_seeds is not None:
-            outer_cfg._merge_env_config(
-                {
-                    "eval_seeds": inner_cfg.eval_seeds,
-                }
-            )
-
-        outer_cfg = outer_cfg._merge_env_config(
-            {
-                "mechanism_space": self.mechanism_space,
-                "default_mechanism": self.default_mechanism,  # TODO remove deprecated
-            }
-        )
+            outer_cfg._merge_env_config({"seeds": inner_cfg.seeds})
         inner_opt = inner_cfg.build_optimizer(
             world=world,
             world_name=self.world_name,
@@ -260,7 +192,7 @@ class BilevelOptimizer(Optimizer):
     ----------
     config : BilevelConfig
     outer : Optimizer
-        Optimizer whose ``run()`` returns a dict with ``best_fitness`` and an
+        Optimizer whose ``train()`` returns a dict with ``best_fitness`` and an
         optional ``converged`` flag (the ES).
     inner : Optimizer
         Inner optimizer, driven by the outer env; kept for lifecycle access.
@@ -279,12 +211,9 @@ class BilevelOptimizer(Optimizer):
         super().__init__(config)
 
         self.world_name = config.world_name
-        self.max_outer_iters = config.outer_iters
         self.outer = outer
         self.inner = inner
         self.output_dir = config.output_dir
-        self.mechanism_space = config.mechanism_space
-        self.outer_iter = 0
         self.converged = False
         self.all_trajectories: list[tuple[int, float, list[dict]]] = []
         self.population_history: list[tuple[int, list]] = []
@@ -293,7 +222,7 @@ class BilevelOptimizer(Optimizer):
         # reporter
         self.reporting = reporter
 
-    def run(self) -> dict:
+    def train(self) -> dict:
         """Run the outer generations and return a summary dict.
 
         Returns
@@ -306,49 +235,22 @@ class BilevelOptimizer(Optimizer):
 
         logger.info(
             "[Bilevel] Starting run | max_outer_iters=%d | world=%s",
-            self.max_outer_iters,
+            self.outer.episodes,
             self.world_name,
         )
 
-        for i in range(self.max_outer_iters):
-            self.outer_iter = i
-
-            logger.info(
-                "[Bilevel] Outer iteration %d / %d started",
-                i + 1,
-                self.max_outer_iters,
-            )
-
-            outer_metrics = self.outer.run()
-
-            if outer_metrics.get("converged", False):
-                self.converged = True
-
-                logger.info(
-                    "[Bilevel] EARLY STOP | "
-                    "outer optimizer converged | "
-                    "iter=%d | best_fitness=%.4f",
-                    i,
-                    outer_metrics["best_fitness"],
-                )
-                break
+        try:
+            result = self.outer.train()
+        finally:
+            # TODO fig reporter with the new wandb reporter actor
+            if self.reporting is not None:
+                self.reporting.close()
 
         logger.info(
-            "[Bilevel] Run finished | iters=%d | converged=%s | best_fitness=%.4f",
-            self.outer_iter + 1,
-            self.converged,
-            self.outer.best_fitness,
+            "[Bilevel] Run finished | iters=%d | converged=%s | mechanism=%s | best_fitness=%.4f",
+            result["episodes"],
+            result["converged"],
+            result["best_mechanism"],
+            result["best_fitness"],
         )
-
-        # TODO fig reporter with the new wandb reporter actor
-        if self.reporting is not None:
-            self.reporting.close()
-
-        return {
-            "converged": self.converged,
-            "outer_iters": self.outer_iter + 1,
-            "best_fitness": self.outer.best_fitness,
-            "best_mechanism": self.outer.best_candidate,
-            "all_trajectories": self.all_trajectories,
-            "population_history": self.population_history,
-        }
+        return result
