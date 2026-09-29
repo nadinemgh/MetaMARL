@@ -158,13 +158,7 @@ class RegulatorEnv(gym.Env):
         # TODO (nadine) alternative way to pass mechanism to agents
         self._t_agents = 0
 
-        for aid, mechanisms in actions.items():
-            agent: Agent = self.agents[aid]
-            for mid, u in mechanisms.items():
-                mechanism = agent.mechanisms[mid]
-                mechanism.update(u)
-
-        for idx, m in enumerate(mechanisms):
+        for idx, a in enumerate(actions):
             for seed in self.seeds:
                 ctx = Context(
                     id=None,
@@ -176,11 +170,11 @@ class RegulatorEnv(gym.Env):
                         seed=seed,
                         status=MechanismStatus.published,
                         env_id=None,
-                        mechanism=m,
+                        mechanism=a,
                         metrics=None,
                     ),
                 )
-                ray.get(self.world.append_context.remote(ctx))
+            ray.get(self.world.append_context.remote(ctx))
 
 
         # TODO (nadine) return reduced results to avoid L:223

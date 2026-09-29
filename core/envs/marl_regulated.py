@@ -103,7 +103,8 @@ class MultiAgentEnv(ABC):
         opt_id: Optional[OptimizerID] = None,
         env_name: Optional[str] = None,
         horizon: Optional[int] = None,
-        agents_cfg_dict: list[AgentID, AgentConfig],
+        agents_cfg_dict: dict[AgentID, AgentConfig],
+        leaders_cfg_dict: Optional[dict[AgentID, AgentConfig]] = None,
         # TODO (nadine) later replace with planner_id
         mechanism_id: str,
         seed: Optional[int] = None,
@@ -134,10 +135,11 @@ class MultiAgentEnv(ABC):
         self.m: Mechanism = None
         self._using_default_mechanism = True
 
-        # Multi-agent environment
-        self.agents: dict[AgentID, Agent] = {
-            aid: cfg.build() for aid, cfg in agents_cfg_dict.items()
-            }
+        # Bilevel Multi-agent environment
+        self.followers = {aid: cfg.build() for aid, cfg in agents_cfg_dict.items()}
+        self.leaders = {aid: cfg.build() for aid, cfg in leaders_cfg_dict.items()}
+        self.lids = set(leaders_cfg_dict.keys())
+        self.agents = {**self.followers, **self.leaders,}
 
         # Logger
         self.logger: Optional[MetricLogger] = (
@@ -203,7 +205,7 @@ class MultiAgentEnv(ABC):
 
         if not self.published_mechanism_assigned: 
             try:
-                new_ctx = ray.get(
+                new_ctx: MechanismContext = ray.get(
                     self.world.get_mechanism_by_id.remote(
                         mechanism_id = self.mechanism_id, 
                         seed=self.policy_seed,
@@ -223,16 +225,14 @@ class MultiAgentEnv(ABC):
                 ) from e
 
             if new_ctx is not None:
-                self.m_ctx = new_ctx
-                self.m = self.m_ctx.mechanism
-                self._using_default_mechanism = False
-
+                # persist action to leaders
+                mdp = mdp.add(MDPState(actions={lid: new_ctx.mechanism for lid in self.lids}))
             # TODO raising error if training started and default mechanism is still on - leads to silent error
 
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:
             m: MDPState = getattr(self, self._reset)(mdp)
-        return m.add([agent.observation(m) for agent in self.agents.values()])
+        return m.add([agent.observation(m) for agent in self.followers.values()])
 
     def transition(
             self, 

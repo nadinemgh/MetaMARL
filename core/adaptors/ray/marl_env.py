@@ -58,17 +58,17 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         super().__init__(**kwargs)
         self.env = env
 
-        self.observation_spaces = {aid: agent.observation_space for aid, agent in self.env.agents.items()}
+        self.agents = self.env.followers.keys()
+        self.possible_agents = list(self.env.followers.keys())
+
+        self.observation_spaces = {aid: agent.observation_space for aid, agent in env.followers.items()}
         self.observation_spaces = spaces.Dict(self.observation_spaces)
 
-        # Multi-agent environment
-        self.agents = self.env.agents.keys()
-        self.possible_agents = list(self.agents)
         self.action_spaces = {
             aid: spaces.Dict({
                 mid: m.action_space for mid, m in agent.mechanisms.items()
             })
-            for aid, agent in self.env.agents.items()
+            for aid, agent in self.env.followers.items()
         }
         self.action_spaces = spaces.Dict(self.action_spaces)
 
@@ -103,6 +103,6 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     ) -> tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
-        self._mdp.actions = action_dict
+        self._mdp.actions = {**(self._mdp.actions or {}), **action_dict}
         m: MDPState = self.env.step(self._mdp)
         return m.obs, m.rewards, m.terminateds, m.truncateds, {}

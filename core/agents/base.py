@@ -39,7 +39,7 @@ class Agent:
             if getattr(func, "reward", False): cls._reward = name
             if getattr(func, "observation", False): cls._observation = name  # o_i = O_i(S_t)
             if getattr(func, "observation_spaces", False): cls._observation_spaces = name
-
+    
     # TODO move this to Agent
     # TODO make this configurable in future
     def _normalize_action(

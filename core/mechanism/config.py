@@ -22,4 +22,4 @@ class MechanismConfig:
             f.name: getattr(self, f.name)
             for f in fields(self)
         }
-        return self.mechanism_cls(aid, **params)
+        return self.mechanism_cls(aid=aid, **params)

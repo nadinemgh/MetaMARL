@@ -16,8 +16,9 @@ from gymnasium.core import ActType, ObsType
 from pydantic import BaseModel, SkipValidation
 from ray.rllib.utils.typing import MultiAgentDict
 
+from core.agents.base import Agent
 from core.mechanism.base import Mechanism
-from core.types import ContextID, OptimizerID
+from core.types import ContextID, MechanismID, OptimizerID
 
 
 class MechanismStatus(Enum):
@@ -102,7 +103,7 @@ class MechanismContext(ContextSchema):
     seed: Optional[int]
     eval_seed: Optional[int] = None
     status: MechanismStatus
-    mechanism: SkipValidation[Mechanism]
+    mechanism: dict[MechanismID, ActType]
     metrics: Optional[ContextSchema]
 
 
