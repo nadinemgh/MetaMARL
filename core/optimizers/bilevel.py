@@ -166,7 +166,7 @@ class BilevelConfig(OptimizerConfig):
         # Assign see to outer cfg for looping
         if inner_cfg.seeds is not None:
             outer_cfg._merge_env_config({"seeds": inner_cfg.seeds})
-        inner_cfg._merge_env_config({"leaders_cfg_dict": outer_cfg.agent_cfgs})
+        inner_cfg._merge_env_config({"leaders_cfg_dict": outer_cfg.agents_cfgs})
         inner_opt = inner_cfg.build_optimizer(
             world=world,
             world_name=self.world_name,

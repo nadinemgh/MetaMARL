@@ -76,7 +76,7 @@ class Agent:
     """
         acts = mdp.actions.data.get(self.id)
         if not acts: return mdp
-        mdp = mdp.add([self.mechanisms[mid](mdp, a) for mid, a in acts.items() if mid in self.mechanisms])
+        mdp = mdp.add([self.mechanisms[mid](mdp, a[mdp.t]) for mid, a in acts.items() if mid in self.mechanisms])
         return mdp
 
     def observation(

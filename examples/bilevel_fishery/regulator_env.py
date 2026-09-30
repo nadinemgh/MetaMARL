@@ -13,11 +13,13 @@ from typing import Any
 
 import numpy as np
 from gymnasium.core import ObsType
+import ray
 
 from core.annotations import override
 from core.envs.regulator import RegulatorEnv
 from core.metrics.schemas import MetricSchema
 from core.world.context import (
+    Context,
     MechanismContext,
     MechanismStatus,
 )
@@ -188,16 +190,22 @@ class FisheryRegulatorEnv(RegulatorEnv):
             objective = float(fitness_ctx.objective_score)
             fitness[idx] = objective
 
-            self._publish(
-                MechanismContext(
+            ctx = Context(
+                id=None,
+                opt_id=self._opt_id,
+                step=self._t,
+                env=self.__class__.__name__,
+                payload=MechanismContext(
                     index=idx,
                     seed=None,
-                    env_id=self.env_id,
                     status=MechanismStatus.done,
+                    env_id=None,
                     mechanism=None,
                     metrics=fitness_ctx,
-                )
+                ),
             )
+            ray.get(self.world.append_context.remote(ctx))
+
             per_mech_metrics.append(
                 {
                     "idx": idx,

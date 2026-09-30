@@ -15,7 +15,7 @@ class ESConfig(OptimizerConfig):
     the inner optimizer's batch capacity.
     """
 
-    def __init__(self, opt_class=None):
+    def __init__(self, opt_class=None, **kw):
         super().__init__(opt_class=opt_class or ESOptimizer)
 
         # Add default or from default

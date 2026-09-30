@@ -67,13 +67,12 @@ class RegulatorEnv(gym.Env):
         world: World,
         optimizer: Optimizer, # TODO (nadine) not clear and avoid providing instantiated obj
         horizon: int,
-        agents_cfg_dict: dict[AgentID, AgentConfig],
+        agents_cfgs: dict[AgentID, AgentConfig],
         seeds: list[int], # agent policy seeds required for mechanism publishing
         reporter_cfg: Optional[ReporterConfig] = None,
         queries: Optional[tuple[Query]] = None,
         schema: Optional[MetricSchema] = None,
         opt_id: Optional[OptimizerID] = None,
-        env_name: Optional[str] = None,
         mode: Optional[str] = "train",
         **kwargs,
     ):
@@ -84,7 +83,7 @@ class RegulatorEnv(gym.Env):
         self.horizon = horizon
         self._t = 0
         self.env_id = None
-        self.agents: dict[AgentID, Agent] = {aid: cfg.build() for aid, cfg in agents_cfg_dict}
+        self.agents: dict[AgentID, Agent] = {aid: cfg.build() for aid, cfg in agents_cfgs.items()}
         self.inner: Optimizer = optimizer
         self.seeds: list[int] = seeds or []
 
@@ -94,12 +93,10 @@ class RegulatorEnv(gym.Env):
         )
 
         # reporting
-        reporting_env_id = (f"{env_name}|mode={mode}|ss={self.seed}")
+        reporting_env_id = self.__class__.__name__
         self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
         self.reporter.schema = schema
         self.reporter.add_query(*(queries or ()))
-        
-        self._validate()
 
     @property
     def opt_id(self) -> OptimizerID:
@@ -110,13 +107,6 @@ class RegulatorEnv(gym.Env):
         """Set the optimizer identifier stamped on every context this env publishes."""
         self._opt_id = opt_id
 
-    def _validate(self):
-        if self.inner is None:
-            return  # analytic override mode allowed
-
-        if self.train_iters <= 0:
-            raise ValueError("train_iters must be >= 1 when optimizer is provided")
-
     @override(gym.Env)
     def reset(
         self, *, seed: Optional[int] = None, options: Optional[dict[str, Any]] = {}
@@ -126,7 +116,6 @@ class RegulatorEnv(gym.Env):
             self.rng = np.random.default_rng(seed)
             pass  # do not mutate seed after construction
         self._t = 0
-        self.logger.push(key=("iter",), value=self._t)
 
         if not options.get("persist_agents_policy", False):
             self.inner.reset()
@@ -182,7 +171,7 @@ class RegulatorEnv(gym.Env):
 
         # TODO (nadine) self.reward func should not be taking metrics
         reward = self.reward(results)
-        obs = self.observation()
+        obs = None
         info = {"metrics": self.inner.reduce_metrics()}
 
         self._t += 1

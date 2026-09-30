@@ -95,6 +95,7 @@ bilevel_opt_cfg: BilevelConfig = (
         )
         .agents(
             FisheriesRegulator(
+                id="fisheries_regulator",
                 policy_id="quota_policy",
                 mechanisms=(
                     Quota(
@@ -107,7 +108,7 @@ bilevel_opt_cfg: BilevelConfig = (
                         ),
                         # TODO (nadine) better name ?
                         # TODO (nadine) what if acts on another type of object such as observation ?
-                        acts_on=("fisher", "harvest"),
+                        acts_on=("fisherman", "harvest"),
                         obs_map={"resource_level": "fish"},
                         default=np.asarray(0.56224)
                     ),
@@ -130,25 +131,25 @@ bilevel_opt_cfg: BilevelConfig = (
                 )
             ),
         )
-    )
-    .environment(
-        horizon=1,
-        env=FisheryRegulatorEnv,
-        env_config={
-            "ecology_cfg": {
-                "sustainability_weight": 2,  # assert between 0 and 5
-                "sustainability_threshold": 0.20,
-                "K": 5_000,  # HAS to match environmnet K
+        .environment(
+            horizon=1,
+            env=FisheryRegulatorEnv,
+            env_config={
+                "ecology_cfg": {
+                    "sustainability_weight": 2,  # assert between 0 and 5
+                    "sustainability_threshold": 0.20,
+                    "K": 5_000,  # HAS to match environmnet K
+                },
             },
-        },
-    )
-    .debugging(
-        seed=42,
-        num_seeds=1,
-    )
-    .reporting(
-        schema=ESSchema,
-        queries=ES_QUERIES,
+        )
+        .debugging(
+            seed=42,
+            num_seeds=1,
+        )
+        .reporting(
+            schema=ESSchema,
+            queries=ES_QUERIES,
+        )
     )
     .society(
         APPOptimizerConfig()

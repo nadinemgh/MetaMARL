@@ -103,7 +103,7 @@ class MechanismContext(ContextSchema):
     seed: Optional[int]
     eval_seed: Optional[int] = None
     status: MechanismStatus
-    mechanism: dict[MechanismID, ActType]
+    mechanism: Optional[dict[MechanismID, ActType]] = None
     metrics: Optional[ContextSchema]
 
 

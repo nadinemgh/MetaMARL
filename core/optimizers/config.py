@@ -104,7 +104,10 @@ class OptimizerConfig(_Config, ABC):
         self.env: Optional[Union[str, EnvType]] = None
         self.env_config: dict = {}
         self.horizon: int = None  # TODO default value
-        self.agent_cfgs: Optional[dict[AgentID, AgentConfig]] = None  # TODO default
+        self.agents_cfgs: Optional[dict[AgentID, AgentConfig]] = None  # TODO default
+
+        # training
+        self.episodes: Optional[int] = None
 
         # debugging
         self.base_seed: Optional[int] = None
@@ -288,6 +291,7 @@ class OptimizerConfig(_Config, ABC):
             world=world,
             opt_id=opt.id,
             optimizer=inner_opt,
+            agents_cfgs=self.agents_cfgs,
             reporter_cfg=cfg.reporter_cfg.copy()
             if cfg.reporter_cfg is not None
             else None,
@@ -444,7 +448,7 @@ class OptimizerConfig(_Config, ABC):
                 raise ValueError("agents cannot be empty")
         else:
             agents = (agents,)
-        self.agent_cfgs = {agent.id: agent for agent in agents}
+        self.agents_cfgs = {agent.id: agent for agent in agents}
         return self
 
     # TODO Docstring explanation

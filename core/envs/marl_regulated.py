@@ -47,7 +47,7 @@ from core.world.context import (
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(mdp)s",
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,6 @@ class MultiAgentEnv(ABC):
 
         # training
         self.horizon = horizon
-        self.env_id = None
 
         # seeding
         self.seed = seed
@@ -141,7 +140,7 @@ class MultiAgentEnv(ABC):
         self.followers = {aid: cfg.build() for aid, cfg in agents_cfg_dict.items()}
         self.leaders = {aid: cfg.build() for aid, cfg in leaders_cfg_dict.items()}
         self.lids = set(leaders_cfg_dict.keys())
-        self.agents = {**self.followers, **self.leaders,}
+        self.agents = {**self.leaders, **self.followers,}
 
         # Logger
         self.logger: Optional[MetricLogger] = (
@@ -191,7 +190,7 @@ class MultiAgentEnv(ABC):
     @override(gym.Env)
     def reset(self, mdp : MDPState) -> None:
         self.logger.flush(key=("iter",))
-        self.logger.push(key=("env_id",), value=self.env_id)
+        # self.logger.push(key=("env_id",), value=self.env_id)
         self.logger.push(key=("mechanism_id",), value=self.mechanism_id)
         self.logger.push(key=("seed",), value=self.seed)
         self.logger.push(key=("policy_seed",), value=self.policy_seed)

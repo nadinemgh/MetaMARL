@@ -58,7 +58,13 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         super().__init__(**kwargs)
         self.env = env
 
-        self.agents = self.env.followers.keys()
+        # env identity
+        self.mechanism_id = env.mechanism_id
+        self.seed = env.seed
+        self.policy_seed = env.policy_seed
+        self.mode = env.mode
+
+        self.agents = list(self.env.followers.keys())
         self.possible_agents = list(self.env.followers.keys())
 
         self.observation_spaces = {aid: agent.observation_space for aid, agent in env.followers.items()}
@@ -72,12 +78,11 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         }
         self.action_spaces = spaces.Dict(self.action_spaces)
 
+        # logger and reporter
+        self.logger = env.logger
+        self.reporter = env.reporter
+
         # TODO (nadine) env serialization with numpy to avoid using MDPState and faster computation
-        self._mdp = MDPState(
-            aids=set(self.possible_agents),
-            obs_space=self.observation_spaces, 
-            action_spaces=self.action_spaces
-        )
 
 
     @override(RllibMultiAgentEnv)
@@ -94,8 +99,13 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         # `reset(seed=..., options=...)` keeps the Gymnasium/RLlib-compatible signature,
         # but these arguments are not used to mutate the environment's persistent
         # configuration after construction.
+        self._mdp = MDPState(aids=set(self.possible_agents),
+            obs_space=self.observation_spaces, 
+            action_spaces=self.action_spaces
+        )
         self._mdp = self.env.reset(self._mdp)
-        return self._mdp.obs.data, {}
+        obs = {aid: self._mdp.obs[aid][self._mdp.t] for aid in self.env.followers}
+        return obs, {}
 
     @override(RllibMultiAgentEnv)
     def step(
@@ -105,7 +115,12 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     ]:
         self._mdp.update(actions=action_dict)
         m: MDPState = self.env.step(self._mdp)
-        obs = {aid: m.obs[aid][m.t] for aid in self.env.followers}
-        rewards = {aid: m.rewards[aid][m.t - 1]for aid in self.env.followers}
+        aids = self.possible_agents
+        obs = {aid: m.obs[aid][m.t] for aid in aids}
+        rewards = {aid: m.rewards[aid][m.t - 1]for aid in aids}
+        terminateds = {aid: m.terminateds[aid] for aid in aids}
+        terminateds["__all__"] = m.terminateds["__all__"]
+        truncateds = {aid: m.truncateds[aid] for aid in aids}
+        truncateds["__all__"] = m.truncateds["__all__"]
         self._mdp = m
-        return obs, rewards, m.terminateds, m.truncateds, {}
+        return obs, rewards, terminateds, truncateds, {}

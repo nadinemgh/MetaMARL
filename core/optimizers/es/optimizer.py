@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from gymnasium.spaces import flatdim, flatten_space
+from gymnasium.spaces import flatdim, flatten_space, unflatten
 from gymnasium import spaces
 import numpy as np
 
@@ -87,9 +87,9 @@ class ESOptimizer(Optimizer):
         super().__init__(config, **kwargs)
 
         # TODO (nadine) we support only one planning agent in the config. to extend in future
-        self.agent_cfgs = next(iter(config.agent_cfgs.values()))
+        self.agents_cfgs = next(iter(config.agents_cfgs.values()))
         self.action_space = spaces.Dict({
-            m.id: m.action_space for m in self.agent_cfgs.mechanisms
+            m.id: m.action_space for m in self.agents_cfgs.mechanisms
             })
         for mechanism_id, action_space in self.action_space.spaces.items():
             if not isinstance(action_space, spaces.Box):
@@ -594,6 +594,7 @@ class ESOptimizer(Optimizer):
     def _to_logger_payload(
         self,
         *,
+        generation: int,
         inner: MetricSchema,
         population: np.ndarray,
         fitness: np.ndarray,
@@ -622,7 +623,7 @@ class ESOptimizer(Optimizer):
         best_idx = int(np.argmax(fitness))
 
         return ESSchema(
-            iter=self.generation,
+            iter=generation,
             sigma=sigma,
             population_size=len(fitness),
             fitness_mean=float(fitness.mean()),
@@ -697,7 +698,7 @@ class ESOptimizer(Optimizer):
         for generation in range(self.episodes):
             logger.info(
                 "[ES] Generation started | gen=%d | sigma=%.5f | mean_norm=%.4f",
-                self.generation,
+                generation,
                 self.sigma,
                 float(np.linalg.norm(self.mean)),
             )
@@ -714,8 +715,10 @@ class ESOptimizer(Optimizer):
             fitness: np.ndarray | None = None
             info: dict[str, Any] = {}
 
+            actions = [unflatten(self.action_space, candidate) for candidate in population]
+
             while not terminated and not truncated:
-                _, fitness, terminated, truncated, info = self.env.step(population)
+                _, fitness, terminated, truncated, info = self.env.step(actions)
                 fitness = np.asarray(fitness, dtype=np.float32).reshape(-1)
 
                 if fitness.size == 0:
@@ -769,13 +772,14 @@ class ESOptimizer(Optimizer):
                 fitness=fitness,
                 mean=pre_update_mean,
                 sigma=pre_update_sigma,
+                generation=generation,
             )
 
             self.logger.push_data(metrics)
             self.report_metrics()
             logger.info(
                 "[ES] gen=%d | best=%.4f | mean=%.4f+/-%.4f | var=%.4f | sigma=%.4f",
-                self.generation,
+                generation,
                 self.best_fitness,
                 float(fitness.mean()),
                 float(fitness.std()),

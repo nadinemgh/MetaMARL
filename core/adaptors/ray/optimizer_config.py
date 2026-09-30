@@ -535,9 +535,9 @@ class RayOptimizerConfig(OptimizerConfig):
         # Get number of mechanisms (one policy per mechanism, per seed)
         num_mechanisms = num_envs // num_seeds
         module_specs = {}
-        agent_cfgs = {}
+        agents_cfgs = {}
 
-        for aid, agent in self.agent_cfgs.items():
+        for aid, agent in self.agents_cfgs.items():
             obs_space = agent.observation_space
             act_space = spaces.Dict({m.id: m.action_space for m in agent.mechanisms})
             base_policy = agent.policy_id
@@ -578,7 +578,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
             for i in range(count):
                 agent_id = f"{aid}:{i}"
-                agent_cfgs[agent_id] = replace(agent,id=agent_id, count=1)
+                agents_cfgs[agent_id] = replace(agent,id=agent_id, count=1)
                 agent_type_map[agent_id] = base_policy
                 observation_spaces[agent_id] = obs_space
                 action_spaces[agent_id] = act_space
@@ -625,7 +625,7 @@ class RayOptimizerConfig(OptimizerConfig):
             policies_to_train=all_policies,
         )
 
-        return agent_cfgs
+        return agents_cfgs
 
     # lazy resolution : better encapsulation ?
     # @cached_property
@@ -735,7 +735,7 @@ class RayOptimizerConfig(OptimizerConfig):
                 world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
             )
 
-        if self.agent_cfgs:
+        if self.agents_cfgs:
             agents = self._apply_agents_to_rllib()
 
         env_counter = {"train": 0, "eval": 0}

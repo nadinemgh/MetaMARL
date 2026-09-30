@@ -179,6 +179,9 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         fish_next = available - H_realized
         # fish_next = float(np.clip(fish_next, 0.0, self.K)) # TODO remove clipping
 
+        self.logger.push(key=("B_msy",), value=mdp.params["B_msy"])
+        self.logger.push(key=("MSY",), value=mdp.params["MSY"])
+        self.logger.push(key=("F_msy",), value=mdp.params["F_msy"])
         self.logger.push(key=("fish_stock",), value=mdp.state["fish"][mdp.t])
         self.logger.push(key=("fish_stock_next",), value=fish_next)
         self.logger.push(key=("fish_norm_next_mean",), value=fish_next / max(self.K, EPS))

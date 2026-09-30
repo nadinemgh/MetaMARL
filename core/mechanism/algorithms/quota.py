@@ -45,7 +45,7 @@ class QuotaMechanism(Mechanism):
             raise ValueError("violation_transition_width must be > 0.")
 
     @override(Mechanism)
-    def decode(self, action: ActType) -> float:
+    def decode(self, mdp: MDPState, action: ActType) -> float:
         """Decode the regulator action into a quota parameter in [0, 1]."""
         value = float(np.asarray(action, dtype=np.float32).reshape(-1)[0])
         return float(np.clip(value, 0.0, 1.0))
@@ -69,27 +69,31 @@ class QuotaMechanism(Mechanism):
 
         da = {}
 
-        for aid, a in (mdp.actions or {}).items():
+        for aid, a in (mdp.actions.data or {}).items():
             if not str(aid).startswith(f"{target_agent}:"):
                 continue
     
             if target_mechanism not in a:
                 continue
 
-            requested = np.asarray(a[target_mechanism], dtype=np.float32)
-            requested_frac = float(requested.reshape(-1)[0])
+            requested = np.asarray(a[target_mechanism][mdp.t], dtype=np.float32)
+            temperature = 4.0
+            z = float(requested.reshape(-1)[0])
+            requested_frac = sigmoid(z / temperature)
+
             excess = smooth_positive_zero_at_origin(
                 requested_frac - allowed_frac,
                 self.usage_transition_width,
             )
-            delivered_frac = requested_frac - excess
+            delivered_frac = float(np.clip(requested_frac - excess, 1e-6, 1.0 - 1e-6))
+            delivered_z = temperature * np.log(delivered_frac / (1.0 - delivered_frac))
             delivered = requested.copy().reshape(-1)
-            delivered[0] = delivered_frac
+            delivered[0] = delivered_z
             delivered = delivered.reshape(requested.shape)
             da[aid] = {target_mechanism: delivered - requested}
             obs = {aid: np.asarray([0.0, 0.0, 0.0, 0.0, allowed_frac, action]) for aid in self.acts_on}
 
-        return mdp.add(MDPState(actions=da, state={"allowed_frac": allowed_frac}, obs=obs))
+        return MDPState(actions=da, state={"allowed_frac": allowed_frac})
 
 @dataclass(frozen=True, kw_only=True)
 class Quota(MechanismConfig):
