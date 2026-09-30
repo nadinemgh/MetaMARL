@@ -1,0 +1,151 @@
+experiment:
+  _target_: core.optimizers.bilevel.BilevelConfig
+
+  _calls_:
+    - world:
+        world_name: fishery_world
+
+    - reporter:
+        config:
+          _target_: core.reporting.wandb.WandbConfig
+          project: bilevel
+          quiet: true
+          x_disable_stats: true
+          x_disable_meta: true
+          max_end_of_run_summary_metrics: 0
+          max_end_of_run_history_metrics: 0
+
+    - ray:
+        device: cpu
+        num_cpus: 4
+        omp_threads: 1
+        logging_level: ERROR
+
+    - regulator:
+        cfg:
+          _target_: core.optimizers.es.config.ESConfig
+
+          _calls_:
+            - training:
+                sigma: 0.15
+                mean_lr: 0.10
+                sigma_decay: 1.0
+                sigma_lr: 0.0
+                min_sigma: 0.15
+                max_sigma: 0.15
+                episodes: 1000
+
+            - agents:
+                _args_:
+                  - _target_: core.agents.base.AgentConfig
+                    id: fisheries_regulator
+                    policy_id: quota_policy
+
+                    mechanisms:
+                      _tuple_:
+                        - _target_: core.mechanism.algorithms.quota.Quota
+                          id: quota
+
+                          action_space:
+                            _target_: gymnasium.spaces.Box
+                            low: 0
+                            high: 1
+                            shape: [1]
+                            dtype:
+                              _symbol_: numpy.float32
+
+                          acts_on:
+                            _tuple_:
+                              - fisherman
+                              - harvest
+
+                          obs_map:
+                            resource_level: fish
+
+                          default:
+                            _target_: numpy.asarray
+                            _args_: [0.56224]
+                            dtype:
+                              _symbol_: numpy.float32
+
+            - environment:
+                horizon: 1
+
+                env:
+                  _symbol_: examples.bilevel_fishery.regulator_env.FisheryRegulatorEnv
+
+                env_config:
+                  ecology_cfg:
+                    sustainability_weight: 2
+                    sustainability_threshold: 0.20
+                    K: 5000
+
+            - debugging:
+                seed: 42
+                num_seeds: 1
+
+            - reporting:
+                schema:
+                  _symbol_: core.optimizers.es.schema.ESSchema
+
+                queries:
+                  _symbol_: examples.bilevel_fishery.queries.ES_QUERIES
+
+    - society:
+        cfg:
+          _target_: core.optimizers.appo.config.APPOptimizerConfig
+
+          _calls_:
+            - resources:
+                num_cpus_for_main_process: 1
+
+            - framework:
+                framework: torch
+
+            - api_stack:
+                enable_rl_module_and_learner: true
+                enable_env_runner_and_connector_v2: true
+
+            - environment:
+                env:
+                  _symbol_: examples.bilevel_fishery.regulated_env.FisheryRegulatedEnv
+
+                env_config:
+                  ecology_cfg:
+                    r: 0.3
+                    K: 5000
+                    p: 1.0
+                    B0: 4000
+                    fish_init: 4000
+                    sigma: 0.02
+                    initial_stock_log_sigma: 0.05
+                    unregulated_f_multiplier: 2.0
+
+                  seed: 0
+
+                horizon: 100
+                disable_env_checking: false
+
+                schema:
+                  _symbol_: examples.bilevel_fishery.metric_schema.FisheryMetricSchema
+
+                queries: []
+
+            - callbacks:
+                on_episode_created:
+                  _symbol_: core.callbacks.tag_episode_with_env_idx
+
+                on_episode_end:
+                  _symbol_: core.callbacks.log_and_report_episode_metrics
+
+            - training:
+                episodes: 50
+                vtrace: true
+                gamma: 0.99
+                lr: 0.001
+                entropy_coeff: 0.001
+                grad_clip: 40.0
+
+run:
+  - build_optimizer: {}
+  - train: {}
