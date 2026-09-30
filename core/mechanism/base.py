@@ -14,95 +14,46 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
-from typing import Optional, SupportsFloat, TypeVar
+from typing import Any, Optional, SupportsFloat, TypeVar
 
 import numpy as np
 from gymnasium import spaces
 
-from core.utils import add, intersect, logical_or_dict
+from core.mechanism.types import Trajectory
+from core.utils import intersect, logical_or_dict
 
 StateType = TypeVar("StateType")
 ActType = TypeVar("ActType")
 ObsType = TypeVar("ObsType")
 
 from dataclasses import field
-from typing import Generic, TypeVar
 
 from core.types import AgentID, MechanismID
 
-T = TypeVar("T")
-
-# TODO (nadine) move to env
-
-
-@dataclass
-class Trajectory(Generic[T]):
-    data: dict[str, list[T]] = field(default_factory=dict)
-
-    def __post_init__(self):
-        self.data = {
-            key: value if isinstance(value, list) else [value]
-            for key, value in self.data.items()
-        }
-
-    def __getitem__(self, key: str) -> list[T]:
-        return self.data[key]
-
-    def __contains__(self, key: str) -> bool:
-        return key in self.data
-
-    def copy(self) -> "Trajectory[T]":
-        return type(self)({key: values.copy() for key, values in self.data.items()})
-
-    def add(self, t: int, deltas: list["Trajectory[T]"]) -> "Trajectory[T]":
-        result = self.copy()
-
-        for delta in deltas:
-            for key, values in delta.data.items():
-                value = values[-1]
-
-                if key not in result.data:
-                    result.data[key] = [0] * t + [value]
-                else:
-                    result.data[key][t] += value
-
-        return result
-
-    def append(self, values: dict[str, T]) -> "Trajectory[T]":
-        result = self.copy()
-        length = max((len(v) for v in result.data.values()), default=0)
-
-        for history in result.data.values():
-            history.append(history[-1])
-
-        for key, value in values.items():
-            if key in result.data:
-                result.data[key][-1] = value
-            else:
-                result.data[key] = [0] * length + [value]
-
-        return result
-
-
+# TODO fix type annotations
 @dataclass
 class MDPState:
     t: int = 0
     params: dict[str, StateType] = field(default_factory=dict)
     aids: set[AgentID] = field(default_factory=set)
-    obs: dict[AgentID, ObsType] =field(default_factory=dict) # TODO trajectory
+
     # assumes tau additive
-    state: Trajectory[StateType] | dict[str, StateType] = field(default_factory=Trajectory)  
-    actions: Optional[dict[AgentID, ActType]] = None  # TODO trajectory
-    rewards: Optional[dict[AgentID, SupportsFloat]] = None  # TODO trajectory
+    state: Trajectory[StateType] | dict = field(default_factory=Trajectory)
+    obs: Trajectory[ObsType] | dict = field(default_factory=Trajectory)
+    actions: Trajectory[ActType] | dict = field(default_factory=Trajectory)
+    rewards: Trajectory[SupportsFloat] | dict = field(default_factory=Trajectory)
     state_space: Optional[spaces.Dict] = None
     action_spaces: Optional[spaces.Dict] = None
     obs_space: Optional[spaces.Dict] = None
     terminateds: Optional[dict[AgentID, bool]] = None
     truncateds: Optional[dict[AgentID, bool]] = None
 
-    def __post_init__(self):
-        if isinstance(self.state, dict):
-            self.state = Trajectory(self.state)
+    def __post_init__(self) -> None:
+        for name in ("state", "obs", "actions", "rewards"):
+            value = getattr(self, name)
+
+            if isinstance(value, dict):
+                setattr(self, name, Trajectory(value))
 
     # Mechanisms may introduce dimensions, but absence means "no change".
     # Deletion is not supported.
@@ -111,7 +62,8 @@ class MDPState:
             ds = [ds]
 
         params = self.params.copy()
-        for d in ds: 
+
+        for d in ds:
             params |= d.params
 
         return type(self)(
@@ -119,9 +71,9 @@ class MDPState:
             aids=set().union(self.aids or set(), *(d.aids or set() for d in ds)),
             params=params,
             state=self.state.add(self.t, [d.state for d in ds]),
-            actions=add(self.actions, [d.actions for d in ds]),
-            obs=add(self.obs, [d.obs for d in ds]),
-            rewards=add(self.rewards, [d.rewards for d in ds]),
+            actions=self.actions.add(self.t, [d.actions for d in ds]),
+            obs=self.obs.add(self.t, [d.obs for d in ds]),
+            rewards=self.rewards.add(self.t, [d.rewards for d in ds]),
             state_space=intersect(self.state_space, [d.state_space for d in ds]),
             obs_space=intersect(self.obs_space, [d.obs_space for d in ds]),
             action_spaces=intersect(self.action_spaces, [d.action_spaces for d in ds]),
@@ -129,8 +81,46 @@ class MDPState:
             truncateds=logical_or_dict(self.truncateds, [d.truncateds for d in ds]),
         )
 
-    def advance(self, values: dict[str, StateType]) -> "MDPState":
-        return replace(self, t=self.t + 1, state=self.state.append(values))
+    def advance(
+        self,
+        *,
+        state: Optional[dict[Any, Any]] = None,
+        obs: Optional[dict[Any, Any]] = None,
+        actions: Optional[dict[Any, Any]] = None,
+        rewards: Optional[dict[Any, Any]] = None,
+    ) -> "MDPState":
+        """Advance the MDP by one timestep."""
+
+        return replace(
+            self,
+            t=self.t + 1,
+            state=(self.state.append(state) if state is not None else self.state),
+            obs=(self.obs.append(obs) if obs is not None else self.obs),
+            actions=(self.actions.append(actions) if actions is not None else self.actions),
+            rewards=(self.rewards.append(rewards) if rewards is not None else self.rewards),
+        )
+
+    def update(
+        self,
+        t: Optional[int] = None,
+        *,
+        state: Optional[dict[Any, Any]] = None,
+        obs: Optional[dict[Any, Any]] = None,
+        actions: Optional[dict[Any, Any]] = None,
+        rewards: Optional[dict[Any, Any]] = None,
+    ) -> "MDPState":
+        """Update trajectory values"""
+        t = self.t if t is None else t
+
+        if state is not None:
+            self.state = self.state.update(t, state)
+        if obs is not None:
+            self.obs = self.obs.update(t, obs)
+        if actions is not None:
+            self.actions = self.actions.update(t, actions)
+        if rewards is not None:
+            self.rewards = self.rewards.update(t, rewards)
+        return self
 
 
 class Mechanism(ABC):
@@ -147,6 +137,7 @@ class Mechanism(ABC):
         default: Optional[np.ndarray] = None,
     ) -> None:
         self.aid = aid
+        self.id = id
         self.action_space = action_space
         self.mechanism_id = id
         self.acts_on = acts_on
@@ -154,16 +145,16 @@ class Mechanism(ABC):
         self._u = default if default else None
 
     # TODO (nadine) enforce shape 1 action
-    def __call__(self, state: MDPState, action: ActType) -> MDPState:
-        action = self.decode(action)
+    def __call__(self, mdp: MDPState, action: ActType) -> MDPState:
+        action = self.decode(mdp, action)
+        mdp.actions[self.aid][self.id][mdp.t] = action
+        return self.apply(mdp, action)
 
-        return self.apply(state, action)
-
-    def decode(self, action: ActType) -> ActType:
+    def decode(self, mdp: MDPState, action: ActType) -> ActType:
         """Map optimizer/policy coordinates to mechanism coordinates."""
         return action
 
     @abstractmethod
-    def apply(self, mdp_state: MDPState, action: ActType) -> MDPState:
+    def apply(self, mdp: MDPState, action: ActType) -> MDPState:
         """Return this mechanism's contribution to the state transition."""
         raise NotImplementedError

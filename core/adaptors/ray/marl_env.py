@@ -95,7 +95,7 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         # but these arguments are not used to mutate the environment's persistent
         # configuration after construction.
         self._mdp = self.env.reset(self._mdp)
-        return self._mdp.obs, {}
+        return self._mdp.obs.data, {}
 
     @override(RllibMultiAgentEnv)
     def step(
@@ -103,6 +103,9 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     ) -> tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
-        self._mdp.actions = {**(self._mdp.actions or {}), **action_dict}
+        self._mdp.update(actions=action_dict)
         m: MDPState = self.env.step(self._mdp)
-        return m.obs, m.rewards, m.terminateds, m.truncateds, {}
+        obs = {aid: m.obs[aid][m.t] for aid in self.env.followers}
+        rewards = {aid: m.rewards[aid][m.t - 1]for aid in self.env.followers}
+        self._mdp = m
+        return obs, rewards, m.terminateds, m.truncateds, {}

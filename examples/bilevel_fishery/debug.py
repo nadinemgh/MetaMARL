@@ -261,7 +261,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 observation_space = spaces.Box(
                     low=-np.inf,
                     high=np.inf,
-                    shape=(4,), # TODO (nadine) maybe an observation object needed to avoid hardcoding this
+                    shape=(5,), # TODO (nadine) maybe an observation object needed to avoid hardcoding this
                     dtype=np.float32,
                 ),
             )

@@ -87,8 +87,9 @@ class QuotaMechanism(Mechanism):
             delivered[0] = delivered_frac
             delivered = delivered.reshape(requested.shape)
             da[aid] = {target_mechanism: delivered - requested}
+            obs = {aid: np.asarray([0.0, 0.0, 0.0, 0.0, allowed_frac, action]) for aid in self.acts_on}
 
-        return MDPState(actions=da, state={"allowed_frac": allowed_frac})
+        return mdp.add(MDPState(actions=da, state={"allowed_frac": allowed_frac}, obs=obs))
 
 @dataclass(frozen=True, kw_only=True)
 class Quota(MechanismConfig):

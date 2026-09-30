@@ -43,7 +43,6 @@ from core.envs.marl_regulated import MultiAgentEnv
 from core.envs.hooks import reset, transition
 from core.mechanism.base import MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
-from core.types import MultiAgentDict
 from core.utils import sigmoid
 
 logging.basicConfig(
@@ -62,47 +61,46 @@ HARVEST = 2
 RESTORATION = 3
 
 class Fisherman(Agent):
+    # TODO (nadine) replace usage with inidividual harvest observation
     def observation(self, mdp: MDPState) -> MDPState:
         fish_norm = mdp.state["fish"][mdp.t] / max(mdp.params["K"], EPS)
         usage_norm = mdp.state["usage"][mdp.t] / max(mdp.params["K"], EPS)
-        mdp = mdp.add(MDPState(obs={self.id: np.asarray([fish_norm, usage_norm, 0.0, 0.0], dtype=np.float32)}))
-        return mdp
+        return MDPState(obs={self.id: np.asarray([fish_norm, 0.0, usage_norm, 0.0, 0.0], dtype=np.float32)})
     
     def reward(self, mdp: MDPState) -> MDPState:
-        # TODO must be residual
-        mdp.rewards = {self.id: mdp.obs[self.id][HARVEST] - mdp.obs[self.id][RESTORATION]}
-        return mdp
+        return MDPState(rewards={self.id: mdp.actions[self.id]["harvest"][mdp.t]})
+
 class FishermanConfig(AgentConfig):
     agent_cls: ClassVar[type[Agent]] = Fisherman
 
 
 class Fishing(Mechanism):
-    def decode(self, action: ActType) -> ActType:
+    def decode(self, mdp: MDPState, action: ActType) -> ActType:
         z = np.asarray(action, dtype=np.float32).reshape(-1)
         temperature = 4.0
         return sigmoid(float(z[0]) / temperature)
         
-    def apply(self, mdp: MDPState, harvest_fraction: ActType) -> MDPState:
+    def apply(self, mdp: MDPState, harvest_frac: ActType) -> MDPState:
+        """Must apply DLETA"""
         fish = mdp.state["fish"][mdp.t]
         n_fishers = len(mdp.aids)
         max_harvest_multiplier =  mdp.params["unregulated_f_multiplier"] # allow unsustainable
-        catch_capaciy = max_harvest_multiplier * mdp.params["F_msy"] * fish / n_fishers
-        harvest = harvest_fraction * catch_capaciy
-        mdp.obs[self.aid][HARVEST] = harvest
-        return mdp.add(MDPState(state={"fish": -harvest}))
+        catch_capacity = max_harvest_multiplier * mdp.params["F_msy"] * fish / n_fishers
+        harvest = harvest_frac * catch_capacity
+        return MDPState(state={"fish": -harvest})
         
 class Restore(Mechanism):
-    def decode(self, action: ActType) -> ActType:
+    def decode(self, mdp: MDPState, action: ActType) -> ActType:
         z = np.asarray(action, dtype=np.float32).reshape(-1)
         temperature = 4.0
         return sigmoid(float(z[0]) / temperature)
     
-    def apply(self, mdp: MDPState, restoration_effort: ActType) -> MDPState:
+    def apply(self, mdp: MDPState, restoration_frac: ActType) -> MDPState:
+        """Must apply DLETA"""
         n_fishers = len(mdp.aids)
         restoration_power = mdp.params["restoration_effectiveness"]
-        restoration = restoration_power * mdp.params["K"] * restoration_effort / n_fishers
-        mdp.obs[self.aid][RESTORATION] = restoration
-        return mdp.add(MDPState(state={"fish": restoration}))
+        restoration = restoration_power * mdp.params["K"] * restoration_frac / n_fishers
+        return MDPState(state={"fish": restoration})
 
 class FishingConfig(MechanismConfig):
     mechanism_cls: ClassVar[type[Mechanism]] = Fishing
@@ -143,15 +141,19 @@ class FisheryRegulatedEnv(MultiAgentEnv):
     # TODO (nadine) reset should not take mdp and init params should not be stateful
     @reset
     def reset_fishery(self, mdp: MDPState) -> MDPState:
+        """Must add delta"""
         if self.initial_stock_log_sigma == 0.0:
             fish_init = self.fish_init
         else:
-            fish_init = self.rng.lognormal(
+            # TODO (nadine) change to scipy truncnorm rather than clip to avoid flat signal
+            fish_init = np.clip(self.rng.lognormal(
                 mean=np.log(max(self.fish_init, EPS)),
                 sigma=self.initial_stock_log_sigma, #sigma around sampling from lognormal distribution
+                ),
+            EPS,
+            self.K,
             )
-        # fish_init = [np.clip(fish_init, EPS, self.K)]
-        return mdp.add(MDPState(state={"fish": fish_init, "usage": 0.0}, params=self.ecology))
+        return MDPState(state={"fish": fish_init, "usage": 0.0}, params=self.ecology)
 
 
     @transition
@@ -159,9 +161,15 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         # intervention already happened
         r = mdp.params["r"]
         p = mdp.params["p"]
-        H = mdp.state["fish"][mdp.t-1] - mdp.state["fish"][mdp.t]
-        B = mdp.state["fish"][mdp.t-1]
-        noise = mdp.params["sigma"] * self.rng.normal() * mdp.state["fish"][mdp.t-1]
+        
+        if mdp.t == 0:
+            B = mdp.state["fish"][mdp.t]
+            H = 0.0
+        else:
+            B = mdp.state["fish"][mdp.t - 1]
+            H = B - mdp.state["fish"][mdp.t]
+
+        noise = mdp.params["sigma"] * self.rng.normal() * B
 
         biological_growth = (r / p) * B * (1.0 - (B / self.K) ** p)
         growth = biological_growth + noise
@@ -182,4 +190,5 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         self.logger.push(key=("H_realized",), value=H_realized)
         self.logger.push(key=("total_usage_norm",), value=H_realized / max(EPS, self.K))
 
-        return mdp.advance({"fish": fish_next, "usage": H_realized})
+        # TODO (nadine) add observation
+        return mdp.advance(state={"fish": fish_next, "usage": H_realized})

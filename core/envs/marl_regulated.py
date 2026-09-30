@@ -22,6 +22,7 @@ Metrics are optional: with a ``schema`` the env owns a ``MetricLogger`` fed by
 and with a ``reporter_cfg`` a ``Reporter`` renders the configured ``queries``
 against it (see ``core.callbacks``).
 """
+from functools import reduce
 import logging
 from abc import ABC
 from typing import ClassVar, Optional
@@ -115,6 +116,7 @@ class MultiAgentEnv(ABC):
         schema: Optional[MetricSchema] = None,
         **kwargs,
     ):
+        self._t = 0
         self.world = world
         self._opt_id = opt_id
 
@@ -231,8 +233,8 @@ class MultiAgentEnv(ABC):
 
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:
-            m: MDPState = getattr(self, self._reset)(mdp)
-        return m.add([agent.observation(m) for agent in self.followers.values()])
+            mdp: MDPState = mdp.add(getattr(self, self._reset)(mdp))
+        return mdp.add([agent.observation(mdp) for agent in self.followers.values()])
 
     def transition(
             self, 
@@ -253,8 +255,12 @@ class MultiAgentEnv(ABC):
         return mdp
 
     def step(self, mdp: MDPState) -> MDPState:
-        m = mdp.add([agent.reward(agent.action(mdp)) for agent in self.agents.values()])
-        m = self.transition(m)
-        m = self.termination(m)
-        self.logger.push(key=("iter",), value=m.t)
-        return m.add([agent.observation(m) for agent in self.agents.values()])
+        for agent in self.agents.values():
+            mdp = agent.action(mdp)
+            mdp = mdp.add(agent.reward(mdp))
+        mdp = self.transition(mdp)
+        mdp = self.termination(mdp)
+        self.logger.push(key=("iter",), value=mdp.t)
+        mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])
+        self._t += 1
+        return mdp
