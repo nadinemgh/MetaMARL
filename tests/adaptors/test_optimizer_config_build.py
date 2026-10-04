@@ -471,17 +471,12 @@ def test_disable_env_checking_is_replayed_on_the_rllib_config(
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason="an empty seed list reaches `num_envs % len(seeds)` in "
-    + "_apply_agents_to_rllib and raises ZeroDivisionError",
-)
 def test_building_without_training_seeds_fails_with_a_clear_error(
     registered, stub_optimizer
 ):
-    # Without ``debugging(seed=...)`` the seed list is empty. Whether such a
-    # config should build as a single unseeded run or be rejected is open; what
-    # it must not do is leak a ``ZeroDivisionError`` from the module layout.
+    # Without ``debugging(seed=...)`` the seed list is empty. One RLModule is
+    # declared per training seed, so such a config would declare none; it used
+    # to leak a ``ZeroDivisionError`` from the module layout.
     cfg = (
         PPOptimizerConfig()
         .environment(env=RecordingEnv, horizon=5)
@@ -490,12 +485,8 @@ def test_building_without_training_seeds_fails_with_a_clear_error(
     )
     cfg.reporter_cfg = RecordingReporterConfig(project="unit")
 
-    try:
+    with pytest.raises(ValueError, match=r"no training seeds.*\.debugging\(seed="):
         build(cfg)
-    except ZeroDivisionError:
-        pytest.fail("an unseeded config leaked a ZeroDivisionError")
-    except ValueError:
-        pass
 
 
 # --- the inner env_creator ------------------------------------------------- #

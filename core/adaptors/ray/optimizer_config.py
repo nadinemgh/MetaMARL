@@ -636,7 +636,8 @@ class RayOptimizerConfig(OptimizerConfig):
         ------
         ValueError
             If ``world`` is ``None``, no agents were declared (``agents`` not
-            called), ``world_name`` is missing or ``opt_class`` is unset.
+            called), no training seed was set (``debugging`` not called with a
+            seed), ``world_name`` is missing or ``opt_class`` is unset.
         """
 
         # Every environment fetches its mechanism from the World and builds
@@ -651,6 +652,13 @@ class RayOptimizerConfig(OptimizerConfig):
             raise ValueError(
                 f"{type(self).__name__} has no agents: call .agents(...) on the "
                 + "society optimizer config."
+            )
+        # One RLModule is declared per (mechanism, training seed) pair, so an
+        # empty seed list would declare none.
+        if not self.seeds:
+            raise ValueError(
+                f"{type(self).__name__} has no training seeds: call "
+                + ".debugging(seed=...) on the society optimizer config."
             )
 
         evaluation_op = self._cfg_ops.get("_evaluation_rllib")
