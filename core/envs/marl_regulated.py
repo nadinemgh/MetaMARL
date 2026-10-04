@@ -245,6 +245,23 @@ class MultiAgentEnv(ABC):
         mdp = self.transition(mdp)
         mdp = self.termination(mdp)
         self.logger.push(key=("iter",), value=mdp.t)
+
+        # Mean over followers of the rewards RLlib receives for this step (the
+        # RLlib adapter reads the same ``rewards[aid][t - 1]``). Every reward
+        # field of the schema reduces this one per-step series.
+        step_reward = float(
+            np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
+        )
+
+        for key in (
+            "reward_total",
+            "reward_mean",
+            "reward_min",
+            "reward_max",
+            "reward_terminal",
+        ):
+            self.logger.push(key=(key,), value=step_reward)
+
         mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])
         self._t += 1
         return mdp
