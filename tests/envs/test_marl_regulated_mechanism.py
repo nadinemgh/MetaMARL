@@ -41,6 +41,7 @@ def make_env(world: ScriptedWorld) -> MultiAgentEnv:
     env.seed = env.policy_seed = 1
     env.mode = MechanismStatus.train
     env.lids = {"regulator"}
+    env.leaders = {}
     env.followers = {}
     env.m = env.m_ctx = None
     env._using_default_mechanism = True

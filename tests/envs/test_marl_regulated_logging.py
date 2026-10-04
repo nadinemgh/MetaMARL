@@ -34,6 +34,7 @@ def make_env(rewards: dict[str, float]):
     env = SimpleNamespace(
         agents=dict(followers),
         followers=followers,
+        leaders={},
         logger=MetricLogger.from_schema(EpisodeRolloutSchema),
         horizon=None,
         _t=0,

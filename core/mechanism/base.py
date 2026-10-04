@@ -163,3 +163,19 @@ class Mechanism(ABC):
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:
         """Return this mechanism's contribution to the state transition."""
         raise NotImplementedError
+
+    def observe(self, mdp: MDPState) -> MDPState:
+        """Return this mechanism's contribution to the agents' observations.
+
+        ``apply`` runs before the transition, on a step whose observation the
+        policies have already consumed, so what it writes into ``obs`` is never
+        seen. The environment calls ``observe`` when it builds the next
+        observation instead: at reset, and after the transition of each step,
+        where ``mdp.t`` is the new step and ``mdp.actions[...][mdp.t - 1]``
+        holds the delivered actions of the step just finished. The returned
+        ``obs`` entries are summed with the observation each agent built, so a
+        mechanism fills entries of the vector that the agent leaves at zero.
+
+        The default contributes nothing.
+        """
+        return MDPState()

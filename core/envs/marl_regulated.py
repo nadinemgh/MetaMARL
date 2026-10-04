@@ -228,7 +228,14 @@ class MultiAgentEnv(ABC):
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:
             mdp: MDPState = mdp.add(getattr(self, self._reset)(mdp))
-        return mdp.add([agent.observation(mdp) for agent in self.followers.values()])
+        return mdp.add(
+            [agent.observation(mdp) for agent in self.followers.values()]
+            + [
+                residual
+                for leader in self.leaders.values()
+                for residual in leader.mechanism_observations(mdp)
+            ]
+        )
 
     def transition(self, mdp: MDPState) -> MDPState:
         if self._transition is not None:
@@ -269,6 +276,15 @@ class MultiAgentEnv(ABC):
         ):
             self.logger.push(key=(key,), value=step_reward)
 
-        mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])
+        # The leaders' mechanisms see the state after the transition, so their
+        # contribution lands on the observation the policies receive next.
+        mdp = mdp.add(
+            [agent.observation(mdp) for agent in self.followers.values()]
+            + [
+                residual
+                for leader in self.leaders.values()
+                for residual in leader.mechanism_observations(mdp)
+            ]
+        )
         self._t += 1
         return mdp

@@ -47,6 +47,7 @@ def make_env(follower: SettableRewardAgent) -> MultiAgentEnv:
     env.seed = env.policy_seed = 1
     env.mode = MechanismStatus.eval
     env.lids = set()
+    env.leaders = {}
     env.followers = {follower.aid: follower}
     env.agents = dict(env.followers)
     env.horizon = None

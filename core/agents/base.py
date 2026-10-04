@@ -82,6 +82,26 @@ class Agent:
         )
         return mdp
 
+    def mechanism_observations(self, mdp: MDPState) -> list[MDPState]:
+        """Collect what this agent's mechanisms contribute to the observations.
+
+        As in :meth:`action`, a mechanism takes part only while this agent
+        holds an action for it, so nothing is contributed before the
+        regulator's candidate reaches the environment.
+
+        Returns
+        -------
+        list[MDPState]
+            One residual per active mechanism, in the order of the agent's
+            actions; empty when the agent holds no action.
+        """
+        acts = mdp.actions.data.get(self.id)
+        if not acts:
+            return []
+        return [
+            self.mechanisms[mid].observe(mdp) for mid in acts if mid in self.mechanisms
+        ]
+
     def observation(self, mdp: MDPState) -> MDPState:
         return MDPState()
 
