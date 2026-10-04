@@ -59,6 +59,10 @@ class RayOptimizer(Optimizer):
         an estimate of episodes per evaluation. Raises ``ValueError`` at
         construction when ``evaluation`` was never called or its
         ``evaluation_config`` has no ``rollout_fragment_length``.
+    _module_ids : tuple of str
+        IDs of the learner modules declared in ``rllib_cfg.policies``; each
+        gets one learner entry per training iteration, with NaN statistics
+        on the iterations where RLlib reports none.
     _inner_iter : int
         Training iterations since the last ``reset``.
     _es_round : int
@@ -83,6 +87,11 @@ class RayOptimizer(Optimizer):
             )
 
         self.eval_episodes = config.rllib_cfg.evaluation_duration // fragment_length
+
+        # Learner modules declared by ``RayOptimizerConfig._apply_agents_to_rllib``;
+        # each gets one learner entry per training iteration (see
+        # ``build_learner``).
+        self._module_ids: tuple[str, ...] = tuple(config.rllib_cfg.policies)
 
         from core.adaptors.ray.policy_actor import PolicyActor
 
@@ -134,7 +143,7 @@ class RayOptimizer(Optimizer):
 
         train = TrainSchema(
             rollout=build_rollout(result),
-            learner=build_learner(result),
+            learner=build_learner(result, module_ids=self._module_ids),
             performance=build_performance(result),
         )
         eval_result = result.get("evaluation")

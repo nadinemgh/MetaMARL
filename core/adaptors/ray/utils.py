@@ -9,7 +9,8 @@ functions turn a full result dict into the ``RolloutSchema``,
 """
 
 import hashlib
-from typing import Optional
+from collections.abc import Iterable
+from typing import Optional, get_args
 
 import numpy as np
 import torch
@@ -297,7 +298,19 @@ def build_rollout(results: ResultDict) -> RolloutSchema:
     )
 
 
-def build_learner(results: ResultDict) -> LearnerSchema:
+def _missing_as_nan(metrics: PolicyLearnerSchema) -> PolicyLearnerSchema:
+    """Return a copy of ``metrics`` whose unset float statistics are NaN."""
+
+    missing = {
+        name: float("nan")
+        for name, field in type(metrics).model_fields.items()
+        if getattr(metrics, name) is None and float in get_args(field.annotation)
+    }
+
+    return metrics.model_copy(update=missing)
+
+
+def build_learner(results: ResultDict, module_ids: Iterable[str] = ()) -> LearnerSchema:
     """Build one ``PolicyLearnerSchema`` per module in ``results["learners"]``.
 
     Besides copying the finite scalar stats, it derives
@@ -306,6 +319,17 @@ def build_learner(results: ResultDict) -> LearnerSchema:
     ``sample_staleness`` (sum of the available lag indicators: gradient-update
     lag, training calls since the last weight sync, outstanding async requests
     and learner queue wait).
+
+    Every module named in ``module_ids`` gets an entry even when the result
+    has none for it, and every float statistic it lacks is NaN instead of
+    unset. APPO reduces its learner statistics only once every 20 gradient
+    updates (``IMPALALearner.update`` in Ray 2.53): on the other iterations
+    ``learners`` is empty, or holds the modules with NaN values. The metric
+    logger skips unset values, so without this a learner series would be
+    shorter than the iteration axis and could not be plotted against it;
+    with it, every series keeps one value per iteration and shows a gap
+    where nothing was measured. Modules absent from ``module_ids`` keep
+    their missing statistics unset.
     """
 
     learners = results.get("learners", {}) or {}
@@ -322,11 +346,17 @@ def build_learner(results: ResultDict) -> LearnerSchema:
     )
 
     by_mechanism: dict[MechanismID, MechanismLearnerSchema] = {}
+    module_stats = {
+        learner_id: stats
+        for learner_id, stats in learners.items()
+        if learner_id != "__all_modules__"
+    }
+    expected = set(module_ids)
 
-    for learner_id, stats in learners.items():
-        if learner_id == "__all_modules__":
-            continue
+    for module_id in module_ids:
+        module_stats.setdefault(module_id, {})
 
+    for learner_id, stats in module_stats.items():
         policy_id, mechanism_id, policy_seed = parse_learner_id(learner_id)
 
         m: dict[str, Optional[float]] = {}
@@ -383,6 +413,10 @@ def build_learner(results: ResultDict) -> LearnerSchema:
             ),
             gradient_noise=m.get("gradient_noise"),
         )
+
+        if learner_id in expected:
+            policy_metrics = _missing_as_nan(policy_metrics)
+
         mechanism = by_mechanism.setdefault(mechanism_id, MechanismLearnerSchema())
         seed = mechanism.by_seed.setdefault(policy_seed, SeedLearnerSchema())
         seed.by_policy[policy_id] = policy_metrics

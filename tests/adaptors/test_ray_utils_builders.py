@@ -400,6 +400,51 @@ def test_build_learner_without_learners_is_empty(result):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "learners",
+    [{}, {"fisher_m0_s11": {"policy_loss": float("nan"), "vf_loss": float("nan")}}],
+    ids=["module-absent", "module-with-nan"],
+)
+def test_build_learner_logs_nan_for_a_declared_module_without_statistics(learners):
+    # APPO leaves ``learners`` empty until its first reduction and returns NaN
+    # on the iterations between two reductions.
+    learner = build_learner({"learners": learners}, module_ids=[LEARNER_ID])
+    policy = _only_policy(learner)
+
+    floats = [
+        name
+        for name, field in PolicyLearnerSchema.model_fields.items()
+        if field.annotation == float | None
+    ]
+    assert "batch_size" in floats and "iter" not in floats
+    assert all(np.isnan(getattr(policy, name)) for name in floats)
+    assert policy.iter is None
+
+
+@pytest.mark.unit
+def test_build_learner_keeps_measured_statistics_of_a_declared_module():
+    learner = build_learner(
+        {"learners": {LEARNER_ID: {"policy_loss": 0.25}}}, module_ids=[LEARNER_ID]
+    )
+    policy = _only_policy(learner)
+
+    assert policy.policy_loss == 0.25
+    assert np.isnan(policy.value_loss)
+
+
+@pytest.mark.unit
+def test_build_learner_leaves_undeclared_modules_unpadded():
+    result = {"learners": {"fisher_m1_s11": {"policy_loss": 0.5}}}
+
+    learner = build_learner(result, module_ids=[LEARNER_ID])
+
+    padded = _only_policy(learner)
+    undeclared = learner.by_mechanism["1"].by_seed["11"].by_policy["fisher"]
+    assert np.isnan(padded.policy_loss)
+    assert undeclared.policy_loss == 0.5 and undeclared.value_loss is None
+
+
+@pytest.mark.unit
 def test_build_learner_rejects_a_module_id_without_mechanism_and_seed():
     with pytest.raises(ValueError, match="<policy>_m<mechanism>_s<seed>"):
         build_learner({"learners": {"p": {"policy_loss": 0.1}}})

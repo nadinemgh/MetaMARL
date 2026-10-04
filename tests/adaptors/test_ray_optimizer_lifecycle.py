@@ -20,6 +20,7 @@ import math
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 import ray
 
@@ -98,12 +99,14 @@ def make_config(
     rollout_fragment_length=5,
     num_envs_per_env_runner=6,
     seeds=(1, 2),
+    policies=(),
 ):
     """Namespace carrying the attributes ``RayOptimizer`` reads from its config."""
     rllib_cfg = SimpleNamespace(
         evaluation_duration=evaluation_duration,
         evaluation_config={"rollout_fragment_length": rollout_fragment_length},
         num_envs_per_env_runner=num_envs_per_env_runner,
+        policies={policy_id: None for policy_id in policies},
     )
 
     return SimpleNamespace(
@@ -159,6 +162,19 @@ def test_init_spawns_the_actor_from_the_rllib_config(actors):
     assert opt._training_rewards == [] and opt._training_losses == []
     assert opt.logger._schema is RaySchema
     assert isinstance(opt.logger.peek(), RaySchema)
+
+
+@pytest.mark.unit
+def test_training_logs_learner_statistics_for_every_declared_module(actors):
+    # The module IDs come from the RLlib config, so a module that RLlib leaves
+    # out of a result is still logged, with NaN statistics.
+    opt, _ = make_optimizer(policies=("fisher_m0_s1", "fisher_m1_s1"))
+
+    assert opt._module_ids == ("fisher_m0_s1", "fisher_m1_s1")
+
+    by_mechanism = opt._to_logger_payload(train_result()).train.learner.by_mechanism
+    assert by_mechanism["0"].by_seed["1"].by_policy["fisher"].policy_loss == 0.25
+    assert np.isnan(by_mechanism["1"].by_seed["1"].by_policy["fisher"].policy_loss)
 
 
 @pytest.mark.unit
