@@ -20,6 +20,14 @@ experiment:
         num_cpus: 4
         omp_threads: 1
         logging_level: ERROR
+        runtime_env:
+          excludes:
+            - wandb/
+            - .git/
+            - .venv/
+            - __pycache__/
+            - ray_results/
+            - runs/
 
     - regulator:
         cfg:
@@ -131,6 +139,19 @@ experiment:
 
                 queries: []
 
+            - env_runners:
+                num_env_runners: 0
+                num_cpus_per_env_runner: 1
+                num_gpus_per_env_runner: 0
+                num_envs_per_env_runner: 4
+                rollout_fragment_length: 100
+                batch_mode: truncate_episodes
+                max_requests_in_flight_per_env_runner: 1
+
+            - learners:
+                num_learners: 0
+                num_gpus_per_learner: 0
+
             - callbacks:
                 on_episode_created:
                   _symbol_: core.callbacks.tag_episode_with_env_idx
@@ -141,10 +162,90 @@ experiment:
             - training:
                 episodes: 50
                 vtrace: true
+                circular_buffer_num_batches: 4
+                circular_buffer_iterations_per_batch: 1
+                broadcast_interval: 1
+                timeout_s_sampler_manager: 10
+                timeout_s_aggregator_manager: 10
                 gamma: 0.99
                 lr: 0.001
+                train_batch_size_per_learner: 100
+                minibatch_size: 100
+                num_epochs: 1
                 entropy_coeff: 0.001
                 grad_clip: 40.0
+
+            - evaluation:
+                evaluation_interval: 1
+                evaluation_duration: 1
+                evaluation_duration_unit: episodes
+                evaluation_num_env_runners: 0
+                evaluation_parallel_to_training: false
+                evaluation_config:
+                  explore: false
+                  rollout_fragment_length: 100
+                  batch_mode: complete_episodes
+                  max_requests_in_flight_per_env_runner: 1
+                base_seed: 42
+                num_seeds: 3
+
+            - agents:
+                _args_:
+                  - _target_: examples.bilevel_fishery.regulated_env.FishermanConfig
+                    id: fisherman
+                    policy_id: fisher_policy
+                    shared_policy: true
+                    count: 10
+
+                    mechanisms:
+                      _tuple_:
+                        - _target_: examples.bilevel_fishery.regulated_env.FishingConfig
+                          id: harvest
+
+                          action_space:
+                            _target_: gymnasium.spaces.Box
+                            low: -.inf
+                            high: .inf
+                            shape: [1]
+                            dtype:
+                              _symbol_: numpy.float32
+
+                        - _target_: examples.bilevel_fishery.regulated_env.RestoreConfig
+                          id: restore
+
+                          action_space:
+                            _target_: gymnasium.spaces.Box
+                            low: -.inf
+                            high: .inf
+                            shape: [1]
+                            dtype:
+                              _symbol_: numpy.float32
+
+                    observation_space:
+                      _target_: gymnasium.spaces.Box
+                      low: -.inf
+                      high: .inf
+                      shape: [5]
+                      dtype:
+                        _symbol_: numpy.float32
+
+            - fault_tolerance:
+                restart_failed_env_runners: false
+
+            - debugging:
+                seed: 42
+                num_seeds: 1
+
+            - reporting:
+                min_time_s_per_iteration: 0
+                min_sample_timesteps_per_iteration: 0
+                min_train_timesteps_per_iteration: 0
+
+                schema:
+                  _symbol_: core.adaptors.ray.schema.RaySchema
+
+                queries:
+                  _symbol_: examples.bilevel_fishery.queries.INNER_QUERIES
 
 run:
   - build_optimizer: {}
