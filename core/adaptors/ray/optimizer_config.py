@@ -624,8 +624,8 @@ class RayOptimizerConfig(OptimizerConfig):
         ----------
         world : ActorHandle[World]
             Shared world actor, given to every environment.
-        world_name : str, optional
-            Required when ``world`` is given; stored in ``world_name``.
+        world_name : str
+            Name of the world actor; stored in ``world_name``.
 
         Returns
         -------
@@ -635,15 +635,23 @@ class RayOptimizerConfig(OptimizerConfig):
         Raises
         ------
         ValueError
-            If ``world`` is given without ``world_name`` or ``opt_class`` is
-            unset.
-
-        Notes
-        -----
-        ``opt_id`` and ``agents`` are only bound when ``world`` is not ``None``
-        and ``agent_specs`` is set; otherwise the env creator raises
-        ``NameError`` when RLlib first instantiates an environment.
+            If ``world`` is ``None``, no agents were declared (``agents`` not
+            called), ``world_name`` is missing or ``opt_class`` is unset.
         """
+
+        # Every environment fetches its mechanism from the World and builds
+        # its followers from the declared agents: fail here rather than when
+        # RLlib first creates an environment.
+        if world is None:
+            raise ValueError(
+                f"{type(self).__name__}.build_optimizer needs the shared World "
+                + "actor: every environment fetches its mechanism from it."
+            )
+        if not self.agents_cfgs:
+            raise ValueError(
+                f"{type(self).__name__} has no agents: call .agents(...) on the "
+                + "society optimizer config."
+            )
 
         evaluation_op = self._cfg_ops.get("_evaluation_rllib")
 
@@ -670,22 +678,16 @@ class RayOptimizerConfig(OptimizerConfig):
 
         env_name = f"regulated_env_{uuid.uuid4().hex}"
 
-        if world is not None:
-            if world_name is None:
-                raise ValueError(
-                    "world_name must be provided when using Ray world actor"
-                )
+        if world_name is None:
+            raise ValueError("world_name must be provided when using Ray world actor")
 
-            self.world_name = world_name
-            registry = ray.get(world.get_opt_registry.remote())
+        self.world_name = world_name
+        registry = ray.get(world.get_opt_registry.remote())
 
-            # Register the new ID and get the result
-            opt_id = ray.get(
-                world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
-            )
+        # Register the new ID and get the result
+        opt_id = ray.get(world._set_new_opt_id.remote(opt_id=generate_uuid(registry)))
 
-        if self.agents_cfgs:
-            agents = self._apply_agents_to_rllib()
+        agents = self._apply_agents_to_rllib()
 
         env_counter = {"train": 0, "eval": 0}
 
@@ -770,9 +772,7 @@ class RayOptimizerConfig(OptimizerConfig):
         reporter.add_query(*(self._reporting_queries or ()))
 
         opt = RayOptimizer(world=world, reporter=reporter, config=cfg)
-
-        if world is not None:
-            opt.id = opt_id
+        opt.id = opt_id
 
         return opt
 
