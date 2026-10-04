@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ["dev", "master", "chore/**", "feature/**", "fix/**"]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      # ruff.toml sets `fix = true`; --no-fix makes the job report instead of rewriting
+      - run: uv run ruff check --no-fix .
+      - run: uv run ruff format --check .
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run python -m pytest -m "not integration and not notebook" --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run python -m pytest -m integration --no-cov
+        env:
+          WANDB_MODE: offline

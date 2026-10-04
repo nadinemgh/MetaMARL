@@ -22,10 +22,7 @@ dependencies = [
     "matplotlib>=3.10.8",
     "pydantic>=2.12.5",
     "pyyaml>=6.0",
-    "pytest>=8.4.2",
-    "pytest-cov>=7.0.0",
     "ray[rllib,tune]==2.53.0",
-    "ruff>=0.14.13",
     "scipy>=1.17.0",
     "seaborn>=0.13.2",
     "torch>=2.10.0",
@@ -47,13 +44,17 @@ Repository = "https://github.com/deep-introspection/bilevel-fishery"
 Issues = "https://github.com/deep-introspection/bilevel-fishery/issues"
 
 [project.optional-dependencies]
+tensorboard = ["tensorboard>=2.16"]
+
+[dependency-groups]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "isort>=5.0.0",
-    "mypy>=1.0.0",
-    "flake8>=6.0.0",
+    "tensorboard>=2.16",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.13",
+    "nbconvert>=7.16",
+    "ipykernel>=6.29",
+    "nbformat>=5.10",
 ]
 
 [build-system]
