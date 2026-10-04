@@ -26,12 +26,8 @@ from core.adaptors.ray.schema import (
     SeedRolloutSchema,
 )
 from core.envs.schema import EpisodeRolloutSchema
+from core.types import MechanismID, PolicyID, SeedID
 from core.utils import finite, safe_ratio, to_float
-from core.types import (
-    MechanismID,
-    PolicyID,
-    SeedID,
-)
 
 
 def _get_env(result: dict) -> dict:
@@ -177,25 +173,19 @@ def hash_weights(weights: dict) -> str:
     return h.hexdigest()
 
 
-def parse_learner_id(
-    learner_id: str,
-) -> tuple[PolicyID, MechanismID, SeedID]:
+def parse_learner_id(learner_id: str) -> tuple[PolicyID, MechanismID, SeedID]:
     try:
         policy_and_mechanism, policy_seed = learner_id.rsplit("_s", 1)
         policy_id, mechanism_id = policy_and_mechanism.rsplit("_m", 1)
     except ValueError:
         raise ValueError(
-            f"Expected learner ID of the form '<policy>_m<mechanism>_s<seed>', got {learner_id!r}."
+            "Expected learner ID of the form '<policy>_m<mechanism>_s<seed>', "
+            + f"got {learner_id!r}."
         ) from None
 
-    return (
-        policy_id,
-        mechanism_id,
-        policy_seed,
-    )
+    return (policy_id, mechanism_id, policy_seed)
 
 
-# TODO remove finite
 def build_episode_aggregate(results: ResultDict) -> EpisodeRolloutSchema:
     """Aggregate episode return and length statistics from ``env_runners``.
 
@@ -239,7 +229,6 @@ def build_performance(results: ResultDict) -> PerformanceSchema:
             throughput_data.get("throughput_since_last_reduce")
         ) or finite(throughput_data.get("throughput_since_last_restore"))
 
-    # TODO refactor this to get data from env
     agent_steps = env.get("num_agent_steps_sampled")
     agent_steps_lifetime = env.get("num_agent_steps_sampled_lifetime")
     agent_steps_sum = None
@@ -270,7 +259,7 @@ def build_performance(results: ResultDict) -> PerformanceSchema:
 
 
 def build_rollout(results: ResultDict) -> RolloutSchema:
-    """Group the per-episode entries of ``env_runners/by_episode`` by mechanism and seed.
+    """Group the ``env_runners/by_episode`` entries by mechanism and seed.
 
     The ``by_episode`` values are the ``EpisodeRolloutSchema`` objects stored
     by ``log_and_report_episode_metrics``; each is filed under
@@ -291,13 +280,12 @@ def build_rollout(results: ResultDict) -> RolloutSchema:
         seed_rollout.by_episode[episode_id] = episode
 
     return RolloutSchema(
-        aggregate=build_episode_aggregate(results),
-        by_mechanism=by_mechanism,
+        aggregate=build_episode_aggregate(results), by_mechanism=by_mechanism
     )
 
 
 def build_learner(results: ResultDict) -> LearnerSchema:
-    """Build one ``PolicyLearnerSchema`` per learner module from ``results["learners"]``.
+    """Build one ``PolicyLearnerSchema`` per module in ``results["learners"]``.
 
     Besides copying the finite scalar stats, it derives
     ``policy_relative_entropy`` (entropy / entropy coefficient),
@@ -382,14 +370,8 @@ def build_learner(results: ResultDict) -> LearnerSchema:
             ),
             gradient_noise=m.get("gradient_noise"),
         )
-        mechanism = by_mechanism.setdefault(
-            mechanism_id,
-            MechanismLearnerSchema(),
-        )
-        seed = mechanism.by_seed.setdefault(
-            policy_seed,
-            SeedLearnerSchema(),
-        )
+        mechanism = by_mechanism.setdefault(mechanism_id, MechanismLearnerSchema())
+        seed = mechanism.by_seed.setdefault(policy_seed, SeedLearnerSchema())
         seed.by_policy[policy_id] = policy_metrics
 
     return LearnerSchema(by_mechanism=by_mechanism)

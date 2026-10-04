@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, KeysView, Optional
 
 import ray
+
 from core.types import ContextID, OptimizerID
 from core.utils import generate_uuid
 from core.world.context import (
@@ -48,10 +49,8 @@ class World:
     It only tracks identifiers and context payloads.
     """
 
-    # TODO the reporting type annotation to add
     def __init__(self):
         # Maps optimizer IDs to the list of context IDs they own
-        # TODO replace with registry
         self._opt_ctx_map: dict[OptimizerID, list[ContextID]] = {}
 
         # Maps context IDs to Context objects
@@ -135,8 +134,7 @@ class World:
         # ADDED: helpers for reduced env plotting
 
     def get_env_step_contexts(
-        self,
-        opt_id: Optional[OptimizerID] = None,
+        self, opt_id: Optional[OptimizerID] = None
     ) -> list[Context]:
         """
         Return all EnvStepContext objects for a given optimizer.
@@ -158,8 +156,7 @@ class World:
 
     # ADDED: helpers for reduced env plotting
     def get_latest_env_step_contexts(
-        self,
-        opt_id: Optional[OptimizerID] = None,
+        self, opt_id: Optional[OptimizerID] = None
     ) -> list[Context]:
         """
         Return only the latest contiguous env-step episode for an optimizer.
@@ -187,8 +184,7 @@ class World:
         return latest
 
     def get_new_env_step_contexts(
-        self,
-        opt_id: Optional[OptimizerID] = None,
+        self, opt_id: Optional[OptimizerID] = None
     ) -> list[Context]:
         """
         Return all EnvStepContext objects appended since the last call
@@ -282,10 +278,7 @@ class World:
 
         required_status = {
             MechanismStatus.train: {MechanismStatus.published},
-            MechanismStatus.eval: {
-                MechanismStatus.train,
-                MechanismStatus.eval,
-            },
+            MechanismStatus.eval: {MechanismStatus.train, MechanismStatus.eval},
         }
         target_prev_status = required_status.get(mode)
 
@@ -312,14 +305,13 @@ class World:
 
         return None
 
-    # TODO fix this function. now the primary key is ctx_id
     def get_mechanism_by_index(self, index: int) -> MechanismContext:
         """Return the mechanism stored under registry key ``index``.
 
         Despite the name and the ``int`` annotation, the registry is keyed by
         the ``ContextID`` string of the publishing context, so this only works
         when passed that ID; an integer batch index raises ``KeyError``. The
-        TODO above records the mismatch. Use ``get_mechanism_by_id`` to look
+        mismatch is recorded in ``TODO.md``. Use ``get_mechanism_by_id`` to look
         up a candidate by its batch position.
 
         Raises
@@ -338,7 +330,8 @@ class World:
         for ctx in self._contexts.values():
             if type(ctx.payload) is schema:
                 raise ValueError(
-                    f"Singleton Context Schema {schema.__name__} already exists in world."
+                    f"Singleton Context Schema {schema.__name__} already exists in "
+                    + "world."
                 )
 
     # Mutators
@@ -399,21 +392,6 @@ class World:
                 self._set_new_opt_id(ctx.opt_id)
 
             self._opt_ctx_map[ctx.opt_id].append(ctx.id)
-
-        # if env-step-context call reporter actor
-        # if self.reporting is not None and isinstance(ctx.payload, EnvStepContext):
-        #     self.reporting.plot_env_step.remote(
-        #         ctx=ctx,
-        #         obs_keys_skip=(
-        #             "fixed_quota",
-        #             "prop_quota",
-        #             "min_stock",
-        #             "target_stock",
-        #             "fine_amount",
-        #             "risk_penalty_scale",
-        #             "risk_penalty_power",
-        #         ),
-        #     )
 
         return ctx.id
 
@@ -512,7 +490,6 @@ class World:
             if not lst:
                 del self._opt_ctx_map[ctx.opt_id]
 
-    # TODO fix this function. now the primary key is ctx_id
     def flush(self, status: Optional[MechanismStatus] = None) -> None:
         """Drop mechanisms from the mechanism registry.
 

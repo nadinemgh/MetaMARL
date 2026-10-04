@@ -8,7 +8,6 @@ copy of the metric instead of the compiled scalar.
 
 from __future__ import annotations
 
-# TODO what is an ABCMeta
 from abc import ABC, abstractmethod
 from typing import Self, TypeAlias, Union
 
@@ -53,10 +52,7 @@ class Metric(ABC):
         return type(self)()
 
     @abstractmethod
-    def peek(
-        self,
-        compile: bool = True,
-    ) -> Union[PrimitiveType, list[PrimitiveType]]:
+    def peek(self, compile: bool = True) -> Union[PrimitiveType, list[PrimitiveType]]:
         """Returns the result of reducing the internal values list.
 
         Note that this method does NOT alter the internal values list in this process.
@@ -71,22 +67,25 @@ class Metric(ABC):
 
     @abstractmethod
     def reduce(
-        self,
-        compile: bool = True,
+        self, compile: bool = True
     ) -> Union[PrimitiveType, list[PrimitiveType], Metric]:
         """Reduces the internal values.
 
         This method should NOT be called directly by users.
-        It can be used as a hook to prepare the stats object for sending it to the root metrics logger and starting a new 'reduce cycle'.
+        It can be used as a hook to prepare the stats object for sending it to the root
+        metrics logger and starting a new 'reduce cycle'.
 
         The reduction logic depends on the implementation of the subclass.
-        Meaning that some classes may reduce to a single value, while others do not or don't even contain values.
+        Meaning that some classes may reduce to a single value, while others do not or
+        don't even contain values.
 
         Args:
             compile: If True, the result is compiled into a single value if possible.
-                If False, the result is a Stats object similar to itself, but with the internal values reduced.
+                If False, the result is a Stats object similar to itself, but with
+                the internal values reduced.
         Returns:
-            The reduced value or a Stats object similar to itself, but with the internal values reduced.
+            The reduced value or a Stats object similar to itself, but with the
+            internal values reduced.
         """
 
     @abstractmethod

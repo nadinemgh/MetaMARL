@@ -19,7 +19,10 @@ class SumMetric(SeriesMetric):
 
     @override(SeriesMetric)
     def push(self, value: PrimitiveType) -> PrimitiveType:
-        """Append a number, rejecting booleans and non-numeric values with ``TypeError``."""
+        """Append a number.
+
+        Booleans and non-numeric values are rejected with ``TypeError``.
+        """
 
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TypeError(
@@ -28,22 +31,18 @@ class SumMetric(SeriesMetric):
 
         self.values.append(value)
 
-    def peek(
-        self,
-        compile: bool = True,
-    ) -> PrimitiveType | list[PrimitiveType]:
-        """Return the sum (``0`` when empty), or the history when ``compile`` is false."""
+    def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType]:
+        """Return the sum (``0`` when empty).
+
+        When ``compile`` is false, the history is returned instead.
+        """
 
         if not compile:
             return list(self.values)
 
         return sum(self.values)
 
-    # TODO move to base cls
-    def reduce(
-        self,
-        compile: bool = True,
-    ) -> PrimitiveType | SumMetric:
+    def reduce(self, compile: bool = True) -> PrimitiveType | SumMetric:
         """Return the sum and clear the history.
 
         With ``compile`` false a new ``SumMetric`` holding only the sum is

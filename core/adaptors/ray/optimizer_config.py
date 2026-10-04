@@ -24,14 +24,14 @@ are created with ``env_seed`` drawn from the evaluation seeds while
 ``policy_seed`` still names the trained module to test.
 """
 
-import uuid 
+import uuid
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
 
 import numpy as np
 import ray
 import torch
-from gymnasium import Space, spaces
+from gymnasium import spaces
 from ray.actor import ActorHandle
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
@@ -44,7 +44,6 @@ from ray.tune.registry import register_env
 
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.adaptors.ray.optimizer import RayOptimizer
-from core.agents.base import Agent
 from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
 from core.metrics.schemas import MetricSchema
@@ -53,7 +52,6 @@ from core.reporting.query import Query
 from core.utils import generate_uuid
 from core.world.base import World
 
-# TODO override environment to attach docstrings
 P = ParamSpec("P")
 
 FnID: TypeAlias = str
@@ -109,7 +107,6 @@ class RayOptimizerConfig(OptimizerConfig):
         Reserved; not set by the current builders.
     """
 
-    # TODO review this
     # must be overriden in subclasses
     algo_class: Optional[type[Algorithm]] = None
 
@@ -119,7 +116,6 @@ class RayOptimizerConfig(OptimizerConfig):
 
         super().__init__(opt_class=RayOptimizer)
 
-        # TODO termporary setting until find out how to share world context accross runners
         self._cfg_ops: dict[FnID, RLlibConfigOp] = {}
         self.rllib_cfg: AlgorithmConfig | None = None
         self.world_name: Optional[str] = None
@@ -127,9 +123,6 @@ class RayOptimizerConfig(OptimizerConfig):
         self.eval_episodes: Optional[int] = None
         self.rollout_fragment_length: Optional[int] = None
 
-        # self._result_mapper: ResultMapper = None
-
-    # TODO let mutator accept an explicit ID
     def rllib_config_mutator(
         fn: Callable[Concatenate[AlgorithmConfig, P], AlgorithmConfig],
     ) -> Callable[Concatenate[Self, P], Self]:
@@ -241,16 +234,6 @@ class RayOptimizerConfig(OptimizerConfig):
 
         return cfg.callbacks(**kwargs)
 
-    # def evaluation(self, *, episodes: int = None, rollout_fragment_length: int, base_seed: Optional[int]=None, **kwargs) -> Self:
-    #     if episodes is not None:
-    #         self.eval_episodes = episodes
-    #     if base_seed is not None:
-    #         self.eval_base_seed = base_seed
-    #     # TODO to infer from horizon
-    #     if rollout_fragment_length is not None:
-    #         self.rollout_fragment_length = rollout_fragment_length
-    #     return self
-
     @rllib_config_mutator
     def _evaluation_rllib(cfg, **kwargs: Any) -> AlgorithmConfig:
         """Deferred ``AlgorithmConfig.evaluation`` (raw pass-through)."""
@@ -322,7 +305,8 @@ class RayOptimizerConfig(OptimizerConfig):
             ]
         elif num_seeds is not None:
             raise ValueError(
-                "`num_seeds` requires `base_seed`, unless explicit `seeds` are provided."
+                "`num_seeds` requires `base_seed`, "
+                + "unless explicit `seeds` are provided."
             )
 
         kwargs["evaluation_interval"] = None
@@ -529,7 +513,8 @@ class RayOptimizerConfig(OptimizerConfig):
 
         if num_envs % num_seeds != 0:
             raise ValueError(
-                f"num_envs_per_env_runner={num_envs} must be divisible by num_seeds={num_seeds}"
+                f"num_envs_per_env_runner={num_envs} must be divisible by "
+                + f"num_seeds={num_seeds}"
             )
 
         # Get number of mechanisms (one policy per mechanism, per seed)
@@ -543,25 +528,10 @@ class RayOptimizerConfig(OptimizerConfig):
             base_policy = agent.policy_id
             count = agent.count
 
-            # TODO (nadinemgh) this does not guarantee tht different mechanism's policy will be
-            # initiated with the same seed !
-            # what we want :
-            # run mechanism 0, seed 101
-            # run mechanism 1, seed 101
-            # run mechanism 2, seed 101
-            # run mechanism 0, seed 202
-            # run mechanism 1, seed 202
-            # run mechanism 2, seed 202
             for seed in self.seeds:
-                # TODO verify case when null seed
                 for m_idx in range(num_mechanisms):
                     policy_id = f"{base_policy}_m{m_idx}_s{seed}"
-                    policies[policy_id] = (
-                        None,
-                        obs_space,
-                        act_space,
-                        {},
-                    )
+                    policies[policy_id] = (None, obs_space, act_space, {})
                     module_specs[policy_id] = RLModuleSpec(
                         observation_space=obs_space,
                         action_space=act_space,
@@ -578,7 +548,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
             for i in range(count):
                 agent_id = f"{aid}:{i}"
-                agents_cfgs[agent_id] = replace(agent,id=agent_id, count=1)
+                agents_cfgs[agent_id] = replace(agent, id=agent_id, count=1)
                 agent_type_map[agent_id] = base_policy
                 observation_spaces[agent_id] = obs_space
                 action_spaces[agent_id] = act_space
@@ -587,7 +557,6 @@ class RayOptimizerConfig(OptimizerConfig):
             rl_module_spec=MultiRLModuleSpec(rl_module_specs=module_specs)
         )
 
-        # TODO not needed ?
         self.env_config.update({"observation_spaces": observation_spaces})
         self.env_config.update({"action_spaces": action_spaces})
 
@@ -595,10 +564,6 @@ class RayOptimizerConfig(OptimizerConfig):
             """Route an agent to ``<policy>_m<m>_s<ps>`` from the episode ID."""
 
             base_policy = agent_type_map[agent_id]
-
-            # Old Api Stack Route to policy based on environment index
-            # TODO this is depregated !
-            # env_idx = getattr(episode, "env_id", None)
 
             # New API
             identity = self._parse_episode_identity(episode.id_)
@@ -608,12 +573,12 @@ class RayOptimizerConfig(OptimizerConfig):
 
             if policy_id not in policies:
                 raise RuntimeError(
-                    f"Unknown policy generated by policy_mapping_fn: "
-                    f"policy_id={policy_id}, "
-                    f"episode_id={episode.id_}, "
-                    f"mechanism_id={mechanism_id}, "
-                    f"policy_seed={policy_seed}, "
-                    f"available_policies={list(policies.keys())}"
+                    "Unknown policy generated by policy_mapping_fn: "
+                    + f"policy_id={policy_id}, "
+                    + f"episode_id={episode.id_}, "
+                    + f"mechanism_id={mechanism_id}, "
+                    + f"policy_seed={policy_seed}, "
+                    + f"available_policies={list(policies.keys())}"
                 )
 
             return policy_id
@@ -627,24 +592,9 @@ class RayOptimizerConfig(OptimizerConfig):
 
         return agents_cfgs
 
-    # lazy resolution : better encapsulation ?
-    # @cached_property
-    # def result_mapper(self) -> ResultMapper:
-    #     return self._resolve_result_mapper()
-
-    # def _resolve_result_mapper(cfg: AlgorithmConfig) -> ResultMapper:
-    #     uses_new_stack = bool(
-    #         getattr(cfg, "enable_rl_module_and_learner", False)
-    #         and getattr(cfg, "enable_env_runner_and_connector_v2", False)
-    #     )
-    #     return from_new_api if uses_new_stack else from_old_api
-
     @override(OptimizerConfig)
     def build_optimizer(
-        self,
-        *,
-        world: ActorHandle[World],
-        world_name: Optional[str] = None,
+        self, *, world: ActorHandle[World], world_name: Optional[str] = None
     ) -> RayOptimizer:
         """Resolve the RLlib config, register the env and build a ``RayOptimizer``.
 
@@ -704,7 +654,6 @@ class RayOptimizerConfig(OptimizerConfig):
             num_eval_episodes = num_eval_runners * self.num_mechanisms
             evaluation_op.kwargs["evaluation_num_env_runners"] = num_eval_runners
 
-            # TODO verify this
             evaluation_op.kwargs["evaluation_duration"] = num_eval_episodes
             evaluation_op.kwargs["custom_evaluation_function"] = (
                 _evaluate_with_fixed_duration_once
@@ -798,7 +747,9 @@ class RayOptimizerConfig(OptimizerConfig):
                 env_name=env_name,
                 agents_cfg_dict=agents,
                 mechanism_id=mechanism_idx,
-                reporter_cfg=self._reporter_cfg.copy() if self._reporter_cfg is not None else None,
+                reporter_cfg=self._reporter_cfg.copy()
+                if self._reporter_cfg is not None
+                else None,
                 queries=self._reporting_queries_env,
                 schema=self._reporting_schema_env,
                 **dict(env_ctx),
@@ -810,9 +761,6 @@ class RayOptimizerConfig(OptimizerConfig):
         self.rllib_cfg = self.rllib_cfg.environment(
             env=env_name, env_config=self.env_config
         )
-
-        # Building defferred to policyActor
-        # algo = self.rllib_cfg.build_algo(**kwargs)
 
         cfg = self.copy(copy_frozen=True)
 
@@ -847,7 +795,9 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.training(**kwargs)
 
     @override(OptimizerConfig)
-    def training(self, *, episodes: Optional[int] = None, **kwargs: Any) -> AlgorithmConfig:
+    def training(
+        self, *, episodes: Optional[int] = None, **kwargs: Any
+    ) -> AlgorithmConfig:
         """Deferred ``AlgorithmConfig.training`` (algorithm hyperparameters)."""
         super().training(episodes=episodes)
         return self._training_rllb(**kwargs)

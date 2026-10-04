@@ -12,9 +12,9 @@ loop with a strict single round.
 """
 
 import logging
-import gymnasium as gym
 import time
 
+import gymnasium as gym
 from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.env.vector.vector_multi_agent_env import VectorMultiAgentEnv
@@ -23,13 +23,6 @@ from ray.rllib.utils.metrics import ENV_RUNNER_RESULTS, EVALUATION_RESULTS, NUM_
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
 logger = logging.getLogger(__name__)
-
-# def tag_episode_with_env_idx(*, episode: MultiAgentEpisode, env_index: int, **kwargs):
-#     episode_id = episode.id_
-#     episode.id_ = f"{env_index}|{episode_id}"
-
-
-# def tag_episode_with_env_identity(
 
 
 def tag_episode_with_env_idx(
@@ -109,12 +102,12 @@ def tag_episode_with_env_idx(
 
     # Store structured metadata for policy mapping / logging.
     if not raw_episode_id.startswith("env="):
-        episode.id_ = f"env={env_index}|m={mechanism_id}|ps={policy_seed}|ss={seed}|raw={raw_episode_id}"
+        episode.id_ = (
+            f"env={env_index}|m={mechanism_id}|ps={policy_seed}|ss={seed}|"
+            + f"raw={raw_episode_id}"
+        )
 
-    # TODO inject policy_id to env for traceability and debugging
 
-
-# TODO to be moved to a separate actor in the future for extensibility
 def log_and_report_episode_metrics(
     *,
     episode: MultiAgentEpisode,
@@ -160,7 +153,6 @@ def log_and_report_episode_metrics(
     reduced = env.logger.reduce()
     episode_id = episode.id_.partition("|raw=")[0]
 
-    # TODO could we just have the EnvRolloutSchema here ?
     metrics_logger.log_value(
         key=("by_episode", episode_id), value=reduced, reduce="item"
     )
@@ -289,10 +281,10 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
             if len(results) != num_healthy_workers:
                 raise RuntimeError(
                     "Evaluation did not return exactly one result per "
-                    "healthy EnvRunner: "
-                    f"expected={num_healthy_workers}, "
-                    f"received={len(results)}, "
-                    f"timeout={time_out}s"
+                    + "healthy EnvRunner: "
+                    + f"expected={num_healthy_workers}, "
+                    + f"received={len(results)}, "
+                    + f"timeout={time_out}s"
                 )
 
             ## END OF CHANGE
@@ -315,9 +307,9 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
             if num_units_done != algo.config.evaluation_duration:
                 raise RuntimeError(
                     "The single evaluation round returned fewer units than requested: "
-                    f"requested={algo.config.evaluation_duration}, "
-                    f"completed={num_units_done}, "
-                    f"unit={unit}"
+                    + f"requested={algo.config.evaluation_duration}, "
+                    + f"completed={num_units_done}, "
+                    + f"unit={unit}"
                 )
 
             break
@@ -363,8 +355,6 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
                 all_metrics.extend(metrics)
 
                 if algo.reward_estimators:
-                    # TODO: (kourosh) This approach will cause an OOM issue when
-                    #  the dataset gets huge (should be ok for now).
                     all_batches.append(batch)
 
             # 1 episode per returned batch.
@@ -385,11 +375,11 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
     if num_healthy_workers == 0:
         logger.warning(
             "Calling `sample()` on your remote evaluation worker(s) "
-            "resulted in all workers crashing! Make sure a) your environment is not"
-            " too unstable, b) you have enough evaluation workers "
-            "(`config.evaluation(evaluation_num_env_runners=...)`) to cover for "
-            "occasional losses, and c) you use the `config.fault_tolerance("
-            "restart_failed_env_runners=True)` setting."
+            + "resulted in all workers crashing! Make sure a) your environment is not"
+            + " too unstable, b) you have enough evaluation workers "
+            + "(`config.evaluation(evaluation_num_env_runners=...)`) to cover for "
+            + "occasional losses, and c) you use the `config.fault_tolerance("
+            + "restart_failed_env_runners=True)` setting."
         )
 
     if not algo.config.enable_env_runner_and_connector_v2:
@@ -401,13 +391,10 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
             ),
         )
         num_episodes = env_runner_results[NUM_EPISODES]
-        eval_results = {
-            ENV_RUNNER_RESULTS: env_runner_results,
-        }
+        eval_results = {ENV_RUNNER_RESULTS: env_runner_results}
     else:
         algo.metrics.aggregate(
-            all_metrics,
-            key=(EVALUATION_RESULTS, ENV_RUNNER_RESULTS),
+            all_metrics, key=(EVALUATION_RESULTS, ENV_RUNNER_RESULTS)
         )
 
         num_episodes = algo.metrics.peek(
@@ -418,9 +405,7 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
 
         # CHANGED:
         eval_results = algo.metrics.peek(
-            EVALUATION_RESULTS,
-            default={},
-            latest_merged_only=True,
+            EVALUATION_RESULTS, default={}, latest_merged_only=True
         )
 
     # Warn if results are empty, it could be that this is because the eval timesteps
@@ -428,18 +413,18 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
     if num_episodes == 0:
         logger.warning(
             "This evaluation iteration resulted in an empty set of episode summary "
-            "results! It's possible that your configured duration timesteps are not"
-            " enough to finish even a single episode. You have configured "
-            f"{algo.config.evaluation_duration} "
-            f"{algo.config.evaluation_duration_unit}. For 'timesteps', try "
-            "increasing this value via the `config.evaluation(evaluation_duration="
-            "...)` OR change the unit to 'episodes' via `config.evaluation("
-            "evaluation_duration_unit='episodes')` OR try increasing the timeout "
-            "threshold via `config.evaluation(evaluation_sample_timeout_s=...)` OR "
-            "you can also set `config.evaluation_force_reset_envs_before_iteration`"
-            " to False. However, keep in mind that in the latter case, the "
-            "evaluation results may contain some episode stats generated with "
-            "earlier weights versions."
+            + "results! It's possible that your configured duration timesteps are not"
+            + " enough to finish even a single episode. You have configured "
+            + f"{algo.config.evaluation_duration} "
+            + f"{algo.config.evaluation_duration_unit}. For 'timesteps', try "
+            + "increasing this value via the `config.evaluation(evaluation_duration="
+            + "...)` OR change the unit to 'episodes' via `config.evaluation("
+            + "evaluation_duration_unit='episodes')` OR try increasing the timeout "
+            + "threshold via `config.evaluation(evaluation_sample_timeout_s=...)` OR "
+            + "you can also set `config.evaluation_force_reset_envs_before_iteration`"
+            + " to False. However, keep in mind that in the latter case, the "
+            + "evaluation results may contain some episode stats generated with "
+            + "earlier weights versions."
         )
 
     # CHANGED:

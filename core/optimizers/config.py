@@ -13,9 +13,9 @@ import copy
 from abc import ABC
 from typing import TYPE_CHECKING, Any, Optional, Self, Type, Union
 
+import gymnasium as gym
 import numpy as np
 import ray
-import gymnasium as gym
 from ray.actor import ActorHandle
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
@@ -84,15 +84,13 @@ class OptimizerConfig(_Config, ABC):
         ``MetricsLogger``.
     """
 
-    # TODO registry to allow opt_class str
-    # TODO runtime checking of opt_class
     def __init__(self, opt_class: Optional[Type[Optimizer]] = None):
         """Initializes an OptimizerConfig instance.
 
         Args:
-            optimizer_class: An optional Optimizer class that this config class belongs to.
-                Used (if provided) to build a respective Optimizer instance from this
-                config.
+            optimizer_class: An optional Optimizer class that this config class
+                belongs to. Used (if provided) to build a respective Optimizer
+                instance from this config.
         """
 
         self.opt_class = opt_class
@@ -103,8 +101,8 @@ class OptimizerConfig(_Config, ABC):
         # environment
         self.env: Optional[Union[str, EnvType]] = None
         self.env_config: dict = {}
-        self.horizon: int = None  # TODO default value
-        self.agents_cfgs: Optional[dict[AgentID, AgentConfig]] = None  # TODO default
+        self.horizon: int = None
+        self.agents_cfgs: Optional[dict[AgentID, AgentConfig]] = None
 
         # training
         self.episodes: Optional[int] = None
@@ -127,13 +125,19 @@ class OptimizerConfig(_Config, ABC):
 
     @property
     def reporter_cfg(self) -> Optional[ReporterConfig]:
-        """Reporter configuration used by ``_build_reporter``; ``None`` disables reporting."""
+        """Reporter configuration used by ``_build_reporter``.
+
+        ``None`` disables reporting.
+        """
 
         return self._reporter_cfg
 
     @reporter_cfg.setter
     def reporter_cfg(self, reporter_cfg: ReporterConfig) -> None:
-        """Attach a reporter configuration (``BilevelConfig`` copies one to each level)."""
+        """Attach a reporter configuration.
+
+        ``BilevelConfig`` copies one to each level.
+        """
 
         self._reporter_cfg = reporter_cfg
 
@@ -142,12 +146,11 @@ class OptimizerConfig(_Config, ABC):
             if name not in ["_is_frozen"]:
                 raise AttributeError(
                     f"Cannot set attribute ({name}) of an already frozen "
-                    "OptimizerConfig!"
+                    + "OptimizerConfig!"
                 )
 
         super().__setattr__(name, value)
 
-    # TODO generalize this function
     def _merge_env_config(self, extra: dict) -> Self:
         """Shallow-merge ``extra`` into ``env_config`` (``extra`` wins).
 
@@ -160,14 +163,10 @@ class OptimizerConfig(_Config, ABC):
             ``self`` for chaining.
         """
 
-        self.env_config = {
-            **(self.env_config or {}),
-            **extra,
-        }
+        self.env_config = {**(self.env_config or {}), **extra}
 
         return self
 
-    # TODO freezing for nested configs
     def freeze(self) -> None:
         """Freeze this config object, such that no attributes can be set anymore.
 
@@ -203,7 +202,6 @@ class OptimizerConfig(_Config, ABC):
 
         return cp
 
-    # TODO review this
     @classmethod
     def from_dict(cls, data: dict) -> Self:
         """Serialization from dict"""
@@ -216,7 +214,6 @@ class OptimizerConfig(_Config, ABC):
 
         return cfg
 
-    # TODO review this
     @classmethod
     def from_yaml(cls, path: str) -> Self:
         """Serialization from yaml"""
@@ -228,10 +225,7 @@ class OptimizerConfig(_Config, ABC):
 
         return cls.from_dict(data)
 
-    def _env_creator(
-        self,
-        **env_ctx,
-    ) -> gym.Env:
+    def _env_creator(self, **env_ctx) -> gym.Env:
         """Instantiate ``self.env`` with the given keyword arguments.
 
         Parameters
@@ -251,10 +245,6 @@ class OptimizerConfig(_Config, ABC):
 
         return self.env(**env_ctx)
 
-    # TODO deep copy allows on may be toggled later with use_copy
-    # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
-    # TODO move optimizer registration to executor in future
-    # TODO enable multiple world registration
     def build_optimizer(
         self,
         *,
@@ -285,7 +275,9 @@ class OptimizerConfig(_Config, ABC):
 
         if world is not None:
             registry = ray.get(world.get_opt_registry.remote())
-            opt.id = ray.get(world._set_new_opt_id.remote(opt_id=generate_uuid(registry)))
+            opt.id = ray.get(
+                world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
+            )
 
         env = cfg._env_creator(
             world=world,
@@ -303,7 +295,6 @@ class OptimizerConfig(_Config, ABC):
 
         return opt
 
-    # TODO EnvConfigDict
     def environment(
         self,
         env: Optional[Union[str, EnvType]] = None,
@@ -376,11 +367,7 @@ class OptimizerConfig(_Config, ABC):
 
         return self
 
-    def training(
-        self,
-        *,
-        episodes: Optional[int] = None,
-        ) -> Self:
+    def training(self, *, episodes: Optional[int] = None) -> Self:
         """Set the optimizer's training hyperparameters (backend specific).
 
         Subclasses define the accepted keyword arguments and return ``self``.
@@ -429,7 +416,7 @@ class OptimizerConfig(_Config, ABC):
         queries: Optional[tuple[Query]],
         schema: Optional[type[MetricSchema]] = None,
     ) -> Self:
-        """Declare the optimizer-level metric schema and the queries to render from it."""
+        """Declare the optimizer-level metric schema and the queries to render."""
 
         if schema is not None:
             self._reporting_schema = schema
@@ -439,10 +426,7 @@ class OptimizerConfig(_Config, ABC):
 
         return self
 
-    def agents(
-        self,
-        agents: AgentConfig | tuple[AgentConfig, ...],
-    ) -> Self:
+    def agents(self, agents: AgentConfig | tuple[AgentConfig, ...]) -> Self:
         if isinstance(agents, tuple):
             if len(agents) < 1:
                 raise ValueError("agents cannot be empty")
@@ -450,33 +434,3 @@ class OptimizerConfig(_Config, ABC):
             agents = (agents,)
         self.agents_cfgs = {agent.id: agent for agent in agents}
         return self
-
-    # TODO Docstring explanation
-    # @abstractmethod
-    # def ressources(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def evaluation(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def reporting(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def checkpointing(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def fault_tolerance(self):
-    #     raise NotImplementedError
-
-    # # TODO Docstring explanation
-    # @abstractmethod
-    # def experimental(self):
-    #     raise NotImplementedError

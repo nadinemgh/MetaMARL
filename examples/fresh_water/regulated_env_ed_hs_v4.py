@@ -71,19 +71,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         # Simplified corn-specific crop-stress proxy
         self.permanent_wilting_fraction = ecology_cfg.get(
-            "corn_permanent_wilting_fraction",
-            0.35,
+            "corn_permanent_wilting_fraction", 0.35
         )
-
-        # self.streamflow_init = ecology_cfg.get("streamflow_init", 124.724)
-        # self.streamflow_init_sigma = ecology_cfg.get("streamflow_init_sigma", 0.05)
-        # self.streamflow_ref = ecology_cfg.get("streamflow_ref", self.streamflow_init)
-        # self.default_precip_mm_day = ecology_cfg.get("default_precip_mm_day", 2.5)
-        # self.default_temperature_c = ecology_cfg.get("default_temperature_c", 22.0)
-        # self.temperature_sigma = ecology_cfg.get("temperature_sigma", 2.0)
-        # self.precip_sigma = ecology_cfg.get("precip_sigma", 0.35)
-        # self.underuse_penalty_scale = ecology_cfg.get("underuse_penalty_scale", 0.15)
-        # self.underuse_penalty_power = ecology_cfg.get("underuse_penalty_power", 2.0)
 
         self.use_raven = use_raven
         self.raven_cmd = raven_cmd or "raven"
@@ -93,8 +82,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self.raven_streamflow_col = raven_streamflow_col
         self.raven_outflow_col = raven_outflow_col
         self.raven_precip_col = raven_precip_col
-
-        # self.raven_temp_col = raven_precip_col
 
         self.withdrawal_history_m3s: list[tuple[datetime, float]] = []
         self.key = f"m_{self.mechanism_id}_seed_{self.seed}_"
@@ -114,12 +101,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self.withdrawal_history_m3s = []
 
         # Seeded randomization of planting day
-        planting_day_of_year = int(
-            self.rng.integers(
-                low=121,
-                high=274,
-            )
-        )
+        planting_day_of_year = int(self.rng.integers(low=121, high=274))
         planting_date = datetime(1980, 1, 1) + timedelta(days=planting_day_of_year)
         self._planting_day = planting_date.day
         self._planting_month = planting_date.month
@@ -135,12 +117,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             reservoir_stage_init - (self.full_stage_m - self.max_depth_m)
         ) / self.max_depth_m
 
-        # streamflow = inflow
+        # Streamflow is the reservoir inflow.
         streamflow_m3s_init = self._read_raven_streamflow(self.raven_streamflow_col)
         outflow_m3s_init = self._read_raven_streamflow(self.raven_outflow_col)
         precip_mm_day_init = self._read_raven_precip(self.raven_precip_col)
 
-        # temp_c_init = self._read_raven_temp(self.raven_precip_col)
         temp_c_init = self._estimate_temp_c(date=planting_date)
         release_pressure = min(
             1.0, max(0.0, outflow_m3s_init / max(EPS, streamflow_m3s_init))
@@ -191,7 +172,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         return "offseason"
 
-    # TODO  temporary since raven does not output temperature
     def _estimate_temp_c(self, date: datetime) -> float:
         return {
             1: -5.0,
@@ -248,8 +228,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         etcrop_mm_day = eto_mm_day * CORN_GRAIN_KC[crop_stage]
         deficit_mm_day = max(0.0, etcrop_mm_day - precip_mm_day)
 
-        # TODO must also retreive the time of the day to water in order to normalize
-        # per seconds
         full_required_m3_day = (
             deficit_mm_day / 1000.0 * self.max_farm_area_m2
             # / 86400.0
@@ -268,10 +246,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             # Old storage-based quota replaced by demand-fraction quota.
             allowed_m3_day = self._allowed_m3_day(reservoir_level_norm)
-            delivered_m3_day = min(
-                requested_m3_day,
-                allowed_m3_day,
-            )
+            delivered_m3_day = min(requested_m3_day, allowed_m3_day)
 
             if crop_water_need_m3_day <= EPS:
                 crop_satisfaction[agent_id] = 1.0
@@ -311,12 +286,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         # Old storage-based quota replaced by demand-fraction quota.
         allowed_frac = self._allowed_frac(reservoir_level_norm)
         allowed_m3_day = allowed_frac * self.full_required_m3_day
-        delivered_m3_day = min(
-            requested_m3_day,
-            allowed_m3_day,
-        )
+        delivered_m3_day = min(requested_m3_day, allowed_m3_day)
 
-        # TODO review this
         quota_violation_m3_day = max(0.0, requested_m3_day - allowed_m3_day)
         quota_penalty = min(
             1.0,
@@ -325,7 +296,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         )
 
         # risk_penalty_power is now actually used.
-        # This makes high extraction fractions increasingly costly when release pressure is high.
+        # This makes high extraction fractions increasingly costly when release
+        # pressure is high.
         requested_frac = requested_m3_day / max(EPS, self.full_required_m3_day)
         flow_penalty = (
             self.mechanism.risk_penalty_scale
@@ -333,27 +305,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             * (requested_frac**self.mechanism.risk_penalty_power)
         )
 
-        # minimum_crop_need_m3_day = (
-        #     CORN_WILTING_FRAC,
-        #     * self.full_required_m3_day
-        # )
-
-        # under_irrigation_m3_day = max(
-        #     0.0,
-        #     minimum_crop_need_m3_day - requested_m3_day,
-        # )
-
-        # under_irrigation_penalty = min(
-        #     1.0,
-        #     self.mechanism.under_irrigation_penalty_scale
-        #     * under_irrigation_m3_day
-        #     / max(EPS, minimum_crop_need_m3_day),
-        # )
-
         total_penalty = min(1.0, quota_penalty + flow_penalty)
-
-        # quota_violation_m3_day = 0
-        # quota_penalty = 0
 
         self._update_infos(key="requested_m3_day", values={agent_id: requested_m3_day})
         self._update_infos(key="allowed_m3_day", values={agent_id: allowed_m3_day})
@@ -382,10 +334,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         return 1.0
 
     def transition_kernel(
-        self,
-        *,
-        A_t: MultiAgentDict,
-        S_t: dict[str, float],
+        self, *, A_t: MultiAgentDict, S_t: dict[str, float]
     ) -> dict[str, float]:
         delivered_m3_day = {}
 
@@ -398,10 +347,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             # Old storage-based quota replaced by demand-fraction quota.
             allowed_m3_day = self._allowed_m3_day(reservoir_level_norm)
-            delivered_m3_day[agent_id] = min(
-                requested_m3_day,
-                allowed_m3_day,
-            )
+            delivered_m3_day[agent_id] = min(requested_m3_day, allowed_m3_day)
 
         total_usage_m3_day = sum(delivered_m3_day.values())
         total_usage_m3s = total_usage_m3_day / 86400.0
@@ -445,7 +391,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                     "West_Montrose (observed) [m3/s]"
                 )
 
-                # eod_temp_c = self._read_raven_temp(self.raven_temp_col)
                 eod_temp_c = self._estimate_temp_c(date=next_date)
 
                 if eod_reservoir_stage is not None:
@@ -454,9 +399,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
                         - (self.full_stage_m - self.max_depth_m)
                     ) / self.max_depth_m
 
-                # TODO review this
                 # compute flow penalty
-                # TODO this may need to be capped or may explode
                 release_pressure = min(
                     1.0, max(0.0, eod_outflow_m3s / max(EPS, eod_streamflow_m3s))
                 )
@@ -484,7 +427,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             "residence_time_days": residence_time_days,
         }
 
-        # TODO this updates every time step - find way to update once at reset
         self._update_infos(key="baseline_ref", values=self.baseline_ref)
         self._update_infos(key="reservoir_stage", values=eod_reservoir_stage)
         self._update_infos(key="reservoir_level_norm", values=eod_reservoir_level_norm)
@@ -524,9 +466,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         reservoir_level_norm = float(S_t["reservoir_level_norm"])
         total_usage_norm = float(S_t.get("last_usage_m3_day", 0.0))
 
-        # TODO Q : what can we normalize streamflow_m3s with ?
-        # streamflow_m3s = float(S_t.get("streamflow_m3s", 0.0))
-        # streamflow_norm = streamflow_m3s / max(EPS, self.streamflow_ref_m3s)
         release_pressure = S_t["release_pressure"]
 
         # effective_quota now means the current demand fraction available to agents.
@@ -569,11 +508,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         return self.run_root
 
-    def _append_extraction_to_rvt(
-        self,
-        run_dir: str,
-        date: datetime,
-    ) -> int:
+    def _append_extraction_to_rvt(self, run_dir: str, date: datetime) -> int:
         rvt_path = Path(run_dir) / "input" / "Extraction.rvt"
         lines = rvt_path.read_text(encoding="utf-8").splitlines()
         header_idx = next(
@@ -629,14 +564,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         run_dir = self._prepare_raven_run()
 
-        self._append_extraction_to_rvt(
-            run_dir=run_dir,
-            date=date,
-        )
-        self._patch_raven_end_date(
-            run_dir=run_dir,
-            date=date,
-        )
+        self._append_extraction_to_rvt(run_dir=run_dir, date=date)
+        self._patch_raven_end_date(run_dir=run_dir, date=date)
 
         out_dir = "3_Model_output"
 
@@ -678,9 +607,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             return None
 
         csv_path = os.path.join(
-            self.run_root,
-            "3_Model_output",
-            "ohms_canshield_ReservoirStages.csv",
+            self.run_root, "3_Model_output", "ohms_canshield_ReservoirStages.csv"
         )
 
         if not os.path.exists(csv_path):
@@ -725,9 +652,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             return None
 
         csv_path = os.path.join(
-            self.run_root,
-            "3_Model_output",
-            "ohms_canshield_Hydrographs.csv",
+            self.run_root, "3_Model_output", "ohms_canshield_Hydrographs.csv"
         )
 
         if not os.path.exists(csv_path):
@@ -747,8 +672,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             if column_name not in row:
                 match = next(
-                    (k for k in row.keys() if k.strip() == column_name.strip()),
-                    None,
+                    (k for k in row.keys() if k.strip() == column_name.strip()), None
                 )
 
                 if match is None:
@@ -773,19 +697,12 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
     def _read_raven_precip(self, column_name: str) -> Optional[float]:
         return self._read_raven_hydrograph_value(column_name)
 
-    # def _read_raven_temp(self, column_name: Optional[str]) -> Optional[float]:
-    #     if column_name is None:
-    #         return self.default_temp_c
-    #     return self._read_raven_hydrograph_value(column_name)
-
     def _read_raven_hydrograph_value(self, column_name: str) -> Optional[float]:
         if self.run_root is None:
             return None
 
         csv_path = os.path.join(
-            self.run_root,
-            "3_Model_output",
-            "ohms_canshield_Hydrographs.csv",
+            self.run_root, "3_Model_output", "ohms_canshield_Hydrographs.csv"
         )
 
         if not os.path.exists(csv_path):
@@ -805,8 +722,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             if column_name not in row:
                 match = next(
-                    (k for k in row.keys() if k.strip() == column_name.strip()),
-                    None,
+                    (k for k in row.keys() if k.strip() == column_name.strip()), None
                 )
 
                 if match is None:

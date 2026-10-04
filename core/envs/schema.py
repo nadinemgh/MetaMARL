@@ -21,9 +21,9 @@ class AgentEnvStepSchema(MetricSchema):
 
     # statistics collected at env-step level
     base_action: Optional[float] = Field(
-            default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-        )
-    
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
+    )
+
     action: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
@@ -31,18 +31,16 @@ class AgentEnvStepSchema(MetricSchema):
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     base_reward: Optional[float] = Field(
-            default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-        )
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
+    )
     reward: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     terminated: Optional[bool] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},  # TODO mean to support bool
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     truncated: Optional[bool] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},  # TODO mean to supprot bool
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
 
     # calculated stats
@@ -66,27 +64,22 @@ class AgentEnvStepSchema(MetricSchema):
     )
 
 
-# TODO add recducer metadata attachment.
 class EpisodeRolloutSchema(
     MetricSchema
 ):  # attention this is aggregate by env not by env step
     """Generic environment-step metrics."""
 
     env_id: Optional[int] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     mechanism_id: Optional[int] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     seed: Optional[int] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     policy_seed: Optional[int] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
 
     # Reward (R) statistics
@@ -119,15 +112,10 @@ class EpisodeRolloutSchema(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     num_episodes: Optional[int] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     num_episodes_lifetime: Optional[int] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
 
-    # TODO models such as PILCO, Dyna, Qyna-Q
-    by_agent: dict[AgentID, AgentEnvStepSchema] = Field(
-        default_factory=dict,
-    )
+    by_agent: dict[AgentID, AgentEnvStepSchema] = Field(default_factory=dict)

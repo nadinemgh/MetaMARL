@@ -13,24 +13,21 @@ manifold (encoding, decoding, clipping, sampling) lives in
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional, SupportsFloat, TypeVar
 
 import numpy as np
 from gymnasium import spaces
 
 from core.mechanism.types import Trajectory
+from core.types import AgentID, MechanismID
 from core.utils import intersect, logical_or_dict
 
 StateType = TypeVar("StateType")
 ActType = TypeVar("ActType")
 ObsType = TypeVar("ObsType")
 
-from dataclasses import field
 
-from core.types import AgentID, MechanismID
-
-# TODO fix type annotations
 @dataclass
 class MDPState:
     t: int = 0
@@ -96,8 +93,12 @@ class MDPState:
             t=self.t + 1,
             state=(self.state.append(state) if state is not None else self.state),
             obs=(self.obs.append(obs) if obs is not None else self.obs),
-            actions=(self.actions.append(actions) if actions is not None else self.actions),
-            rewards=(self.rewards.append(rewards) if rewards is not None else self.rewards),
+            actions=(
+                self.actions.append(actions) if actions is not None else self.actions
+            ),
+            rewards=(
+                self.rewards.append(rewards) if rewards is not None else self.rewards
+            ),
         )
 
     def update(
@@ -144,7 +145,6 @@ class Mechanism(ABC):
         self.obs_map = obs_map
         self._u = default if default else None
 
-    # TODO (nadine) enforce shape 1 action
     def __call__(self, mdp: MDPState, action: ActType) -> MDPState:
         action = self.decode(mdp, action)
         mdp.actions[self.aid][self.id][mdp.t] = action

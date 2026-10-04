@@ -47,7 +47,10 @@ class WandbConfig(ReporterConfig):
         }
 
     def build(self, *, label: Optional[str] = None) -> WandbReporter:
-        """Create a :class:`WandbReporter` with a fresh random run id, grouped by world."""
+        """Create a :class:`WandbReporter` with a fresh random run id.
+
+        The run is grouped by world.
+        """
 
         name = f"{self.world}-{label}" if label is not None else self.world
 
@@ -56,10 +59,7 @@ class WandbConfig(ReporterConfig):
             run_id=uuid.uuid4().hex,
             group=self.world,
             name=name,
-            config={
-                "outer_iters": self.outer_iters,
-                "world_name": self.world,
-            },
+            config={"outer_iters": self.outer_iters, "world_name": self.world},
             settings=self.settings,
         )
 
@@ -112,12 +112,8 @@ class WandbReporter(Reporter):
 
     @classmethod
     def _series_label(
-        cls,
-        path: Path,
-        group: Group,
-        label: Optional[str] = None,
+        cls, path: Path, group: Group, label: Optional[str] = None
     ) -> str:
-        # TODO when by_agent followed by add, then skip
         name = label if label is not None else cls._path_name(path)
 
         if not group:
@@ -140,12 +136,7 @@ class WandbReporter(Reporter):
     ) -> go.Figure:
         fig = go.Figure()
         palette = qualitative.Plotly
-        dashes = (
-            "solid",
-            "dash",
-            "dot",
-            "dashdot",
-        )
+        dashes = ("solid", "dash", "dot", "dashdot")
         groups = list(dict.fromkeys(group for ys in yss for group in ys))
         group_dashes = {
             group: dashes[i % len(dashes)] for i, group in enumerate(groups)
@@ -186,31 +177,14 @@ class WandbReporter(Reporter):
             if query.colorscale is not None:
                 coloraxis["colorscale"] = query.colorscale
 
-            fig.update_layout(
-                coloraxis=coloraxis,
-            )
+            fig.update_layout(coloraxis=coloraxis)
 
-        for path_index, (
-            path,
-            ys,
-            errors,
-            path_label,
-            mode,
-        ) in enumerate(
-            zip(
-                query.y_paths,
-                yss,
-                error_yss,
-                labels,
-                modes,
-            )
+        for path_index, (path, ys, errors, path_label, mode) in enumerate(
+            zip(query.y_paths, yss, error_yss, labels, modes)
         ):
             path_color = palette[path_index % len(palette)]
 
-            for group_index, (
-                group,
-                values,
-            ) in enumerate(ys.items()):
+            for group_index, (group, values) in enumerate(ys.items()):
                 if () in xs:
                     x = xs[()]
                 else:
@@ -222,20 +196,12 @@ class WandbReporter(Reporter):
                         ) from None
 
                 label = cls._series_label(
-                    path,
-                    group if query.show_group_labels else (),
-                    label=path_label,
+                    path, group if query.show_group_labels else (), label=path_label
                 )
 
                 if group in errors:
-                    y = np.asarray(
-                        values,
-                        dtype=np.float64,
-                    )
-                    std = np.asarray(
-                        errors[group],
-                        dtype=np.float64,
-                    )
+                    y = np.asarray(values, dtype=np.float64)
+                    std = np.asarray(errors[group], dtype=np.float64)
 
                     if len(y) != len(std):
                         raise ValueError(
@@ -253,10 +219,7 @@ class WandbReporter(Reporter):
                             fill="toself",
                             fillcolor=path_color,
                             opacity=0.15,
-                            line=dict(
-                                width=0,
-                                color=path_color,
-                            ),
+                            line=dict(width=0, color=path_color),
                             name=f"{label} ±1 std",
                             hoverinfo="skip",
                             showlegend=False,
@@ -264,9 +227,7 @@ class WandbReporter(Reporter):
                         )
                     )
 
-                marker: dict[str, Any] = {
-                    "color": path_color,
-                }
+                marker: dict[str, Any] = {"color": path_color}
 
                 if color_values is not None:
                     if () in color_values:
@@ -279,10 +240,7 @@ class WandbReporter(Reporter):
                                 f"No color series exists for group {group}."
                             ) from None
 
-                    marker = {
-                        "color": point_colors,
-                        "coloraxis": "coloraxis",
-                    }
+                    marker = {"color": point_colors, "coloraxis": "coloraxis"}
 
                 fig.add_trace(
                     go.Scatter(
@@ -292,10 +250,7 @@ class WandbReporter(Reporter):
                         name=label,
                         showlegend=(query.show_group_labels or group_index == 0),
                         legendgroup=label,
-                        line=dict(
-                            color=path_color,
-                            dash=group_dashes[group],
-                        ),
+                        line=dict(color=path_color, dash=group_dashes[group]),
                         marker=marker,
                     )
                 )
@@ -319,11 +274,7 @@ class WandbReporter(Reporter):
             return
 
         fig = self._series_figure(
-            query=query,
-            xs=x,
-            yss=ys,
-            error_yss=errors,
-            color_values=colors,
+            query=query, xs=x, yss=ys, error_yss=errors, color_values=colors
         )
         x_name = (
             query.x_label if query.x_label is not None else self._path_name(query.x)
@@ -349,26 +300,19 @@ class WandbReporter(Reporter):
                 xanchor="left",
                 x=(1.15 if colors is not None else 1.02),
             ),
-            margin=dict(
-                r=(300 if colors is not None else 220),
-            ),
+            margin=dict(r=(300 if colors is not None else 220)),
         )
-        fig.update_xaxes(
-            rangeslider_visible=False,
-        )
+        fig.update_xaxes(rangeslider_visible=False)
 
-        plot_name = sanitize_key(
-            query.title,
-        )
+        plot_name = sanitize_key(query.title)
 
-        self._run.log(
-            {
-                f"plots/{plot_name}": fig,
-            }
-        )
+        self._run.log({f"plots/{plot_name}": fig})
 
     def close(self) -> None:
-        """Finish the W&B run if one was started; a later ``report`` calls ``wandb.init`` again."""
+        """Finish the W&B run if one was started.
+
+        A later ``report`` calls ``wandb.init`` again.
+        """
 
         if self._run is not None:
             self._run.finish()

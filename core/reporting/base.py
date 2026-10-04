@@ -30,7 +30,6 @@ class Reporter(ABC):
     but cannot be replaced once set.
     """
 
-    # TODO how to store data in the results reporter ?
     _queries: tuple[Query, ...] = ()
     _schema: type[MetricSchema] | None = None
 
@@ -62,7 +61,6 @@ class Reporter(ABC):
 
         self._schema = schema
 
-    # TODO remove reduction logic from reporting
     def _resolve_path(
         self,
         path: Path,
@@ -84,7 +82,8 @@ class Reporter(ABC):
 
             if any(isinstance(value, list) for value in metrics):
                 raise ValueError(
-                    "Path resolves to a nested metric series. A series reduction is required: {path}"
+                    "Path resolves to a nested metric series. "
+                    + "A series reduction is required: {path}"
                 )
 
             return PathResolution(values={group: metrics}, errors={})
@@ -99,12 +98,7 @@ class Reporter(ABC):
                 for dynamic_id, child in sorted(
                     metrics.items(), key=lambda item: str(item[0])
                 ):
-                    child_group = group + (
-                        (
-                            junction or "dict",
-                            str(dynamic_id),
-                        ),
-                    )
+                    child_group = group + ((junction or "dict", str(dynamic_id)),)
                     child_result = self._resolve_path(
                         path=path,
                         metrics=child,
@@ -139,7 +133,8 @@ class Reporter(ABC):
 
                 if any(set(branch.values) != groups for branch in branches[1:]):
                     raise ValueError(
-                        "Cannot compute mean across branches with different SERIES groups."
+                        "Cannot compute mean across branches with different "
+                        + "SERIES groups."
                     )
 
                 reduction_path = path[:index]
@@ -147,8 +142,9 @@ class Reporter(ABC):
 
                 if not capture_error and any(branch.errors for branch in branches):
                     raise ValueError(
-                        "error_path is nested below another MEAN reduction. Error propagation "
-                        "through additional reductions is not defined."
+                        "error_path is nested below another MEAN reduction. "
+                        + "Error propagation through additional reductions is not "
+                        + "defined."
                     )
 
                 reduced: Resolved = {}
@@ -160,30 +156,19 @@ class Reporter(ABC):
 
                     if len(lengths) != 1:
                         raise ValueError(
-                            "Cannot compute pointwise mean over series with different lengths: "
-                            f"{sorted(lengths)}."
+                            "Cannot compute pointwise mean over series with "
+                            + "different lengths: "
+                            + f"{sorted(lengths)}."
                         )
 
-                    values = np.asarray(
-                        series,
-                        dtype=np.float64,
-                    )
-                    reduced[branch_group] = np.mean(
-                        values,
-                        axis=0,
-                    ).tolist()
+                    values = np.asarray(series, dtype=np.float64)
+                    reduced[branch_group] = np.mean(values, axis=0).tolist()
 
                     if capture_error:
                         if error == "std":
-                            errors[branch_group] = np.std(
-                                values,
-                                axis=0,
-                            ).tolist()
+                            errors[branch_group] = np.std(values, axis=0).tolist()
 
-                return PathResolution(
-                    values=reduced,
-                    errors=errors,
-                )
+                return PathResolution(values=reduced, errors=errors)
 
             if isinstance(token, ReduceProtocol):
                 raise NotImplementedError(
@@ -227,21 +212,11 @@ class Reporter(ABC):
         )
 
     def _resolve_query(
-        self,
-        metrics: MetricSchema,
-        query: Query,
-    ) -> tuple[
-        Resolved,
-        list[Resolved],
-        list[Resolved],
-        Resolved | None,
-    ]:
+        self, metrics: MetricSchema, query: Query
+    ) -> tuple[Resolved, list[Resolved], list[Resolved], Resolved | None]:
         """Resolve a query against a populated metric schema."""
 
-        x_result = self._resolve_path(
-            path=query.x,
-            metrics=metrics,
-        )
+        x_result = self._resolve_path(path=query.x, metrics=metrics)
         xs = x_result.values
         y_results = [
             self._resolve_path(
@@ -258,37 +233,32 @@ class Reporter(ABC):
         colors: Resolved | None = None
 
         if query.color is not None:
-            colors = self._resolve_path(
-                path=query.color,
-                metrics=metrics,
-            ).values
+            colors = self._resolve_path(path=query.color, metrics=metrics).values
 
-        for path, ys, errors in zip(
-            query.y_paths,
-            yss,
-            error_yss,
-        ):
+        for path, ys, errors in zip(query.y_paths, yss, error_yss):
             if set(xs) == {()}:
                 x = xs[()]
 
                 for group, y in ys.items():
                     if len(x) != len(y):
                         raise ValueError(
-                            "Query series must have equal length: x={query.x} ({len(x)}), "
-                            f"y={path}, group={group} ({len(y)})."
+                            "Query series must have equal length: "
+                            + "x={query.x} ({len(x)}), "
+                            + f"y={path}, group={group} ({len(y)})."
                         )
             else:
                 if set(xs) != set(ys):
                     raise ValueError(
                         "Dynamic x and y groups do not match: "
-                        f"x={set(xs)}, y={set(ys)}."
+                        + f"x={set(xs)}, y={set(ys)}."
                     )
 
                 for group in xs:
                     if len(xs[group]) != len(ys[group]):
                         raise ValueError(
                             "Query series must have equal "
-                            f"length for group {group}: x={len(xs[group])}, y={len(ys[group])}."
+                            + f"length for group {group}: x={len(xs[group])}, "
+                            + f"y={len(ys[group])}."
                         )
 
             for group, values in errors.items():
@@ -299,7 +269,8 @@ class Reporter(ABC):
 
                 if len(values) != len(ys[group]):
                     raise ValueError(
-                        f"Error series must have the same length as y for group {group}."
+                        "Error series must have the same length as y for group "
+                        + f"{group}."
                     )
 
             if colors is not None:
@@ -316,16 +287,12 @@ class Reporter(ABC):
 
                     if len(color_values) != len(y):
                         raise ValueError(
-                            f"Color series must have the same length as y for group {group}: "
-                            f"color={len(color_values)}, y={len(y)}."
+                            "Color series must have the same length as y for group "
+                            + f"{group}: "
+                            + f"color={len(color_values)}, y={len(y)}."
                         )
 
-        return (
-            xs,
-            yss,
-            error_yss,
-            colors,
-        )
+        return (xs, yss, error_yss, colors)
 
     @abstractmethod
     def _report(

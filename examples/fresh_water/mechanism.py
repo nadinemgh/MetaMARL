@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 
 import numpy as np
+from core.mechanism.space import MechanismSpace
 from numpy.typing import NDArray
 
 from core.annotations import override
 from core.mechanism.base import Mechanism
-from core.mechanism.space import MechanismSpace
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,8 @@ class WaterMechanism(Mechanism):
         assert 0.6 <= self.fixed_quota <= 0.95
 
         # CHANGED:
-        # These are fractions of crop irrigation demand, not fractions of reservoir storage.
+        # These are fractions of crop irrigation demand, not fractions of reservoir
+        # storage.
         assert 0.0 <= self.min_demand_frac <= 1.0
         assert 0.05 <= self.max_demand_frac <= 1.0
         assert self.min_demand_frac <= self.max_demand_frac
@@ -103,7 +104,8 @@ class WaterMechanismSpace(MechanismSpace):
         # CHANGED:
         # Defaults now mean:
         #   under stress: at least 5% of full required irrigation can be delivered
-        #   when reservoir is healthy: up to 100% of full required irrigation can be delivered
+        #   when reservoir is healthy: up to 100% of full required irrigation can be
+        #   delivered
         default_min_demand_frac: float = 0.05,
         default_max_demand_frac: float = 1.0,
         default_fine_amount: float = 0.05,
@@ -180,8 +182,7 @@ class WaterMechanismSpace(MechanismSpace):
         # Keep the quota curve monotonic.
         if "min_demand_frac" in result and "max_demand_frac" in result:
             result["max_demand_frac"] = max(
-                result["max_demand_frac"],
-                result["min_demand_frac"],
+                result["max_demand_frac"], result["min_demand_frac"]
             )
 
         return result
@@ -249,8 +250,7 @@ class WaterMechanismSpace(MechanismSpace):
         # CHANGED:
         # Make sure min <= max even when only one of the two params is optimized.
         params["max_demand_frac"] = max(
-            params["max_demand_frac"],
-            params["min_demand_frac"],
+            params["max_demand_frac"], params["min_demand_frac"]
         )
         mech = WaterMechanism(
             fixed_quota=params["fixed_quota"],

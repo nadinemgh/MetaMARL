@@ -13,12 +13,16 @@ class MeanMetric(SeriesMetric):
     Only ``int`` and ``float`` are accepted (``bool`` is rejected); ``peek``
     returns ``None`` while empty.
 
-    When to use: the default protocol, for per-step quantities averaged over an iteration (rewards, catches, losses).
+    When to use: the default protocol, for per-step quantities averaged over an
+    iteration (rewards, catches, losses).
     """
 
     @override(SeriesMetric)
     def push(self, value: PrimitiveType) -> None:
-        """Append a number, rejecting booleans and non-numeric values with ``TypeError``."""
+        """Append a number.
+
+        Booleans and non-numeric values are rejected with ``TypeError``.
+        """
 
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TypeError(
@@ -27,11 +31,11 @@ class MeanMetric(SeriesMetric):
 
         self.values.append(value)
 
-    def peek(
-        self,
-        compile: bool = True,
-    ) -> float | list[float]:
-        """Return the arithmetic mean (``None`` when empty), or the history when ``compile`` is false."""
+    def peek(self, compile: bool = True) -> float | list[float]:
+        """Return the arithmetic mean (``None`` when empty).
+
+        When ``compile`` is false, the history is returned instead.
+        """
 
         if not compile:
             return list(self.values)
@@ -41,10 +45,7 @@ class MeanMetric(SeriesMetric):
 
         return sum(self.values) / len(self.values)
 
-    def reduce(
-        self,
-        compile: bool = True,
-    ) -> float | MeanMetric:
+    def reduce(self, compile: bool = True) -> float | MeanMetric:
         """Return the arithmetic mean and clear the history.
 
         With ``compile`` false a new ``MeanMetric`` holding only that value is

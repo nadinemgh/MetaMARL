@@ -2879,3 +2879,362 @@ Tutorial examples must reflect the final merged public API.
 17. [ ] Optional/preferred: numerical quota parity against `dev`.
 18. [ ] Update tutorials to final API.
 19. [ ] Run coverage and close remaining untested branches.
+
+# In-code TODO notes moved out of the source (October 2026)
+
+The project's `ruff.toml` forbids TODO comments in the code (rules `FIX` and `TD`),
+so the cleanup pass on `feature/social-influence-testing-v2` moved every such comment
+here before removing it from the source. There are 211 notes. Their wording is kept
+verbatim, including author tags. Each note names the symbol it was attached to and its
+line in commit `96294f6`, the last commit before the pass, so
+`git show 96294f6:<path>` shows it in its original context. Notes marked
+"inside commented-out code" belonged to code that was already disabled; that code was
+deleted in the same pass and remains in the git history.
+
+One finding of the pass belongs with these notes although it was not written as a
+TODO. In `core/mechanism/algorithms/quota.py`, `QuotaMechanism.apply` built a
+per-agent observation dictionary holding the allowed fraction and the regulator's
+action, `obs = {aid: np.asarray([0.0, 0.0, 0.0, 0.0, allowed_frac, action]) for aid
+in self.acts_on}`, and then never used it: the returned `MDPState` carries no
+observation, so agents do not observe the quota. The comprehension also iterated over
+`self.acts_on`, which is the `(agent, mechanism)` pair rather than the agent IDs. The
+unused assignment was removed (ruff rule `F841`); whether the quota should reach the
+agents' observations is an open design question for the mechanism port.
+
+## `core/adaptors/ray/marl_env.py`
+
+- `module level` (line 1): (nadine) wraps ray multiagentenv with MetaMARL abstraction
+- `module level` (line 31): remove ray and gymnasium dependency
+- `RLlibMultiAgentEnvAdapter` (line 47): future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+- `RLlibMultiAgentEnvAdapter.__init__` (line 85): (nadine) env serialization with numpy to avoid using MDPState and faster computation
+
+## `core/adaptors/ray/optimizer.py`
+
+- `module level` (line 22): temporary
+- `module level` (line 45): perhaps we would first want an adaptor for core ray algorithm and then the PPO inherits it
+- `RayOptimizer.__init__` (line 84): maybe this either needs to be an actor. or atleast have method to serialize data
+- `RayOptimizer.__init__` (line 88): fallback if rollout_fragment_length not in eval_cfg
+- `RayOptimizer._build_agent_policy_map` (line 134): move to utils
+- `RayOptimizer._to_logger_payload` (line 176): (nadine) : in the future this could be separated into a different class if justified
+- `RayOptimizer.train` (line 229): temporary to be moved to a logger Extract metrics
+- `RayOptimizer.evaluate` (line 258): (nadine) future support for async eval, otherwise must publish eval mechanism obj
+- `RayOptimizer.save` (line 307): (empty TODO, no text)
+
+## `core/adaptors/ray/optimizer_config.py`
+
+- `module level` (line 56): override environment to attach docstrings
+- `RayOptimizerConfig.algo_class` (line 112): review this
+- `RayOptimizerConfig.__init__` (line 122): termporary setting until find out how to share world context accross runners
+- `RayOptimizerConfig.rllib_config_mutator` (line 132): let mutator accept an explicit ID
+- `RayOptimizerConfig` (line 249) (inside commented-out code, a commented-out `evaluation` method): to infer from horizon
+- `RayOptimizerConfig._apply_agents_to_rllib` (lines 546-554): (nadinemgh) this does not guarantee tht different mechanism's policy will be initiated with the same seed ! what we want : run mechanism 0, seed 101; run mechanism 1, seed 101; run mechanism 2, seed 101; run mechanism 0, seed 202; run mechanism 1, seed 202; run mechanism 2, seed 202
+- `RayOptimizerConfig._apply_agents_to_rllib` (line 556): verify case when null seed
+- `RayOptimizerConfig._apply_agents_to_rllib` (line 590): not needed ?
+- `RayOptimizerConfig._apply_agents_to_rllib.policy_mapping_fn` (line 600): this is depregated !
+- `RayOptimizerConfig.build_optimizer` (line 707): verify this
+
+## `core/adaptors/ray/policy_actor.py`
+
+- `PolicyActor.train` (line 62): config ability to debug remote actors (the note was followed by commented-out code, now removed: `import debugpy, os`, `debugpy.listen(("127.0.0.1", 5678))`, `print(f"[debugpy] worker pid={os.getpid()} listening on 5678")`, `debugpy.wait_for_client()`, `debugpy.breakpoint()`)
+- `PolicyActor.train` (line 68): mapping result
+- `PolicyActor.reset` (line 142): verify reset is using the same seed (followed by commented-out code, now removed: `self.algo.set_weights(self._init_weights)`)
+- `PolicyActor.reset` (line 146): tie the init_weights with seeding
+
+## `core/adaptors/ray/schema.py`
+
+- `PolicyLearnerSchema` (line 52): this is a callable (note on the `sample_staleness` field)
+- `PolicyLearnerSchema` (line 83): what is total loss ?
+- `PolicyLearnerSchema` (line 84): kl vs kl loss
+- `PolicyLearnerSchema` (line 85): curr_kl_coeff
+- `PolicyLearnerSchema` (line 86): entropy vs entropy coeff
+- `PolicyLearnerSchema` (line 101): Q-statistics
+- `PolicyLearnerSchema` (line 102): Advantage statistics
+- `PolicyLearnerSchema` (line 103): advantage statistics
+- `PolicyLearnerSchema` (line 105): Reward (R) debugging (the following comment line `# Reward metrics. N.B. episode == trajectory` was kept in the code)
+- `module level` (lines 250-256): (bare TODO at the end of the file, followed by the continuation comment lines) num_env_steps_sampled_lifetime_throughput; timers; throughput_since_last_restore; num_agent_steps_sampled; num_agent_steps_sampled_lifetime; prevent non terminal leaves to have reduce objects
+
+## `core/adaptors/ray/utils.py`
+
+- `build_episode_aggregate` (line 198): remove finite
+- `build_performance` (line 242): refactor this to get data from env
+
+## `core/agents/base.py`
+
+- `Agent.__init_subclass__` (line 37): (nadine) only reset, transition and state space belong to env
+- `Agent._normalize_action` (line 43): move this to Agent
+- `Agent._normalize_action` (line 44): make this configurable in future
+- `Agent` (line 54): (nadine) MDPState should be EnvState payload to replace MDPState
+
+## `core/callbacks.py`
+
+- `tag_episode_with_env_idx` (line 114): inject policy_id to env for traceability and debugging
+- `module level` (line 117): to be moved to a separate actor in the future for extensibility (note placed above `log_and_report_episode_metrics`)
+- `log_and_report_episode_metrics` (line 163): could we just have the EnvRolloutSchema here ?
+- `_evaluate_with_fixed_duration_once` (lines 366-367): (kourosh) This approach will cause an OOM issue when the dataset gets huge (should be ok for now). (comment inherited from RLlib's `Algorithm._evaluate_with_fixed_duration`)
+
+## `core/envs/marl_regulated.py`
+
+- `module level` (line 55): create a reward type
+- `module level` (line 56): separate reported vs type mdp from agent to principal
+- `module level` (line 57): wrapper for MultiAgentEnv adaptor to work with ray
+- `MultiAgentEnv` (line 59): future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+- `MultiAgentEnv.__init__` (line 109): (nadine) later replace with planner_id
+- `MultiAgentEnv.__init__` (line 130): change name to just Status
+- `MultiAgentEnv.__init__` (line 132): (nadine) later replace with planner id
+- `MultiAgentEnv.reset` (line 231): raising error if training started and default mechanism is still on - leads to silent error
+
+## `core/envs/regulator.py`
+
+- `RegulatorEnv.__init__` (line 68): (nadine) not clear and avoid providing instantiated obj
+- `RegulatorEnv.step` (line 125): input should only be one action. regulator env parallelized instead
+- `RegulatorEnv.step` (line 147): (nadine) alternative way to pass mechanism to agents
+- `RegulatorEnv.step` (line 169): (nadine) return reduced results to avoid L:223
+- `RegulatorEnv.step` (line 172): (nadine) self.reward func should not be taking metrics
+
+## `core/envs/schema.py`
+
+- `AgentEnvStepSchema` (line 41): mean to support bool
+- `AgentEnvStepSchema` (line 45): mean to supprot bool
+- `EpisodeRolloutSchema` (line 69): add recducer metadata attachment.
+- `EpisodeRolloutSchema` (line 130): models such as PILCO, Dyna, Qyna-Q
+
+## `core/mechanism/algorithms/quota.py`
+
+- `QuotaMechanism` (line 18): what if two mechanisms interfere by requiring context from each other ? for example a penalty based on how much quota is violated ?
+
+## `core/mechanism/algorithms/subsidy.py`
+
+- `Subsidy.__post_init__` (line 19): (no text after the TODO token, on the line `assert 0.0 <= self.cost <= 1.0`)
+- `Subsidy.reward` (line 32): fix this, passing action after and before
+
+## `core/mechanism/base.py`
+
+- `MDPState` (line 33): fix type annotations
+- `Mechanism.__call__` (line 147): (nadine) enforce shape 1 action
+
+## `core/metrics/logger.py`
+
+- `MetricLogger.from_schema` (line 130): immutability
+- `MetricLogger._build_from_schema` (line 157): guardrails when Metric isnt well formatted
+- `MetricLogger.push_data` (line 280): refactor into one push function
+- `MetricLogger.push_data` (line 355): only verify it is a metric schema not that its env
+- `MetricLogger.push` (line 408): narrow down Any to stricter type annotation
+- `MetricLogger.peek_value` (line 419): narrow down Any to stricter type annotation
+- `MetricLogger.reduce` (line 462): custom exceptions
+- `MetricLogger.reset` (line 491): custom exceptions
+
+## `core/metrics/metric/base.py`
+
+- `module level` (line 11): what is an ABCMeta
+
+## `core/metrics/metric/last.py`
+
+- `LastMetric.reduce` (line 32): move to base cls
+
+## `core/metrics/metric/min.py`
+
+- `MinMetric.reduce` (line 44): move to base cls
+
+## `core/metrics/metric/sum.py`
+
+- `SumMetric.reduce` (line 42): move to base cls
+
+## `core/optimizers/base.py`
+
+- `module level` (line 14): move ray dependencies out of ray optimizer
+- `Optimizer` (line 39): ability to save data offline
+- `Optimizer.__init__` (line 55): replace by envFactory
+- `Optimizer.__init__` (line 63): review
+- `Optimizer` (line 73): setup accessors and mutators
+- `Optimizer.get_default_config` (line 181): default config logic
+- `Optimizer.train` (line 234): change this to training step
+
+## `core/optimizers/bilevel.py`
+
+- `BilevelConfig.reporter` (line 128): remote actor access to credentials
+- `BilevelOptimizer.train` (line 246): fig reporter with the new wandb reporter actor
+
+## `core/optimizers/config.py`
+
+- `OptimizerConfig.__init__` (line 87): registry to allow opt_class str
+- `OptimizerConfig.__init__` (line 88): runtime checking of opt_class
+- `OptimizerConfig.__init__` (line 106): default value
+- `OptimizerConfig.__init__` (line 107): default
+- `OptimizerConfig._merge_env_config` (line 150): generalize this function
+- `OptimizerConfig.freeze` (line 170): freezing for nested configs
+- `OptimizerConfig.from_dict` (line 206): review this
+- `OptimizerConfig.from_yaml` (line 219): review this
+- `OptimizerConfig.build_optimizer` (line 254): deep copy allows on may be toggled later with use_copy
+- `OptimizerConfig.build_optimizer` (line 255): build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
+- `OptimizerConfig.build_optimizer` (line 256): move optimizer registration to executor in future
+- `OptimizerConfig.build_optimizer` (line 257): enable multiple world registration
+- `OptimizerConfig.environment` (line 306): EnvConfigDict
+- `OptimizerConfig` (line 454): Docstring explanation (above the commented-out `ressources` stub)
+- `OptimizerConfig` (line 459): Docstring explanation (inside commented-out code, `evaluation` stub)
+- `OptimizerConfig` (line 464): Docstring explanation (inside commented-out code, `reporting` stub)
+- `OptimizerConfig` (line 469): Docstring explanation (inside commented-out code, `checkpointing` stub)
+- `OptimizerConfig` (line 474): Docstring explanation (inside commented-out code, `fault_tolerance` stub)
+- `OptimizerConfig` (line 479): Docstring explanation (inside commented-out code, `experimental` stub)
+
+## `core/optimizers/es/config.py`
+
+- `ESConfig` (line 124): this is where the random seed goes (inside commented-out code, `fault_tolerance` override)
+- `ESConfig` (line 125): do we put rng here ? (inside commented-out code, `fault_tolerance` override)
+
+## `core/optimizers/es/optimizer.py`
+
+- `ESOptimizer.__init__` (line 89): (nadine) we support only one planning agent in the config. to extend in future
+- `ESOptimizer.__init__` (line 103): (nadine) built-in normalization not supported yet
+- `ESOptimizer._has_converged` (line 666): (nadine) implement early stopping criteria
+- `ESOptimizer.train` (line 692): either move this t reset or mutation requires this is always true
+
+## `core/reporting/base.py`
+
+- `Reporter` (line 33): how to store data in the results reporter ?
+- `Reporter._resolve_path` (line 65): remove reduction logic from reporting
+
+## `core/reporting/wandb.py`
+
+- `WandbReporter._series_label` (line 120): when by_agent followed by add, then skip
+
+## `core/types.py`
+
+- `ContextID` (line 13): what if we want the contextID to be a unique UUID and we keep a registry of already existing contextID in the world
+- `ContextID` (line 14): registry object for the world.
+- `OptimizerID` (line 25): again what if we want a way to register the Optimizer in a memory object and generate a unique uuid for it ?
+- `module level` (line 39): create the WorldEnv
+- `module level` (line 40): in ray there are different types of envs : BaseEnv, ExternalEnv, ExternalMultiAgentEnv
+- `module level` (line 41): i really dont like any because it is not restricting enough. but I want ability to accomodate other environments in the future
+- `module level` (line 42): WorldEnv should be also a gymnasium Env with the added feature to have sub envs
+
+## `core/utils.py`
+
+- `module level` (line 20): restrict Any type annotation.
+
+## `core/world/base.py`
+
+- `World.__init__` (line 51): the reporting type annotation to add
+- `World.__init__` (line 54): replace with registry
+- `World.get_mechanism_by_index` (line 315): fix this function. now the primary key is ctx_id
+- `World.flush` (line 515): fix this function. now the primary key is ctx_id
+
+## `core/world/context.py`
+
+- `module level` (line 60): some world contexts are singletons (mutable) others are simply mutable.
+- `module level` (line 61): for now singleton/or no is deffered to world
+- `module level` (line 62): Enums for Context to access different Context Schemas.
+- `EnvStepContext` (line 110): strict type annotations rm Any
+
+## `examples/bilevel_fishery/contexts.py`
+
+- `FitnessContext.from_metrics` (line 60): (empty TODO marker, followed by commented-out alternative objective formulas that were deleted; the weighted log-utility formula was kept as a prose comment)
+
+## `examples/bilevel_fishery/debug.py`
+
+- `module level` (line 106): maybe constrain this to always be (1,)
+- `module level` (line 109): (nadine) better name ?
+- `module level` (line 110): (nadine) what if acts on another type of object such as observation ?
+- `module level` (line 247): (nadine) enforce strict shape
+- `module level` (line 256): (nadine) enforce strict shape
+- `module level` (line 265): (nadine) maybe an observation object needed to avoid hardcoding this
+- `module level` (line 283): test queries agg over mechanisms (or other dynamic fields)
+- `module level` (line 284): test queries with y keys from reduced (env)
+
+## `examples/bilevel_fishery/metric_schema.py`
+
+- `FisheryMetricSchema` (line 73): move this into logging for mechanism (inside commented-out code: it annotated the commented-out `max_demand_frac` field)
+
+## `examples/bilevel_fishery/queries.py`
+
+- `INNER_QUERIES` (line 351): two ways over junction : either plot them in separete line or mean over
+- `INNER_QUERIES` (line 352): what if you wanna avergae over specific type of agent ?
+- `INNER_QUERIES` (line 353): seeding : is error bar, by_episode is mean, by_agent is mean -> for that we leave the separation int he mapping. ID should be by type strictly
+- `INNER_QUERIES` (line 526): Again seeding over policy ? error bars ?
+- `module level` (line 641): x and y axis labels
+- `module level` (line 642): eval vs training from different logger instances
+- `FISHERY_ENV_QUERIES` (line 644): since risk penality is null, violation singal == quota_penalty
+- `FISHERY_ENV_QUERIES` (line 651): plot none when the data is not pushed to prevent experiemnt breaking
+
+## `examples/bilevel_fishery/regulated_env.py`
+
+- `Fisherman.observation` (line 64): (nadine) replace usage with inidividual harvest observation
+- `FisheryRegulatedEnv.reset_fishery` (line 141): (nadine) reset should not take mdp and init params should not be stateful
+- `FisheryRegulatedEnv.reset_fishery` (line 148): (nadine) change to scipy truncnorm rather than clip to avoid flat signal
+- `FisheryRegulatedEnv.pella_tomlinson` (line 180): remove clipping (inside commented-out code: the trailing note of the commented-out `fish_next = float(np.clip(fish_next, 0.0, self.K))` line)
+- `FisheryRegulatedEnv.pella_tomlinson` (line 196): (nadine) add observation
+
+## `examples/bilevel_fishery/regulator_env.py`
+
+- `FisheryRegulatorEnv.reward` (line 88): move num_steps here (followed by commented-out `num_steps = getattr(metrics, "iter")`, deleted)
+- `FisheryRegulatorEnv.reward` (line 94): when running parallel eval, async may duplicate runs ! should not statistically change the result
+- `FisheryRegulatorEnv.reward` (line 99): ensure aggregation by policy seed
+- `FisheryRegulatorEnv.reward` (line 107): this is the mean however this is not good representation for late learning mechanisms
+
+## `examples/cartpole/main_appo.py`
+
+- `module level` (line 18): the default mechanism config and fisherman, and observation spaces and action spaces part of config
+- `module level` (line 19): where to do ray initialization ? gpu vs cpu - needs to happen when we build optimizer
+- `module level` (line 20): num_fisherman
+- `module level` (line 21): wire up the evaluation cfg
+- `module level` (line 22): seeding API
+- `module level` (line 23): experimentation helpers
+- `module level` (line 24): review ray configz
+- `module level` (line 28): move this to the config ! (refers to the `ModelCatalog.register_custom_model("mps_fcnet", ...)` registration that follows)
+- `module level` (line 57): dimension inferred from mechanism ? (trailing comment on `.training(` of the outer `ESConfig`)
+- `module level` (line 68): implement early stop for plateau (trailing comment on `train_iters=200` of the outer `ESConfig`)
+- `module level` (line 79): fix this its using old api stack (above the commented-out `.model(custom_model="mps_fcnet")`)
+- `module level` (line 81): use the new api stack and better custom model integration (above `.api_stack(`)
+- `module level` (line 107): review (trailing comment on `circular_buffer_num_batches=2`)
+- `module level` (line 108): review (trailing comment on `circular_buffer_iterations_per_batch=1`)
+- `module level` (line 166): (no text on the TODO line; the next comment line read `custom_evaluation_function`, i.e. a custom evaluation function is still to be done)
+- `module level` (line 174): add this after run done (above the final `ray.shutdown()`)
+
+## `examples/cartpole/main_ppo.py`
+
+- `module level` (line 18): the default mechanism config and fisherman, and observation spaces and action spaces part of config
+- `module level` (line 19): where to do ray initialization ? gpu vs cpu - needs to happen when we build optimizer
+- `module level` (line 20): num_fisherman
+- `module level` (line 21): wire up the evaluation cfg
+- `module level` (line 22): seeding API
+- `module level` (line 23): experimentation helpers
+- `module level` (line 24): review ray configz
+- `module level` (line 28): move this to the config ! (refers to the `ModelCatalog.register_custom_model("mps_fcnet", ...)` registration that follows)
+- `module level` (line 57): dimension inferred from mechanism ? (trailing comment on `.training(` of the outer `ESConfig`)
+- `module level` (line 68): implement early stop for plateau (trailing comment on `train_iters=100` of the outer `ESConfig`)
+- `module level` (line 79): fix this its using old api stack (above the commented-out `.model(custom_model="mps_fcnet")`)
+- `module level` (line 81): use the new api stack and better custom model integration (above `.api_stack(`)
+- `module level` (line 105): review (inside commented-out code, trailing comment on `# circular_buffer_num_batches=2,`)
+- `module level` (line 106): review (inside commented-out code, trailing comment on `# circular_buffer_iterations_per_batch=1,`)
+- `module level` (line 164): (no text on the TODO line; the next comment line read `custom_evaluation_function`, i.e. a custom evaluation function is still to be done)
+- `module level` (line 172): add this after run done (above the final `ray.shutdown()`)
+
+## `examples/cartpole/regulated_env.py`
+
+- `module level` (line 26): add multiagent state in types
+- `module level` (line 27): ban proportional to violation severity
+- `module level` (line 30): number of agents spawned dynamically as a byproduct of config stating number of agents
+- `CartpoleRegulatedEnv.transition_kernel` (line 138): (no text; bare trailing `# TODO` on the `pass` body of the method)
+- `CartpoleRegulatedEnv._observation` (line 146): canonical observation in base multiagent env
+
+## `examples/fresh_water/debug.py`
+
+- `module level` (line 30): adding defaults (above `space=WaterMechanismSpace()` in the `.mechanism(...)` call)
+- `module level` (line 93): move this to Raven helper (above `"full_stage_m": 420.41` in the `ecology_cfg` of the inner environment config)
+
+## `examples/fresh_water/regulated_env_ed_hs_v4.py`
+
+- `WaterRegulatedEdHsEnv._estimate_temp_c` (line 194): temporary since raven does not output temperature
+- `WaterRegulatedEdHsEnv.intrinsic_utility` (line 251): must also retreive the time of the day to water in order to normalize per seconds (the note continues on the next comment line: `per seconds`; it sits above `full_required_m3_day = (deficit_mm_day / 1000.0 * self.max_farm_area_m2 # / 86400.0)`)
+- `WaterRegulatedEdHsEnv.violation_signal` (line 319): review this (above `quota_violation_m3_day = max(0.0, requested_m3_day - allowed_m3_day)`)
+- `WaterRegulatedEdHsEnv.transition_kernel` (line 457): review this (above the comment `compute flow penalty`, before `release_pressure = min(...)`)
+- `WaterRegulatedEdHsEnv.transition_kernel` (line 459): this may need to be capped or may explode (above `release_pressure = min(...)`)
+- `WaterRegulatedEdHsEnv.transition_kernel` (line 487): this updates every time step - find way to update once at reset (above `self._update_infos(key="baseline_ref", ...)`)
+- `WaterRegulatedEdHsEnv._observation` (line 527): Q : what can we normalize streamflow_m3s with ? (two commented-out lines that followed were removed with it: `# streamflow_m3s = float(S_t.get("streamflow_m3s", 0.0))` and `# streamflow_norm = streamflow_m3s / max(EPS, self.streamflow_ref_m3s)`)
+
+## `examples/fresh_water/regulator_env_raven.py`
+
+- `WaterRegulatorRavenEnv.aggregate_rewards` (line 81): group by seed as well (the note continues on the next comment line: `for now we assume aggregation over seed`; it sits above the loop filling `by_run`)
+- `WaterRegulatorRavenEnv.aggregate_rewards` (line 99): for now we average accross agents but later another solution required! (above `if isinstance(r, dict):` in the reward loop)
+- `WaterRegulatorRavenEnv.aggregate_rewards` (line 114): take into consideration economic vs susteinability reward (above `max_idx = max(economic_by_m.keys())`)
+- `WaterRegulatorRavenEnv.aggregate_rewards` (line 134): add the mechanism object (trailing comment on `mechanism=None,` in the `MechanismContext(...)` call)
+

@@ -17,7 +17,9 @@ Example
 ...     .world(world_name="fishery")
 ...     .mechanism(space=FisheryMechanismSpace(), default=FisheryMechanism())
 ...     .training(outer_iters=100)
-...     .outer(ESConfig().training(sigma=0.15).environment(env=FisheryRegulatorEnv, ...))
+...     .outer(
+...         ESConfig().training(sigma=0.15).environment(env=FisheryRegulatorEnv, ...)
+...     )
 ...     .inner(APPOptimizerConfig().environment(env=FisheryRegulatedEnv, ...))
 ... )
 >>> result = cfg.build_optimizer().train()
@@ -58,13 +60,6 @@ class BilevelConfig(OptimizerConfig):
         self.ray_cfg = None
         self.default_mechanism: Optional[Mechanism] = None
         self.output_dir: str | None = None
-
-    # @override(OptimizerConfig)
-    # def _get_logger_schema(self):
-    #     return LoggerSchema(
-    #         inner: self.inner_cfg._get_logger_schema
-    #         outer: self.inner_cfg._get_logger_schema
-    #     )
 
     def society(self, cfg: Optional[OptimizerConfig] = None) -> Self:
         """Set the inner (policy learning) config, typically an ``APPOptimizerConfig``.
@@ -125,11 +120,7 @@ class BilevelConfig(OptimizerConfig):
 
         return self
 
-    # TODO remote actor access to credentials
-    def reporter(
-        self,
-        config: ReporterConfig,
-    ) -> Self:
+    def reporter(self, config: ReporterConfig) -> Self:
         """Select the reporting backend through a ``ReporterConfig``.
 
         The config is stamped with the run identity at build time, built once
@@ -144,7 +135,9 @@ class BilevelConfig(OptimizerConfig):
 
     @override(OptimizerConfig)
     def build_optimizer(self) -> "BilevelOptimizer":
-        """Start Ray, create the actors, build both levels and return a ``BilevelOptimizer``.
+        """Start Ray, create the actors and build both levels.
+
+        Returns a ``BilevelOptimizer``.
 
         The ES population size is set to the inner optimizer's ``batch_capacity``
         (number of regulated environments divided by the number of seeds), so
@@ -167,14 +160,8 @@ class BilevelConfig(OptimizerConfig):
         if inner_cfg.seeds is not None:
             outer_cfg._merge_env_config({"seeds": inner_cfg.seeds})
         inner_cfg._merge_env_config({"leaders_cfg_dict": outer_cfg.agents_cfgs})
-        inner_opt = inner_cfg.build_optimizer(
-            world=world,
-            world_name=self.world_name,
-        )
-        outer_opt = outer_cfg.build_optimizer(
-            world=world,
-            inner_opt=inner_opt,
-        )
+        inner_opt = inner_cfg.build_optimizer(world=world, world_name=self.world_name)
+        outer_opt = outer_cfg.build_optimizer(world=world, inner_opt=inner_opt)
 
         # what if outer_opt does not have that property ??
         # override outer_opt population size with inner_opt batch_size
@@ -187,7 +174,9 @@ class BilevelConfig(OptimizerConfig):
 
 
 class BilevelOptimizer(Optimizer):
-    """Outer loop: run the outer optimizer ``outer_iters`` times, stop early on convergence.
+    """Outer loop: run the outer optimizer, stopping early on convergence.
+
+    The outer optimizer runs up to ``outer_iters`` generations.
 
     Parameters
     ----------
@@ -243,12 +232,12 @@ class BilevelOptimizer(Optimizer):
         try:
             result = self.outer.train()
         finally:
-            # TODO fig reporter with the new wandb reporter actor
             if self.reporting is not None:
                 self.reporting.close()
 
         logger.info(
-            "[Bilevel] Run finished | iters=%d | converged=%s | mechanism=%s | best_fitness=%.4f",
+            "[Bilevel] Run finished | iters=%d | converged=%s | mechanism=%s"
+            + " | best_fitness=%.4f",
             result["episodes"],
             result["converged"],
             result["best_mechanism"],

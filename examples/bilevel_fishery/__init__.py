@@ -1,4 +1,4 @@
-"""Bilevel fishery example: an ES regulator over a quota + subsidy space, APPO fishers inside.
+"""Bilevel fishery example: an ES regulator over quota + subsidy, APPO fishers inside.
 
 The package holds the regulated environment (``regulated_env_shaefer``), the
 mechanism vector and its parameter space (``mechanism_v1``), the regulator

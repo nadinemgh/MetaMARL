@@ -18,8 +18,6 @@ from ray.rllib.utils.typing import AgentID, ResultDict
 from ray.train._internal.checkpoint_manager import _TrainingResult
 
 from core.adaptors.ray.schema import EvalSchema, RaySchema, TrainSchema
-
-# TODO temporary
 from core.adaptors.ray.utils import (
     build_learner,
     build_performance,
@@ -40,9 +38,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from core.adaptors.ray.optimizer_config import RayOptimizerConfig
-
-
-# TODO perhaps we would first want an adaptor for core ray algorithm and then the PPO inherits it
 
 
 class RayOptimizer(Optimizer):
@@ -72,26 +67,15 @@ class RayOptimizer(Optimizer):
         Per-iteration mean return and policy loss since the last ``reset``.
     """
 
-    def __init__(
-        self,
-        config: RayOptimizerConfig,
-        **kwargs,
-    ):
+    def __init__(self, config: RayOptimizerConfig, **kwargs):
         super().__init__(config=config, **kwargs)
 
-        # self.algo = algo
-
-        # TODO maybe this either needs to be an actor. or atleast have method to serialize data
         self.logger = MetricLogger.from_schema(RaySchema)
 
-        # self.eval_episodes = config.eval_episodes
-        # TODO fallback if rollout_fragment_length not in eval_cfg
         self.eval_episodes = (
             config.rllib_cfg.evaluation_duration
             // config.rllib_cfg.evaluation_config.get("rollout_fragment_length")
         )
-
-        # self.rollout_fragment_length = config.rollout_fragment_length
 
         from core.adaptors.ray.policy_actor import PolicyActor
 
@@ -131,7 +115,6 @@ class RayOptimizer(Optimizer):
 
         return num_mechanisms
 
-    # TODO move to utils
     def _build_agent_policy_map(self) -> dict[AgentID, str]:
         """Map ``"<agent_type>:<i>"`` agent IDs to their base policy name.
 
@@ -173,14 +156,12 @@ class RayOptimizer(Optimizer):
             # Policy API (older / classic)
             return self.algo.get_policy(policy_id)
 
-    # TODO (nadine) : in the future this could be separated into a different class if justified
     def _to_logger_payload(
         self, result: ResultDict, is_eval: bool = False
     ) -> RaySchema:
         if is_eval:
             evaluation = EvalSchema(
-                rollout=build_rollout(result),
-                performance=build_performance(result),
+                rollout=build_rollout(result), performance=build_performance(result)
             )
 
             return RaySchema(train=None, eval=evaluation)
@@ -217,16 +198,16 @@ class RayOptimizer(Optimizer):
             logger.info("[PPO] Training step started")
             result = ray.get(self.policy_actor.train.remote())
 
-            # step = int(to_float(result.get("training_iteration")) or 0)
             self.logger.push(key=("iter",), value=episode)
 
             # RLlib's own lifetime training counter, retained only for debugging.
-            rllib_training_iteration = int(to_float(result.get("training_iteration")) or 0)
+            rllib_training_iteration = int(
+                to_float(result.get("training_iteration")) or 0
+            )
             metrics = self._to_logger_payload(result)
 
             self.logger.push_data(metrics)
 
-            # TODO temporary to be moved to a logger Extract metrics
             ep_return = get_episode_return_mean(result)
             steps_iter, steps_life = get_env_steps(result)
 
@@ -238,9 +219,9 @@ class RayOptimizer(Optimizer):
             self._training_losses.append(policy_loss)
             logger.info(
                 "[PPO] Training step completed | "
-                "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
-                "ep_return=%.4f | env_steps_iter=%d | "
-                "env_steps_lifetime=%d | policy_loss=%s",
+                + "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
+                + "ep_return=%.4f | env_steps_iter=%d | "
+                + "env_steps_lifetime=%d | policy_loss=%s",
                 self._es_round,
                 episode,
                 rllib_training_iteration,
@@ -254,8 +235,6 @@ class RayOptimizer(Optimizer):
         self.report_metrics()
         return self.logger.peek()
 
-
-    # TODO (nadine) future support for async eval, otherwise must publish eval mechanism obj
     @override(Optimizer)
     def evaluate(self) -> None:
         """Run one evaluation pass on the policy actor and log start/end.
@@ -304,5 +283,4 @@ class RayOptimizer(Optimizer):
         contract, not the current behaviour.
         """
 
-        # TODO
         pass

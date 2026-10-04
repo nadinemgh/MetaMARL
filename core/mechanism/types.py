@@ -3,6 +3,7 @@ from typing import Any, Generic, TypeVar
 
 T = TypeVar("T")
 
+
 @dataclass
 class Trajectory(Generic[T]):
     data: dict[Any, Any] = field(default_factory=dict)
@@ -60,7 +61,8 @@ class Trajectory(Generic[T]):
 
                 if not isinstance(destination[key], dict):
                     raise TypeError(
-                        f"Tree mismatch at key {key!r}: destination is a leaf but source is a branch."
+                        f"Tree mismatch at key {key!r}: "
+                        + "destination is a leaf but source is a branch."
                     )
 
                 cls._set_at_t(destination[key], value, t)
@@ -75,7 +77,8 @@ class Trajectory(Generic[T]):
 
             if isinstance(destination[key], dict):
                 raise TypeError(
-                    f"Tree mismatch at key {key!r}: destination is a branch but source is a leaf."
+                    f"Tree mismatch at key {key!r}: "
+                    + "destination is a branch but source is a leaf."
                 )
 
             history = destination[key]
@@ -101,7 +104,8 @@ class Trajectory(Generic[T]):
 
                 if not isinstance(destination[key], dict):
                     raise TypeError(
-                        f"Tree mismatch at key {key!r}: destination is a leaf but source is a branch."
+                        f"Tree mismatch at key {key!r}: "
+                        + "destination is a leaf but source is a branch."
                     )
 
                 cls._add_at_t(destination[key], value, t)
@@ -116,7 +120,8 @@ class Trajectory(Generic[T]):
 
             if isinstance(destination[key], dict):
                 raise TypeError(
-                    f"Tree mismatch at key {key!r}: destination is a branch but source is a leaf."
+                    f"Tree mismatch at key {key!r}: "
+                    + "destination is a branch but source is a leaf."
                 )
 
             history = destination[key]

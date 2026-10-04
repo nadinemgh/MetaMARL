@@ -121,7 +121,6 @@ class RayRuntimeConfig:
         self._apply_env_vars()
 
         # Silence noisy loggers globally
-        # # logging.getLogger().setLevel(logging.WARNING)
         logging.getLogger("ray").setLevel(logging.WARNING)
         logging.getLogger("ray.rllib").setLevel(logging.WARNING)
         logging.getLogger("ray.tune").setLevel(logging.WARNING)

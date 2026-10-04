@@ -13,12 +13,16 @@ class MaxMetric(SeriesMetric):
     Only ``int`` and ``float`` are accepted (``bool`` is rejected); ``peek``
     returns ``None`` while empty.
 
-    When to use: for peak values over an iteration, such as the best reward of a batch of episodes.
+    When to use: for peak values over an iteration, such as the best reward of a
+    batch of episodes.
     """
 
     @override(SeriesMetric)
     def push(self, value: PrimitiveType) -> PrimitiveType:
-        """Append a number, rejecting booleans and non-numeric values with ``TypeError``."""
+        """Append a number.
+
+        Booleans and non-numeric values are rejected with ``TypeError``.
+        """
 
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TypeError(
@@ -27,11 +31,11 @@ class MaxMetric(SeriesMetric):
 
         self.values.append(value)
 
-    def peek(
-        self,
-        compile: bool = True,
-    ) -> PrimitiveType | list[PrimitiveType] | None:
-        """Return the maximum (``None`` when empty), or the history when ``compile`` is false."""
+    def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType] | None:
+        """Return the maximum (``None`` when empty).
+
+        When ``compile`` is false, the history is returned instead.
+        """
 
         if not compile:
             return list(self.values)
@@ -41,10 +45,7 @@ class MaxMetric(SeriesMetric):
 
         return max(self.values)
 
-    def reduce(
-        self,
-        compile: bool = True,
-    ) -> PrimitiveType | MaxMetric | None:
+    def reduce(self, compile: bool = True) -> PrimitiveType | MaxMetric | None:
         """Return the maximum and clear the history.
 
         With ``compile`` false a new ``MaxMetric`` holding only that value is

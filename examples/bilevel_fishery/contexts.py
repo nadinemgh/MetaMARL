@@ -57,28 +57,12 @@ class FitnessContext(ContextSchema):
         stored for reporting but do not enter the objective.
         """
 
-        # TODO
-        # objective = mean_reward - sustainability_weight * (1.0 - mean_fish)
-        # objective = harvest_score
+        # An alternative objective that was considered is a weighted
+        # log-utility: the sum of (1 - alpha) times the log of the mean reward and
+        # alpha times the log of the mean fish level, where alpha is the
+        # sustainability weight constrained to [0, 1] and both logged terms are
+        # floored at 1e-8 to avoid log(0).
         objective = harvest_score + sustainability_weight * mean_fish
-
-        # objective = mean_fish
-
-        # reward = float(mean_reward)
-        # fish = float(mean_fish)
-        # alpha = float(sustainability_weight)
-
-        # if not 0.0 <= alpha <= 1.0:
-        #     raise ValueError(
-        #         "sustainability_weight must be between 0 and 1"
-        #     )
-
-        # eps = 1e-8
-
-        # objective = (
-        #     (1.0 - alpha) * np.log(max(reward, eps))
-        #     + alpha * np.log(max(fish, eps))
-        # )
 
         return cls(
             objective_score=objective,

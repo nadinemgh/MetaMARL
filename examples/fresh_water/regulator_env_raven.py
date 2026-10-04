@@ -29,12 +29,7 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
     (visualization, loader) can remain unchanged.
     """
 
-    def __init__(
-        self,
-        *,
-        ecology_cfg: dict[str, Any] | None = None,
-        **kwargs,
-    ):
+    def __init__(self, *, ecology_cfg: dict[str, Any] | None = None, **kwargs):
         super().__init__(**kwargs)
 
         env_cfg = ecology_cfg or {}
@@ -63,7 +58,8 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
         Implementation mirrors `FisheryRegulatorEnv.aggregate_rewards`.
         """
 
-        # Must be able to get the seed and run the baseline dynamically for the no extraction
+        # Must be able to get the seed and run the baseline dynamically for the no
+        # extraction
         step_ctxs = [
             ctx
             for ctx in ctxs
@@ -78,8 +74,6 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
 
         by_run: dict[tuple[int, int], list[Context]] = defaultdict(list)
 
-        # TODO group by seed as well
-        # for now we assume aggregation over seed
         for ctx in step_ctxs:
             s = ctx.payload
 
@@ -96,7 +90,6 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
             for ctx in steps:
                 r = ctx.payload.reward
 
-                # TODO for now we average accross agents but later another solution required!
                 if isinstance(r, dict):
                     rewards.append(float(np.mean(list(r.values()))))
                 else:
@@ -111,7 +104,6 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
             deviation_by_m[m_idx].append(deviation)
             seeds_by_m[m_idx].append(seed)
 
-        # TODO take into consideration economic vs susteinability reward
         max_idx = max(economic_by_m.keys())
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
 
@@ -131,7 +123,7 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
                     env_id=self.env_id,
                     seed=seed,
                     status=MechanismStatus.done,
-                    mechanism=None,  # TODO add the mechanism object
+                    mechanism=None,
                     metrics={
                         "objective": objective,
                         "economic_score": mean_economic,
@@ -146,10 +138,7 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
         return fitness.tolist()
 
 
-def read_hydrograph_series(
-    output_dir: str,
-    column_name: str,
-) -> dict[str, float]:
+def read_hydrograph_series(output_dir: str, column_name: str) -> dict[str, float]:
     csv_path = Path(output_dir) / "ohms_canshield_Hydrographs.csv"
 
     if not csv_path.exists():
@@ -170,15 +159,12 @@ def read_hydrograph_series(
                 date = next(iter(row.values()))
 
             if column_name not in row:
-                match = next(
-                    (k for k in row if k.strip() == column_name.strip()),
-                    None,
-                )
+                match = next((k for k in row if k.strip() == column_name.strip()), None)
 
                 if match is None:
                     raise KeyError(
                         f"Column '{column_name}' not found in {csv_path}. "
-                        f"Available columns: {list(row.keys())}"
+                        + f"Available columns: {list(row.keys())}"
                     )
 
                 column_name = match
@@ -192,18 +178,13 @@ def read_hydrograph_series(
 
 
 def compute_streamflow_deviation(
-    *,
-    mechanism_output_dir: str,
-    baseline_output_dir: str,
-    streamflow_col: str,
+    *, mechanism_output_dir: str, baseline_output_dir: str, streamflow_col: str
 ) -> float:
     q_m = read_hydrograph_series(
-        output_dir=mechanism_output_dir,
-        column_name=streamflow_col,
+        output_dir=mechanism_output_dir, column_name=streamflow_col
     )
     q_0 = read_hydrograph_series(
-        output_dir=baseline_output_dir,
-        column_name=streamflow_col,
+        output_dir=baseline_output_dir, column_name=streamflow_col
     )
     common_dates = sorted(set(q_m) & set(q_0))
 
@@ -217,9 +198,7 @@ def compute_streamflow_deviation(
 
 
 def compute_streamflow_deviation_from_step_ctx(
-    payload,
-    *,
-    streamflow_col: str = "West_Montrose [m3/s]",
+    payload, *, streamflow_col: str = "West_Montrose [m3/s]"
 ) -> dict[str, float]:
     first_agent_info = next(iter(payload.info.values()))
     baseline_output_dir = first_agent_info["baseline_ref"]

@@ -47,7 +47,7 @@ def override(parent_cls: type) -> Callable[[F], F]:
             if not issubclass(owner, self.expected_parent_cls):
                 raise TypeError(
                     f"When using the @override decorator, {owner.__name__} must be a "
-                    f"subclass of {parent_cls.__name__}!"
+                    + f"subclass of {parent_cls.__name__}!"
                 )
 
             setattr(owner, name, self.func)
@@ -58,7 +58,8 @@ def override(parent_cls: type) -> Callable[[F], F]:
         if method.__name__ not in dir(parent_cls):
             raise NameError(
                 f"When using the @override decorator, {method.__name__} must override "
-                f"the respective method (with the same name) of {parent_cls.__name__}!"
+                + "the respective method (with the same name) of "
+                + f"{parent_cls.__name__}!"
             )
 
         OverrideCheck(method, parent_cls)

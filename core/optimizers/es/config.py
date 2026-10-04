@@ -114,15 +114,3 @@ class ESConfig(OptimizerConfig):
             self.initial_mean = initial_mean
 
         return self
-
-    # @override(OptimizerConfig)
-    # def evaluation(
-    #     self, *, evaluation_best_fitness, evaluation_best_candidate, **kwargs
-    # ) -> Self:
-    #     raise NotImplementedError
-
-    # # TODO this is where the random seed goes
-    # # TODO do we put rng here ?
-    # @override(OptimizerConfig)
-    # def fault_tolerance(self, *, rng: Optional[float] = None, **kwargs) -> Self:
-    #     return super().fault_tolerance()

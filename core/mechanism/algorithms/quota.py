@@ -1,24 +1,19 @@
 from dataclasses import dataclass
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 import numpy as np
 
 from core.annotations import override
-from core.mechanism.base import ActType, Mechanism, MDPState
+from core.mechanism.base import ActType, MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
-from core.types import AgentID, MultiAgentDict
-from core.utils import (
-    sigmoid,
-    smooth_positive_zero_at_origin,
-)
-
+from core.utils import sigmoid, smooth_positive_zero_at_origin
 
 EPS = 1e-8
 
-# TODO what if two mechanisms interfere by requiring context from each other ? 
-# for example a penalty based on how much quota is violated ?
+
 class QuotaMechanism(Mechanism):
     """Apply a quota as a residual on targeted agents' actions."""
+
     # Fixed algorithmic parameters.
     quota_transition_width: float = 0.03
     usage_transition_width: float = 0.005
@@ -59,8 +54,10 @@ class QuotaMechanism(Mechanism):
             raise ValueError("QuotaMechanism requires obs_map['resource_level'].")
 
         target_agent, target_mechanism = self.acts_on
-        resource_level=mdp.state[self.obs_map["resource_level"]][mdp.t] / max(mdp.params["K"], EPS)
-        
+        resource_level = mdp.state[self.obs_map["resource_level"]][mdp.t] / max(
+            mdp.params["K"], EPS
+        )
+
         width = max(self.quota_transition_width, EPS)
         lower = sigmoid((0.0 - action) / width)
         upper = sigmoid((1.0 - action) / width)
@@ -72,7 +69,7 @@ class QuotaMechanism(Mechanism):
         for aid, a in (mdp.actions.data or {}).items():
             if not str(aid).startswith(f"{target_agent}:"):
                 continue
-    
+
             if target_mechanism not in a:
                 continue
 
@@ -82,8 +79,7 @@ class QuotaMechanism(Mechanism):
             requested_frac = sigmoid(z / temperature)
 
             excess = smooth_positive_zero_at_origin(
-                requested_frac - allowed_frac,
-                self.usage_transition_width,
+                requested_frac - allowed_frac, self.usage_transition_width
             )
             delivered_frac = float(np.clip(requested_frac - excess, 1e-6, 1.0 - 1e-6))
             delivered_z = temperature * np.log(delivered_frac / (1.0 - delivered_frac))
@@ -91,9 +87,9 @@ class QuotaMechanism(Mechanism):
             delivered[0] = delivered_z
             delivered = delivered.reshape(requested.shape)
             da[aid] = {target_mechanism: delivered - requested}
-            obs = {aid: np.asarray([0.0, 0.0, 0.0, 0.0, allowed_frac, action]) for aid in self.acts_on}
 
         return MDPState(actions=da, state={"allowed_frac": allowed_frac})
+
 
 @dataclass(frozen=True, kw_only=True)
 class Quota(MechanismConfig):

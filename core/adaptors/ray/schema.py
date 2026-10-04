@@ -16,6 +16,7 @@ from core.metrics.enums import ReduceProtocol
 from core.metrics.schemas import MetricSchema
 from core.types import EpisodeID, MechanismID, PolicyID, SeedID
 
+
 class PolicyLearnerSchema(MetricSchema):
     """Learner statistics of one RLModule (policy) for one training iteration.
 
@@ -36,8 +37,7 @@ class PolicyLearnerSchema(MetricSchema):
     """
 
     batch_size: Optional[int] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
     # Value, Q, advantage debugging
@@ -45,14 +45,11 @@ class PolicyLearnerSchema(MetricSchema):
         default=None, json_schema_extra={"source": "total_loss"}
     )
     residual_variance: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
-    # TODO this is a callable
     sample_staleness: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
     # Policy (π) debugging
@@ -66,12 +63,10 @@ class PolicyLearnerSchema(MetricSchema):
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     policy_relative_entropy: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     entropy_pressure: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     policy_kl: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
@@ -80,39 +75,25 @@ class PolicyLearnerSchema(MetricSchema):
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
-    # TODO what is total loss ?
-    # TODO kl vs kl loss
-    # TODO curr_kl_coeff
-    # TODO entropy vs entropy coeff
-
     # Value (V) debgging
     value_loss: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     value_mean: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     value_target: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
-    # TODO Q-statistics
-    # TODO Advantage statistics
-    # TODO advantage statistics
-
-    # TODO Reward (R) debugging
     # Reward metrics. N.B. episode == trajectory
 
     # Gradient debugging
     gradient_norm: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     gradient_noise: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
 
@@ -130,44 +111,34 @@ class PerformanceSchema(MetricSchema):
     """
 
     env_steps_this_iter: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     env_steps_lifetime: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     agent_steps_this_iter_sum: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     agent_steps_lifetime_sum: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     env_steps_throughput: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     training_iteration_s: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     training_step_s: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     sample_s: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     learner_update_s: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     weights_seq_no: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
 
 
@@ -230,7 +201,9 @@ class EvalSchema(MetricSchema):
 
 
 class RaySchema(MetricSchema):
-    """Typed root of an RLlib ``ResultDict`` with optional ``train`` and ``eval`` branches.
+    """Typed root of an RLlib ``ResultDict``.
+
+    The ``train`` and ``eval`` branches are both optional.
 
     When to use: pass it as the ``schema`` of ``RayOptimizerConfig.reporting``
     so the inner optimizer logs typed metrics that the regulator environment
@@ -238,19 +211,8 @@ class RaySchema(MetricSchema):
     """
 
     train: Optional[TrainSchema] = Field(
-        default=None,
-        json_schema_extra={"subtree_reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"subtree_reduce": ReduceProtocol.LAST}
     )
     eval: Optional[EvalSchema] = Field(
-        default=None,
-        json_schema_extra={"subtree_reduce": ReduceProtocol.LAST},
+        default=None, json_schema_extra={"subtree_reduce": ReduceProtocol.LAST}
     )
-
-
-# TODO
-# num_env_steps_sampled_lifetime_throughput
-# timers
-# throughput_since_last_restore
-# num_agent_steps_sampled
-# num_agent_steps_sampled_lifetime
-# prevent non terminal leaves to have reduce objects

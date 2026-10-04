@@ -19,10 +19,10 @@ Without an inner optimizer the env runs in *analytic* mode: subclasses override
 
 from typing import Any, Optional, SupportsFloat
 
+import gymnasium as gym
 import numpy as np
 import ray
-from gymnasium.core import ActType, ObsType, WrapperActType, WrapperObsType
-import gymnasium as gym
+from gymnasium.core import ActType, ObsType, WrapperObsType
 
 from core.agents.base import Agent, AgentConfig
 from core.annotations import override
@@ -34,11 +34,7 @@ from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
 from core.types import AgentID, OptimizerID
 from core.world.base import World
-from core.world.context import (
-    Context,
-    MechanismContext,
-    MechanismStatus,
-)
+from core.world.context import Context, MechanismContext, MechanismStatus
 
 
 class RegulatorEnv(gym.Env):
@@ -47,8 +43,8 @@ class RegulatorEnv(gym.Env):
     Parameters
     ----------
     optimizer : Optimizer
-        Agents policy optimization algorithm (e.g. ``RayOptimizer`` wrapping APPO). ``None`` selects
-        the analytic mode.
+        Agents policy optimization algorithm (e.g. ``RayOptimizer`` wrapping APPO).
+        ``None`` selects the analytic mode.
     horizon : int
         Rollout length for the regulator
 
@@ -65,10 +61,10 @@ class RegulatorEnv(gym.Env):
         self,
         *,
         world: World,
-        optimizer: Optimizer, # TODO (nadine) not clear and avoid providing instantiated obj
+        optimizer: Optimizer,
         horizon: int,
         agents_cfgs: dict[AgentID, AgentConfig],
-        seeds: list[int], # agent policy seeds required for mechanism publishing
+        seeds: list[int],  # agent policy seeds required for mechanism publishing
         reporter_cfg: Optional[ReporterConfig] = None,
         queries: Optional[tuple[Query]] = None,
         schema: Optional[MetricSchema] = None,
@@ -83,7 +79,9 @@ class RegulatorEnv(gym.Env):
         self.horizon = horizon
         self._t = 0
         self.env_id = None
-        self.agents: dict[AgentID, Agent] = {aid: cfg.build() for aid, cfg in agents_cfgs.items()}
+        self.agents: dict[AgentID, Agent] = {
+            aid: cfg.build() for aid, cfg in agents_cfgs.items()
+        }
         self.inner: Optimizer = optimizer
         self.seeds: list[int] = seeds or []
 
@@ -122,7 +120,6 @@ class RegulatorEnv(gym.Env):
 
         return None, {}
 
-    # TODO input should only be one action. regulator env parallelized instead
     @override(gym.Env)
     def step(
         self, actions: ActType
@@ -144,7 +141,6 @@ class RegulatorEnv(gym.Env):
         """
 
         # Setup agents' env after regulator action sampling
-        # TODO (nadine) alternative way to pass mechanism to agents
         self._t_agents = 0
 
         for idx, a in enumerate(actions):
@@ -165,11 +161,8 @@ class RegulatorEnv(gym.Env):
                 )
             ray.get(self.world.append_context.remote(ctx))
 
-
-        # TODO (nadine) return reduced results to avoid L:223
         results = self.inner.train()
 
-        # TODO (nadine) self.reward func should not be taking metrics
         reward = self.reward(results)
         obs = None
         info = {"metrics": self.inner.reduce_metrics()}
@@ -184,12 +177,8 @@ class RegulatorEnv(gym.Env):
 
         return obs, reward, terminated, truncated, info
 
+    def action(self, action: ActType) -> ActType: ...
 
-    def action(self, action: ActType) -> ActType:
-        ...
+    def observation(self, observation: WrapperObsType): ...
 
-    def observation(self, observation: WrapperObsType):
-        ...
-
-    def reward(self, reward: Optional[SupportsFloat] = None, **kwargs):
-        ...
+    def reward(self, reward: Optional[SupportsFloat] = None, **kwargs): ...

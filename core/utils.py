@@ -17,7 +17,6 @@ from gymnasium import spaces
 
 # Generic utils
 
-# TODO restrict Any type annotation.
 EPS = 1e-8
 
 
@@ -397,9 +396,7 @@ def logical_or_dict(x, dxs):
 
     for key in keys:
         result[key] = bool(x.get(key, False)) or any(
-            dx.get(key, False)
-            for dx in dxs
-            if dx is not None
+            dx.get(key, False) for dx in dxs if dx is not None
         )
 
     return result

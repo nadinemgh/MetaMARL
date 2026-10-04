@@ -26,64 +26,34 @@ from core.utils import sanitize_key
 
 
 class CSVConfig(ReporterConfig):
-    def __init__(
-        self,
-        *,
-        project: str,
-        output_dir: str = "results",
-    ) -> None:
+    def __init__(self, *, project: str, output_dir: str = "results") -> None:
         super().__init__(project=project)
 
         self.output_dir = Path(output_dir)
 
-    def build(
-        self,
-        *,
-        label: Optional[str] = None,
-    ) -> CSVReporter:
+    def build(self, *, label: Optional[str] = None) -> CSVReporter:
         name = f"{self.world}-{label}" if label is not None else self.world
 
-        return CSVReporter(
-            output_dir=self.output_dir / self.project_name / name,
-        )
+        return CSVReporter(output_dir=self.output_dir / self.project_name / name)
 
 
 class CSVReporter(Reporter):
-    HEADER = (
-        "query",
-        "x",
-        "series",
-        "value",
-        "error",
-        "color",
-    )
+    HEADER = ("query", "x", "series", "value", "error", "color")
 
-    def __init__(
-        self,
-        *,
-        output_dir: Path,
-    ) -> None:
+    def __init__(self, *, output_dir: Path) -> None:
         self._output_dir = Path(output_dir)
 
-        self._output_dir.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        self._output_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def output_dir(self) -> Path:
         return self._output_dir
 
-    def path_for(
-        self,
-        query: Query,
-    ) -> Path:
+    def path_for(self, query: Query) -> Path:
         return self._output_dir / f"{sanitize_key(query.title)}.csv"
 
     @staticmethod
-    def _path_name(
-        path: QueryPath,
-    ) -> str:
+    def _path_name(path: QueryPath) -> str:
         return "/".join(
             str(token.value) if isinstance(token, Enum) else token
             for token in path
@@ -92,10 +62,7 @@ class CSVReporter(Reporter):
 
     @classmethod
     def _series_label(
-        cls,
-        path: QueryPath,
-        group: Group,
-        label: Optional[str] = None,
+        cls, path: QueryPath, group: Group, label: Optional[str] = None
     ) -> str:
         name = label if label is not None else cls._path_name(path)
 
@@ -125,21 +92,13 @@ class CSVReporter(Reporter):
             else (None,) * len(query.y_paths)
         )
 
-        with self.path_for(query).open(
-            "w",
-            newline="",
-            encoding="utf-8",
-        ) as file:
+        with self.path_for(query).open("w", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
 
             writer.writerow(self.HEADER)
 
             for path, resolved_y, resolved_errors, path_label in zip(
-                query.y_paths,
-                ys,
-                errors,
-                labels,
-                strict=True,
+                query.y_paths, ys, errors, labels, strict=True
             ):
                 for group, y_values in resolved_y.items():
                     if () in x:
@@ -173,23 +132,10 @@ class CSVReporter(Reporter):
                     if color_values is None:
                         color_values = [""] * len(y_values)
 
-                    label = self._series_label(
-                        path,
-                        group,
-                        label=path_label,
-                    )
+                    label = self._series_label(path, group, label=path_label)
 
-                    for (
-                        x_value,
-                        y_value,
-                        error_value,
-                        color_value,
-                    ) in zip(
-                        x_values,
-                        y_values,
-                        error_values,
-                        color_values,
-                        strict=True,
+                    for x_value, y_value, error_value, color_value in zip(
+                        x_values, y_values, error_values, color_values, strict=True
                     ):
                         writer.writerow(
                             (

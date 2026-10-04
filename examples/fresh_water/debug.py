@@ -26,10 +26,7 @@ bilevel_opt_cfg: BilevelConfig = (
             "max_end_of_run_history_metrics": 0,
         },
     )
-    .mechanism(
-        # TODO adding defaults
-        space=WaterMechanismSpace(),
-    )
+    .mechanism(space=WaterMechanismSpace())
     .training(outer_iters=100)
     .ray(
         device="cpu",
@@ -49,13 +46,7 @@ bilevel_opt_cfg: BilevelConfig = (
     )
     .outer(
         ESConfig()
-        .training(
-            sigma=0.5,
-            mean_lr=0.2,
-            sigma_lr=0.05,
-            min_sigma=0.01,
-            max_sigma=0.6,
-        )
+        .training(sigma=0.5, mean_lr=0.2, sigma_lr=0.05, min_sigma=0.01, max_sigma=0.6)
         .environment(
             env=WaterRegulatorRavenEnv,
             env_config={
@@ -63,41 +54,38 @@ bilevel_opt_cfg: BilevelConfig = (
                     "sus_weight": 1.0,
                     "sus_threshold": 0.1,
                     "max_water": 100.0,
-                },
+                }
             },
             horizon=100,
             train_iters=200,
         )
-        .debugging(
-            seed=42,
-            num_seeds=1,
-        )
+        .debugging(seed=42, num_seeds=1)
     )
     .inner(
         APPOptimizerConfig()
-        .resources(
-            num_cpus_for_main_process=1,
-        )
-        .framework(
-            framework="torch",
-        )
+        .resources(num_cpus_for_main_process=1)
+        .framework(framework="torch")
         .api_stack(
-            enable_rl_module_and_learner=True,
-            enable_env_runner_and_connector_v2=True,
+            enable_rl_module_and_learner=True, enable_env_runner_and_connector_v2=True
         )
         .environment(
             env=WaterRegulatedEdHsEnv,
             env_config={
                 "ecology_cfg": {
                     "max_farm_area_m2": 1_000_000.0,
-                    # TODO move this to Raven helper
                     "full_stage_m": 420.41,
                     "max_depth_m": 11.0,
                     "lake_area_m2": 5756935.89615,
                 },
                 "use_raven": True,
-                "raven_cwd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven",
-                "raven_cmd": "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery/examples/fresh_water/raven/2_Raven/Raven.exe",
+                "raven_cwd": (
+                    "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery"
+                    + "/examples/fresh_water/raven"
+                ),
+                "raven_cmd": (
+                    "/Users/nadine/src/github.com/nadinemgh/bilevel-fishery"
+                    + "/examples/fresh_water/raven/2_Raven/Raven.exe"
+                ),
                 "raven_freq": 1,
                 "seed": 0,
             },
@@ -112,13 +100,8 @@ bilevel_opt_cfg: BilevelConfig = (
             rollout_fragment_length=150,
             batch_mode="truncate_episodes",
         )
-        .learners(
-            num_learners=0,
-            num_gpus_per_learner=0,
-        )
-        .callbacks(
-            on_episode_created=tag_episode_with_env_idx,
-        )
+        .learners(num_learners=0, num_gpus_per_learner=0)
+        .callbacks(on_episode_created=tag_episode_with_env_idx)
         .training(
             vtrace=True,
             circular_buffer_num_batches=4,
@@ -165,7 +148,8 @@ bilevel_opt_cfg: BilevelConfig = (
                         # action = 1.0 -> requests 100% of max_pull_fraction
                         #
                         # Actual requested flow:
-                        # requested_m3s = action * max_pull_fraction * current_streamflow
+                        # The requested flow in m3/s is the action multiplied by
+                        # max_pull_fraction and by the current streamflow.
                         #
                         # With max_pull_fraction = 0.005:
                         # action high=1.0 -> up to 0.5% of current streamflow
@@ -181,8 +165,9 @@ bilevel_opt_cfg: BilevelConfig = (
                         # high=1.0  -> large municipality / regional user
                         #
                         # NOTE:
-                        # This does not change max_pull_fraction itself. It changes how much
-                        # of that maximum capacity the policy is allowed to request.
+                        # This does not change max_pull_fraction itself. It changes
+                        # how much of that maximum capacity the policy is allowed
+                        # to request.
                         low=0.0,
                         high=1,
                         shape=(1,),
@@ -191,13 +176,8 @@ bilevel_opt_cfg: BilevelConfig = (
                 }
             }
         )
-        .fault_tolerance(
-            restart_failed_env_runners=False,
-        )
-        .debugging(
-            seed=42,
-            num_seeds=1,
-        )
+        .fault_tolerance(restart_failed_env_runners=False)
+        .debugging(seed=42, num_seeds=1)
         .reporting(
             min_time_s_per_iteration=0,
             min_sample_timesteps_per_iteration=0,

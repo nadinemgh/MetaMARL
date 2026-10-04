@@ -23,29 +23,23 @@ from gymnasium import spaces
 from core.adaptors.ray.schema import RaySchema
 from core.agents.base import AgentConfig
 from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
-from core.mechanism.algorithms.social_influence import SocialInfluence
-from core.mechanism.config import MechanismConfig
+from core.mechanism.algorithms.quota import Quota
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
 from core.optimizers.es.schema import ESSchema
 from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
-from core.callbacks import tag_episode_with_env_idx
-from core.mechanism.algorithms.quota import Quota
-from core.mechanism.algorithms.subsidy import Subsidy
-from core.optimizers.es.config import ESConfig
-from core.optimizers.appo.config import APPOptimizerConfig
-from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
-from examples.bilevel_fishery.regulated_env import FishermanConfig as Fisherman
-from examples.bilevel_fishery.regulated_env import FishingConfig as Fishing
-from examples.bilevel_fishery.regulated_env import RestoreConfig as Restore
-from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 from examples.bilevel_fishery.queries import (
     ES_QUERIES,
     # FISHERY_ENV_QUERIES,
     INNER_QUERIES,
 )
+from examples.bilevel_fishery.regulated_env import FishermanConfig as Fisherman
+from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
+from examples.bilevel_fishery.regulated_env import FishingConfig as Fishing
+from examples.bilevel_fishery.regulated_env import RestoreConfig as Restore
+from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
 ray.shutdown()
 
@@ -99,37 +93,16 @@ bilevel_opt_cfg: BilevelConfig = (
                 policy_id="quota_policy",
                 mechanisms=(
                     Quota(
-                        id = "quota",
+                        id="quota",
                         action_space=spaces.Box(
-                            low=0,
-                            high=1.0,
-                            shape=(1,), # TODO maybe constrain this to always be (1,)
-                            dtype=np.float32,
+                            low=0, high=1.0, shape=(1,), dtype=np.float32
                         ),
-                        # TODO (nadine) better name ?
-                        # TODO (nadine) what if acts on another type of object such as observation ?
                         acts_on=("fisherman", "harvest"),
                         obs_map={"resource_level": "fish"},
-                        default=np.asarray(0.56224)
+                        default=np.asarray(0.56224),
                     ),
-                    # Subsidy(
-                    #     action_component=1,
-                    #     optimize_params=["restoration_subsidy"],
-                    #     default_restoration_subsidy=0.10,
-                    # ),
-                    # SocialInfluence(
-                    #     influence_weight=...,
-                    #     bindings={
-                    #         "previous_actions": lambda env: (
-                    #             env.previous_actions
-                    #         ),
-                    #         "agent_ids": lambda env: (
-                    #             tuple(env.agents)
-                    #         ),
-                    #     },
-                    # )
-                )
-            ),
+                ),
+            )
         )
         .environment(
             horizon=1,
@@ -139,29 +112,18 @@ bilevel_opt_cfg: BilevelConfig = (
                     "sustainability_weight": 2,  # assert between 0 and 5
                     "sustainability_threshold": 0.20,
                     "K": 5_000,  # HAS to match environmnet K
-                },
+                }
             },
         )
-        .debugging(
-            seed=42,
-            num_seeds=1,
-        )
-        .reporting(
-            schema=ESSchema,
-            queries=ES_QUERIES,
-        )
+        .debugging(seed=42, num_seeds=1)
+        .reporting(schema=ESSchema, queries=ES_QUERIES)
     )
     .society(
         APPOptimizerConfig()
-        .resources(
-            num_cpus_for_main_process=1,
-        )
-        .framework(
-            framework="torch",
-        )
+        .resources(num_cpus_for_main_process=1)
+        .framework(framework="torch")
         .api_stack(
-            enable_rl_module_and_learner=True,
-            enable_env_runner_and_connector_v2=True,
+            enable_rl_module_and_learner=True, enable_env_runner_and_connector_v2=True
         )
         .environment(
             env=FisheryRegulatedEnv,
@@ -194,10 +156,7 @@ bilevel_opt_cfg: BilevelConfig = (
             batch_mode="truncate_episodes",
             max_requests_in_flight_per_env_runner=1,
         )
-        .learners(
-            num_learners=0,
-            num_gpus_per_learner=0,
-        )
+        .learners(num_learners=0, num_gpus_per_learner=0)
         .callbacks(
             on_episode_created=tag_episode_with_env_idx,
             on_episode_end=log_and_report_episode_metrics,
@@ -235,53 +194,37 @@ bilevel_opt_cfg: BilevelConfig = (
         )
         .agents(
             Fisherman(
-                id = "fisherman",
-                policy_id = "fisher_policy",
+                id="fisherman",
+                policy_id="fisher_policy",
                 shared_policy=True,
                 mechanisms=(
                     Fishing(
                         id="harvest",
-                        action_space = spaces.Box(
-                        low=-np.inf,
-                        high=np.inf,
-                        shape=(1,), #TODO (nadine) enforce strict shape
-                        dtype=np.float32,
+                        action_space=spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
                         ),
                     ),
                     Restore(
                         id="restore",
-                        action_space = spaces.Box(
-                        low=-np.inf,
-                        high=np.inf,
-                        shape=(1,), #TODO (nadine) enforce strict shape
-                        dtype=np.float32,
+                        action_space=spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
                         ),
-                    )
+                    ),
                 ),
-                count = 10,
-                observation_space = spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(5,), # TODO (nadine) maybe an observation object needed to avoid hardcoding this
-                    dtype=np.float32,
+                count=10,
+                observation_space=spaces.Box(
+                    low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32
                 ),
             )
         )
-        .fault_tolerance(
-            restart_failed_env_runners=False,
-        )
-        .debugging(
-            seed=42,
-            num_seeds=1,
-        )
+        .fault_tolerance(restart_failed_env_runners=False)
+        .debugging(seed=42, num_seeds=1)
         .reporting(
             min_time_s_per_iteration=0,
             min_sample_timesteps_per_iteration=0,
             min_train_timesteps_per_iteration=0,
             schema=RaySchema,
             queries=INNER_QUERIES,
-            # TODO test queries agg over mechanisms (or other dynamic fields)
-            # TODO test queries with y keys from reduced (env)
         )
     )
 )

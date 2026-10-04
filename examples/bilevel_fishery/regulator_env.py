@@ -12,17 +12,13 @@ from collections import defaultdict
 from typing import Any
 
 import numpy as np
-from gymnasium.core import ObsType
 import ray
+from gymnasium.core import ObsType
 
 from core.annotations import override
 from core.envs.regulator import RegulatorEnv
 from core.metrics.schemas import MetricSchema
-from core.world.context import (
-    Context,
-    MechanismContext,
-    MechanismStatus,
-)
+from core.world.context import Context, MechanismContext, MechanismStatus
 from examples.bilevel_fishery.contexts import FitnessContext
 
 logger = logging.getLogger(__name__)
@@ -46,12 +42,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
         ``"eval"``) and ``fitness_tail_steps`` (default 50).
     """
 
-    def __init__(
-        self,
-        *,
-        ecology_cfg: dict[str, Any],
-        **kwargs,
-    ):
+    def __init__(self, *, ecology_cfg: dict[str, Any], **kwargs):
         super().__init__(**kwargs)
 
         self.sustainability_weight = ecology_cfg.get("sustainability_weight", 5.0)
@@ -70,7 +61,10 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
     @override(RegulatorEnv)
     def observation(self, obs: ObsType) -> ObsType:
-        """Return a constant ``0.0``: the ES outer loop is stateless and ignores observations."""
+        """Return a constant ``0.0``.
+
+        The ES outer loop is stateless and ignores observations.
+        """
 
         return 0.0
 
@@ -85,18 +79,14 @@ class FisheryRegulatorEnv(RegulatorEnv):
         seeds are averaged per mechanism and folded into a ``FitnessContext``.
         """
 
-        # TODO move num_steps here
-        # num_steps = getattr(metrics, "iter")
         metrics = getattr(metrics, self.aggregation_status.value)
 
         per_mech_metrics: list[dict[str, float]] = []
 
-        # TODO when running parallel eval, async may duplicate runs ! should not statistically change the result
         metrics_by_mechanism: dict[int, list[dict[str, Any]]] = defaultdict(list)
 
         self.trajectories = {}
 
-        # TODO ensure aggregation by policy seed
         for mechanism_id, mechanism_metrics in metrics.rollout.by_mechanism.items():
             idx = int(mechanism_id)
 
@@ -104,7 +94,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 seed = int(seed_id)
 
                 for episode_metrics in seed_metrics.by_episode.values():
-                    # TODO this is the mean however this is not good representation for late learning mechanisms
                     rewards = np.atleast_1d(
                         np.asarray(episode_metrics.reward_mean, dtype=np.float32)
                     )
@@ -223,12 +212,10 @@ class FisheryRegulatorEnv(RegulatorEnv):
             )
 
         objectives = np.asarray(
-            [m["objective"] for m in per_mech_metrics],
-            dtype=np.float32,
+            [m["objective"] for m in per_mech_metrics], dtype=np.float32
         )
         collapse_rates = np.asarray(
-            [m["collapse_rate"] for m in per_mech_metrics],
-            dtype=np.float32,
+            [m["collapse_rate"] for m in per_mech_metrics], dtype=np.float32
         )
         best_position = int(np.argmax(objectives))
         worst_position = int(np.argmin(objectives))
@@ -237,9 +224,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         logger.info(
             "[Regulator][summary] "
-            "mean_obj=%.4f | best_obj=%.4f (θ=%d) | "
-            "worst_obj=%.4f (θ=%d) | "
-            "collapse(mean=%.3f max=%.3f)",
+            + "mean_obj=%.4f | best_obj=%.4f (θ=%d) | "
+            + "worst_obj=%.4f (θ=%d) | "
+            + "collapse(mean=%.3f max=%.3f)",
             float(objectives.mean()),
             best["objective"],
             int(best["idx"]),

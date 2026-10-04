@@ -29,28 +29,22 @@ class FisheryAgentMetricSchema(AgentEnvStepSchema):
     """
 
     requested_harvest: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     delivered_harvest: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     requested_frac: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     quota_violation: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     quota_penalty: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     risk_penalty: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
 
@@ -70,87 +64,56 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     reference points of the surplus-production model.
     """
 
-    # TODO move this into logging for mechanism
-    # max_demand_frac: float = Field(
-    #     json_schema_extra={"reduce": ReduceProtocol.MEAN},
-    # )
     quota_stress: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     allowed_harvest: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     fish_stock: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     growth: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     growth_noise: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     H_attempted: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     H_realized: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     total_usage_norm: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     B_msy: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     MSY: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     F_msy: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     fish_stock_next: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     fish_norm: Optional[float] = Field(
-        default=None,
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     fish_norm_next_mean: Optional[float] = Field(
-        json_schema_extra={"reduce": ReduceProtocol.MEAN},
+        json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     fish_norm_next_min: Optional[float] = Field(
-        json_schema_extra={"reduce": ReduceProtocol.MIN},
+        json_schema_extra={"reduce": ReduceProtocol.MIN}
     )
     fish_norm_next_max: Optional[float] = Field(
-        json_schema_extra={"reduce": ReduceProtocol.MAX},
+        json_schema_extra={"reduce": ReduceProtocol.MAX}
     )
     fish_norm_next_last: Optional[float] = Field(
-        json_schema_extra={"reduce": ReduceProtocol.MAX},
+        json_schema_extra={"reduce": ReduceProtocol.MAX}
     )
 
-    # full_required_harvest: float = Field(
-    #     json_schema_extra={"reduce": ReduceProtocol.MEAN},
-    # )
-
-    # realized_harvest: float = Field(
-    #     json_schema_extra={"reduce": ReduceProtocol.MEAN},
-    # )
-
-    # harvest_to_msy: float = Field(
-    #     json_schema_extra={"reduce": ReduceProtocol.MEAN},
-    # )
-
-    by_agent: dict[AgentID, FisheryAgentMetricSchema] = Field(
-        default_factory=dict,
-    )
+    by_agent: dict[AgentID, FisheryAgentMetricSchema] = Field(default_factory=dict)

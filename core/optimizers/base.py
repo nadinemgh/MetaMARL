@@ -11,9 +11,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
 
-# TODO move ray dependencies out of ray optimizer
 import gymnasium as gym
 from ray.actor import ActorHandle
+
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.optimizers.config import OptimizerConfig
@@ -36,9 +36,6 @@ class Optimizer(ABC):
     logger: MetricLogger
     reporting: Reporter
 
-    # TODO ability to save data offline
-    # offline_data: Optional[OfflineData]
-
     # this is the default configuration as soon as an optimizer is created
 
     def __init__(
@@ -50,9 +47,9 @@ class Optimizer(ABC):
     ):
         from core.optimizers.config import OptimizerConfig
 
-        self.episodes : int = config.episodes
+        self.episodes: int = config.episodes
         self.config: OptimizerConfig = config
-        self.world = world  # TODO replace by envFactory
+        self.world = world
         self.reporting: Optional[Reporter] = reporting
         self.logger: Optional[MetricLogger] = None
 
@@ -60,7 +57,6 @@ class Optimizer(ABC):
         self.opt_id: OptimizerID | None = None
 
         # Optional environment (may be None for meta-optimizers)
-        # TODO review
         self._env: gym.Env | None = config.env if config else None
 
         # Optimizer Graph connectivity
@@ -69,23 +65,6 @@ class Optimizer(ABC):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(id={self.opt_id})"
-
-    # TODO setup accessors and mutators
-    # @property
-    # def world(self) -> ActorHandle[World]:
-    #     return self._world
-
-    # @world.setter
-    # def world(self, world: ActorHandle[World]) -> None:
-    #     self._world = world
-
-    # @property
-    # def reporting(self) -> ActorHandle[WandbReporter]:
-    #     return self._reporting
-
-    # @reporting.setter
-    # def world(self, reporting: ActorHandle[WandbReporter]) -> None:
-    #     self._reporting = reporting
 
     @property
     def env(self) -> gym.Env | None:
@@ -178,7 +157,6 @@ class Optimizer(ABC):
 
         return cls(config=config)
 
-    # TODO default config logic
     @classmethod
     def get_default_config(cls) -> OptimizerConfig:
         """Return a default config; not provided by the base class."""
@@ -212,26 +190,16 @@ class Optimizer(ABC):
         self.logger.reset()
 
     def report_metrics(self) -> None:
-        """Render every configured query against the accumulated metrics (non-destructive)."""
+        """Render every configured query on the accumulated metrics.
+
+        Non-destructive: the metrics are peeked, not reduced.
+        """
 
         if self.logger is None or self.reporting is None:
             return
 
         self.reporting.report(self.logger.peek())
 
-    # Accessors
-    # def __getattribute__(self, name):
-    #     return super().__getattribute__(name)
-
-    # replace with get context but probably this is in env
-    # def get_signal(self) -> Signal:
-    #     return self.signal
-
-    # Mutators
-    # def __setattr__(self, name, value) -> Any:
-    #     return super().__setattr__(name, value)
-
-    # TODO change this to training step
     @abstractmethod
     def train(self) -> None:
         """

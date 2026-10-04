@@ -21,10 +21,7 @@ class ReporterConfig(ABC):
     own instance.
     """
 
-    def __init__(
-        self,
-        project: str,
-    ):
+    def __init__(self, project: str):
         self.project_name: str = project
         self._world_name: Union[str | None] = None
         self._outer_iters: Union[int | None] = None

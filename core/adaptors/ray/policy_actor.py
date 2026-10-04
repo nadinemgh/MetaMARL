@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import logging
 
-from core.metrics.schemas import MetricSchema
-
 import numpy as np
 import ray
 from ray.rllib.algorithms.algorithm import Algorithm
@@ -59,13 +57,6 @@ class PolicyActor:
             The raw RLlib result dictionary of the iteration.
         """
 
-        # TODO config ability to debug remote actors
-        # import debugpy, os
-        # debugpy.listen(("127.0.0.1", 5678))
-        # print(f"[debugpy] worker pid={os.getpid()} listening on 5678")
-        # debugpy.wait_for_client()
-        # debugpy.breakpoint()
-        # TODO mapping result
         return self.algo.train()
 
     def evaluate(self) -> ResultDict:
@@ -83,11 +74,7 @@ class PolicyActor:
 
         return self.algo.evaluate()
 
-    def compute_actions(
-        self,
-        policy_id: str,
-        obs_batch: np.ndarray,
-    ) -> np.ndarray:
+    def compute_actions(self, policy_id: str, obs_batch: np.ndarray) -> np.ndarray:
         """Sample actions for a batch of observations from one RLModule.
 
         Parameters
@@ -139,19 +126,13 @@ class PolicyActor:
         collection.
         """
 
-        # TODO verify reset is using the same seed
-        # self.algo.set_weights(self._init_weights)
         self.algo = self.algo_config.build_algo()
 
-        # TODO tie the init_weights with seeding
         self.algo.set_weights(self._init_weights)
 
         weights = self.algo.get_weights()
 
-        logger.info(
-            "[PPO] Initial policy weight hash: %s",
-            hash_weights(weights),
-        )
+        logger.info("[PPO] Initial policy weight hash: %s", hash_weights(weights))
 
     def stop(self) -> None:
         """Stop the owned ``Algorithm`` and release its workers."""

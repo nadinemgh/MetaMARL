@@ -22,9 +22,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from gymnasium.spaces import flatdim, flatten_space, unflatten
-from gymnasium import spaces
 import numpy as np
+from gymnasium import spaces
+from gymnasium.spaces import flatdim, flatten_space, unflatten
 
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
@@ -43,7 +43,9 @@ SIGMA_PERFORMANCE_REL_TOL = 1e-3
 
 
 class ESOptimizer(Optimizer):
-    """Outer optimizer searching the normalized mechanism vector by Evolution Strategies.
+    """Outer optimizer searching the normalized mechanism vector by ES.
+
+    ES stands for Evolution Strategies.
 
     The state is a mean in ``(0, 1)^dimension`` (moved in logit space) and a
     scalar ``sigma``. Each :meth:`run` call is one generation: sample the
@@ -86,24 +88,25 @@ class ESOptimizer(Optimizer):
     def __init__(self, config: ESConfig, **kwargs) -> None:
         super().__init__(config, **kwargs)
 
-        # TODO (nadine) we support only one planning agent in the config. to extend in future
         self.agents_cfgs = next(iter(config.agents_cfgs.values()))
-        self.action_space = spaces.Dict({
-            m.id: m.action_space for m in self.agents_cfgs.mechanisms
-            })
+        self.action_space = spaces.Dict(
+            {m.id: m.action_space for m in self.agents_cfgs.mechanisms}
+        )
         for mechanism_id, action_space in self.action_space.spaces.items():
             if not isinstance(action_space, spaces.Box):
                 raise TypeError(
                     "ESOptimizer requires continuous Box action spaces; "
-                    f"{mechanism_id!r} has {type(action_space).__name__}."
+                    + f"{mechanism_id!r} has {type(action_space).__name__}."
                 )
         self.search_space = flatten_space(self.action_space)
         self.dimension = flatdim(self.action_space)
 
-        # TODO (nadine) built-in normalization not supported yet
-        if not np.allclose(self.search_space.low, 0.0) and np.allclose(self.search_space.high, 1.0):
-            raise ValueError("ESOptimizer currently requires action bounds in [0, 1]. "
-                f"Got low={self.search_space.low}, high={self.search_space.high}."
+        if not np.allclose(self.search_space.low, 0.0) and np.allclose(
+            self.search_space.high, 1.0
+        ):
+            raise ValueError(
+                "ESOptimizer currently requires action bounds in [0, 1]. "
+                + f"Got low={self.search_space.low}, high={self.search_space.high}."
             )
 
         self.parameter_names: list[str] = []
@@ -121,7 +124,7 @@ class ESOptimizer(Optimizer):
         if len(self.parameter_names) != self.dimension:
             raise RuntimeError(
                 "Action-space parameter count does not match ES dimension: "
-                f"{len(self.parameter_names)} != {self.dimension}."
+                + f"{len(self.parameter_names)} != {self.dimension}."
             )
 
         self.mean_lr = config.mean_lr
@@ -160,7 +163,7 @@ class ESOptimizer(Optimizer):
             if initial_mean.shape != (self.dimension,):
                 raise ValueError(
                     "initial_mean must have shape "
-                    f"({self.dimension},), got {initial_mean.shape}"
+                    + f"({self.dimension},), got {initial_mean.shape}"
                 )
 
             if not np.all(np.isfinite(initial_mean)):
@@ -213,12 +216,16 @@ class ESOptimizer(Optimizer):
 
         if self.fixed_mode:
             self._batch_capacity = value
-            logger.info("[ES] Fixed-mechanism batch mode enabled | batch_capacity=%d", value)
+            logger.info(
+                "[ES] Fixed-mechanism batch mode enabled | batch_capacity=%d", value
+            )
             return
 
         if value == 1:
             self._batch_capacity = 1
-            logger.info("[ES] Single-candidate mode enabled. Using sequential (1+1)-ES.")
+            logger.info(
+                "[ES] Single-candidate mode enabled. Using sequential (1+1)-ES."
+            )
             return
 
         if not self.break_symmetry and value % 2 != 0:
@@ -260,13 +267,7 @@ class ESOptimizer(Optimizer):
         """
 
         if self.fixed_mode:
-            return np.empty(
-                (
-                    self._batch_capacity,
-                    0,
-                ),
-                dtype=np.float32,
-            )
+            return np.empty((self._batch_capacity, 0), dtype=np.float32)
         if self._batch_capacity == 1 and self.fitness_baseline is None:
             return self.mean[None, :].copy()
 
@@ -361,11 +362,11 @@ class ESOptimizer(Optimizer):
 
         logger.info(
             "[ES] SIGMA UPDATE | "
-            "action=%s | previous_population_mean_fitness=%.6f | "
-            "current_population_mean_fitness=%.6f | "
-            "improvement=%+.6f | tolerance=%.6f | "
-            "sigma=%.6f->%.6f | sigma_lr=%.6f | "
-            "sigma_decay=%.6f",
+            + "action=%s | previous_population_mean_fitness=%.6f | "
+            + "current_population_mean_fitness=%.6f | "
+            + "improvement=%+.6f | tolerance=%.6f | "
+            + "sigma=%.6f->%.6f | sigma_lr=%.6f | "
+            + "sigma_decay=%.6f",
             action,
             previous,
             generation_mean_fitness,
@@ -442,12 +443,12 @@ class ESOptimizer(Optimizer):
 
         logger.info(
             "[ES] SINGLE UPDATE | "
-            "accepted=%s | "
-            "parent_fitness=%.6f | "
-            "candidate_fitness=%.6f | "
-            "improvement=%+.6f | "
-            "mean=%s->%s | "
-            "sigma=%.6f->%.6f",
+            + "accepted=%s | "
+            + "parent_fitness=%.6f | "
+            + "candidate_fitness=%.6f | "
+            + "improvement=%+.6f | "
+            + "mean=%s->%s | "
+            + "sigma=%.6f->%.6f",
             accepted,
             parent_fitness,
             fitness,
@@ -470,8 +471,8 @@ class ESOptimizer(Optimizer):
         if population.shape != (fitness_scores_array.size, self.dimension):
             raise ValueError(
                 "population shape and fitness count do not match: "
-                f"{population.shape} versus "
-                f"{fitness_scores_array.size} fitness values"
+                + f"{population.shape} versus "
+                + f"{fitness_scores_array.size} fitness values"
             )
 
         if fitness_scores_array.size == 0:
@@ -486,8 +487,8 @@ class ESOptimizer(Optimizer):
             if fitness_scores_array.size != expected_size:
                 raise ValueError(
                     "Fixed-mechanism mode expected "
-                    f"{expected_size} fitness values, got "
-                    f"{fitness_scores_array.size}."
+                    + f"{expected_size} fitness values, got "
+                    + f"{fitness_scores_array.size}."
                 )
 
             generation_mean_fitness = float(np.mean(fitness_scores_array))
@@ -503,8 +504,8 @@ class ESOptimizer(Optimizer):
 
             logger.info(
                 "[ES] FIXED MECHANISM BATCH | "
-                "fitness=%s | mean=%.6f | "
-                "std=%.6f | min=%.6f | max=%.6f",
+                + "fitness=%s | mean=%.6f | "
+                + "std=%.6f | min=%.6f | max=%.6f",
                 fitness_scores_array.tolist(),
                 generation_mean_fitness,
                 float(np.std(fitness_scores_array)),
@@ -608,9 +609,7 @@ class ESOptimizer(Optimizer):
             parameter_names = mechanism.param_names()
             default_vector = np.asarray(mechanism.to_vector(), dtype=np.float32)
             logged_population = np.repeat(
-                default_vector[None, :],
-                repeats=population.shape[0],
-                axis=0,
+                default_vector[None, :], repeats=population.shape[0], axis=0
             )
             logged_mean = default_vector
             logged_best = default_vector
@@ -663,7 +662,6 @@ class ESOptimizer(Optimizer):
             inner=inner,
         )
 
-    # TODO (nadine) implement early stopping criteria
     def _has_converged(self):
         return False
 
@@ -689,7 +687,6 @@ class ESOptimizer(Optimizer):
             number of fitness values does not match the population size.
         """
 
-        # TODO either move this t reset or mutation requires this is always true
         if self.env is None:
             raise RuntimeError("ESOptimizer requires a RegulatorEnv")
 
@@ -715,7 +712,9 @@ class ESOptimizer(Optimizer):
             fitness: np.ndarray | None = None
             info: dict[str, Any] = {}
 
-            actions = [unflatten(self.action_space, candidate) for candidate in population]
+            actions = [
+                unflatten(self.action_space, candidate) for candidate in population
+            ]
 
             while not terminated and not truncated:
                 _, fitness, terminated, truncated, info = self.env.step(actions)
@@ -734,7 +733,7 @@ class ESOptimizer(Optimizer):
                 if fitness.size != population.shape[0]:
                     raise RuntimeError(
                         f"The environment returned {fitness.size} fitness values for "
-                        f"{population.shape[0]} candidates"
+                        + f"{population.shape[0]} candidates"
                     )
 
             if truncated and not terminated:
@@ -750,7 +749,8 @@ class ESOptimizer(Optimizer):
             fitness_variance = float(fitness.var())
 
             logger.info(
-                "[ES] BEFORE UPDATE | gen=%d | mean=%s | sigma=%.5f | population=%s | fitness=%s",
+                "[ES] BEFORE UPDATE | gen=%d | mean=%s | sigma=%.5f | population=%s"
+                + " | fitness=%s",
                 generation,
                 pre_update_mean.tolist(),
                 pre_update_sigma,

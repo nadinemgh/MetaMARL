@@ -15,11 +15,11 @@ class LastMetric(SeriesMetric):
     (``iter``, a generation index, the current best fitness).
     """
 
-    def peek(
-        self,
-        compile: bool = True,
-    ) -> PrimitiveType | list[PrimitiveType]:
-        """Return the last value (``None`` when empty), or the history when ``compile`` is false."""
+    def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType]:
+        """Return the last value (``None`` when empty).
+
+        When ``compile`` is false, the history is returned instead.
+        """
 
         if not compile:
             return list(self.values)
@@ -29,11 +29,7 @@ class LastMetric(SeriesMetric):
 
         return self.values[-1]
 
-    # TODO move to base cls
-    def reduce(
-        self,
-        compile: bool = True,
-    ) -> float | LastMetric:
+    def reduce(self, compile: bool = True) -> float | LastMetric:
         """Return the last value and clear the history.
 
         With ``compile`` false a new ``LastMetric`` holding only that value is

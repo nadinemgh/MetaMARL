@@ -13,11 +13,9 @@ from enum import Enum
 from typing import Optional, SupportsFloat
 
 from gymnasium.core import ActType, ObsType
-from pydantic import BaseModel, SkipValidation
+from pydantic import BaseModel
 from ray.rllib.utils.typing import MultiAgentDict
 
-from core.agents.base import Agent
-from core.mechanism.base import Mechanism
 from core.types import ContextID, MechanismID, OptimizerID
 
 
@@ -55,11 +53,6 @@ class MechanismStatus(Enum):
     train = "train"
     eval = "eval"
     done = "done"
-
-
-# TODO some world contexts are singletons (mutable) others are simply mutable.
-# TODO for now singleton/or no is deffered to world
-# TODO Enums for Context to access different Context Schemas.
 
 
 class ContextSchema(BaseModel):
@@ -107,7 +100,6 @@ class MechanismContext(ContextSchema):
     metrics: Optional[ContextSchema]
 
 
-# TODO strict type annotations rm Any
 class EnvStepContext(ContextSchema):
     """Snapshot of one environment transition, published on every step.
 

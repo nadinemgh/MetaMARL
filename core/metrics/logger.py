@@ -115,7 +115,7 @@ class MetricLogger(ABC):
         if _token is not cls._TOKEN:
             raise TypeError(
                 "MetricLogger cannot be instantiated directly. "
-                "Use MetricLogger.from_schema(schema)"
+                + "Use MetricLogger.from_schema(schema)"
             )
 
         return super().__new__(cls)
@@ -124,10 +124,9 @@ class MetricLogger(ABC):
         if _token is not self._TOKEN:
             raise TypeError(
                 "MetricLogger cannot be instantiated directly. "
-                "Use MetricLogger.from_schema(schema)"
+                + "Use MetricLogger.from_schema(schema)"
             )
 
-    # TODO immutability
     @classmethod
     def from_schema(cls, schema: type[MetricSchema]) -> "MetricLogger":
         """Create a logger whose tree mirrors ``schema``.
@@ -154,7 +153,6 @@ class MetricLogger(ABC):
         dynamic: bool = False,
         subtree_reduce: ReduceProtocol | None = None,
     ) -> tuple[Node, dict[Path, Metric]]:
-        # TODO guardrails when Metric isnt well formatted
         refs: dict[Path, Metric] = {}
 
         node = Node(schema=schema, dynamic=dynamic, subtree_reduce=subtree_reduce)
@@ -198,7 +196,7 @@ class MetricLogger(ABC):
                 ):
                     raise TypeError(
                         f"{schema.__name__}.{field_name} must be "
-                        f"dict[ID, MetricSchema], got {ann!r}"
+                        + f"dict[ID, MetricSchema], got {ann!r}"
                     )
 
                 node[field_name] = Node(
@@ -236,19 +234,14 @@ class MetricLogger(ABC):
 
             if runtime_child is None:
                 runtime_child, refs = self._build_from_schema(
-                    node.schema,
-                    prefix=prefix,
-                    subtree_reduce=node.subtree_reduce,
+                    node.schema, prefix=prefix, subtree_reduce=node.subtree_reduce
                 )
                 node[dynamic_id] = runtime_child
 
                 self._refs.update(refs)
 
             return self._resolve_path(
-                path=path,
-                node=runtime_child,
-                index=index + 1,
-                prefix=prefix,
+                path=path, node=runtime_child, index=index + 1, prefix=prefix
             )
 
         if index >= len(path):
@@ -271,13 +264,9 @@ class MetricLogger(ABC):
             return child
 
         return self._resolve_path(
-            node=child,
-            path=path,
-            index=index + 1,
-            prefix=child_path,
+            node=child, path=path, index=index + 1, prefix=child_path
         )
 
-    # TODO refactor into one push function
     def push_data(
         self, data: MetricSchema, prefix: Path = (), node: Node | None = None
     ) -> None:
@@ -303,7 +292,8 @@ class MetricLogger(ABC):
                 child_node = node[field_name]
             except KeyError:
                 raise KeyError(
-                    f"Unknown logger field {field_name!r} at {prefix} for {type(data).__name__}."
+                    f"Unknown logger field {field_name!r} at {prefix} for "
+                    + f"{type(data).__name__}."
                 ) from None
 
             if isinstance(value, MetricSchema):
@@ -322,14 +312,12 @@ class MetricLogger(ABC):
                     if not issubclass(runtime_schema, declared_schema):
                         raise TypeError(
                             f"{runtime_schema.__name__} is not a subclass of "
-                            f"{declared_schema.__name__} at {path}."
+                            + f"{declared_schema.__name__} at {path}."
                         )
 
                     subtree_reduce = child_node.subtree_reduce
                     child_node, refs = self._build_from_schema(
-                        runtime_schema,
-                        prefix=path,
-                        subtree_reduce=subtree_reduce,
+                        runtime_schema, prefix=path, subtree_reduce=subtree_reduce
                     )
                     node[field_name] = child_node
 
@@ -350,12 +338,10 @@ class MetricLogger(ABC):
                     )
 
                 for dynamic_id, dynamic_child in value.items():
-                    if not isinstance(
-                        dynamic_child, MetricSchema
-                    ):  # TODO only verify it is a metric schema not that its env
+                    if not isinstance(dynamic_child, MetricSchema):
                         raise TypeError(
                             f"Expected MetricSchema at {path + (dynamic_id,)}, "
-                            f"got {type(dynamic_child).__name__}."
+                            + f"got {type(dynamic_child).__name__}."
                         )
 
                     runtime_schema = type(dynamic_child)
@@ -363,7 +349,7 @@ class MetricLogger(ABC):
                     if not issubclass(runtime_schema, declared_schema):
                         raise TypeError(
                             f"{runtime_schema.__name__} is not a subclass of "
-                            f"{declared_schema.__name__} at {path}."
+                            + f"{declared_schema.__name__} at {path}."
                         )
 
                     runtime_path = path + (dynamic_id,)
@@ -381,18 +367,17 @@ class MetricLogger(ABC):
                     elif not isinstance(runtime_node, Node):
                         raise TypeError(
                             f"Expected runtime Node at {runtime_path}, got "
-                            f"{type(runtime_node).__name__}."
+                            + f"{type(runtime_node).__name__}."
                         )
                     elif runtime_node.schema is not runtime_schema:
                         raise TypeError(
                             f"Runtime schema changed at {runtime_path}: "
-                            f"{runtime_node.schema.__name__} -> {runtime_schema.__name__}."
+                            + f"{runtime_node.schema.__name__} -> "
+                            + f"{runtime_schema.__name__}."
                         )
 
                     self.push_data(
-                        dynamic_child,
-                        prefix=runtime_path,
-                        node=runtime_node,
+                        dynamic_child, prefix=runtime_path, node=runtime_node
                     )
 
                 continue
@@ -405,7 +390,6 @@ class MetricLogger(ABC):
             child_node.push(value)
 
     def push(self, key: Path, value: Any) -> None:
-        # TODO narrow down Any to stricter type annotation
         """Logs a new value or item under a (strictly existing) path to the logger"""
 
         metric = self._refs.get(key)
@@ -416,7 +400,6 @@ class MetricLogger(ABC):
         metric.push(value)
 
     def peek_value(self, key: Path) -> Any:
-        # TODO narrow down Any to stricter type annotation
         # NOTE this does not work for sub trees as of now !
         """
         Reads a metric value given its path without destructively reducing it
@@ -443,32 +426,26 @@ class MetricLogger(ABC):
                     f"Error peeking metric {metric} at path {path}."
                 ) from e
 
-        peeked = tree.map_structure_with_path(
-            _peek,
-            self._tree,
-        )
+        peeked = tree.map_structure_with_path(_peek, self._tree)
 
         return self._tree.construct(peeked)
 
     def reduce(self) -> MetricSchema:
         """
-        Reduces all logged values based on their settings and returns a MetricSchema object.
+        Reduces all logged values based on their settings and returns a MetricSchema
+        object.
         """
 
         def _reduce(path: Path, metric: Metric):
             try:
                 return metric.reduce(compile=True)
 
-            # TODO custom exceptions
             except Exception as e:
                 raise ValueError(
                     f"Error reducing metrics {metric} at path {path}."
                 ) from e
 
-        reduced = tree.map_structure_with_path(
-            _reduce,
-            self._tree,
-        )
+        reduced = tree.map_structure_with_path(_reduce, self._tree)
 
         return self._tree.construct(reduced)
 
@@ -488,7 +465,6 @@ class MetricLogger(ABC):
             try:
                 metric.flush()
 
-            # TODO custom exceptions
             except Exception as e:
                 raise ValueError(
                     f"Error flushing metrics {metric} at path {path}."

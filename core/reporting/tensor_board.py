@@ -29,34 +29,19 @@ logger = logging.getLogger(__name__)
 
 
 class TensorBoardConfig(ReporterConfig):
-    def __init__(
-        self,
-        *,
-        project: str,
-        log_dir: str = "runs",
-    ) -> None:
+    def __init__(self, *, project: str, log_dir: str = "runs") -> None:
         super().__init__(project=project)
 
         self.log_dir = Path(log_dir)
 
-    def build(
-        self,
-        *,
-        label: Optional[str] = None,
-    ) -> TensorBoardReporter:
+    def build(self, *, label: Optional[str] = None) -> TensorBoardReporter:
         name = f"{self.world}-{label}" if label is not None else self.world
 
-        return TensorBoardReporter(
-            log_dir=self.log_dir / self.project_name / name,
-        )
+        return TensorBoardReporter(log_dir=self.log_dir / self.project_name / name)
 
 
 class TensorBoardReporter(Reporter):
-    def __init__(
-        self,
-        *,
-        log_dir: Path,
-    ) -> None:
+    def __init__(self, *, log_dir: Path) -> None:
         self._log_dir = Path(log_dir)
         self._writer: SummaryWriter | None = None
 
@@ -71,12 +56,10 @@ class TensorBoardReporter(Reporter):
             except ImportError as e:
                 raise ImportError(
                     "TensorBoardReporter needs the 'tensorboard' package: "
-                    "uv sync --extra tensorboard"
+                    + "uv sync --extra tensorboard"
                 ) from e
 
-            self._writer = SummaryWriter(
-                log_dir=str(self._log_dir),
-            )
+            self._writer = SummaryWriter(log_dir=str(self._log_dir))
 
         return self._writer
 
@@ -90,10 +73,7 @@ class TensorBoardReporter(Reporter):
 
     @classmethod
     def _series_label(
-        cls,
-        path: QueryPath,
-        group: Group,
-        label: Optional[str] = None,
+        cls, path: QueryPath, group: Group, label: Optional[str] = None
     ) -> str:
         name = label if label is not None else cls._path_name(path)
 
@@ -107,22 +87,19 @@ class TensorBoardReporter(Reporter):
         return f"{name} [{group_name}]"
 
     @staticmethod
-    def _step(
-        x_value: PrimitiveType,
-        query: Query,
-    ) -> int:
+    def _step(x_value: PrimitiveType, query: Query) -> int:
         try:
             step = int(x_value)
         except (TypeError, ValueError) as e:
             raise TypeError(
                 "TensorBoard x-axis must be integer-valued: "
-                f"{query.x} contains {x_value!r}."
+                + f"{query.x} contains {x_value!r}."
             ) from e
 
         if step != x_value:
             raise TypeError(
                 "TensorBoard x-axis must be integer-valued: "
-                f"{query.x} contains {x_value!r}."
+                + f"{query.x} contains {x_value!r}."
             )
 
         return step
@@ -141,8 +118,8 @@ class TensorBoardReporter(Reporter):
         if colors is not None:
             logger.info(
                 "TensorBoardReporter ignores the color path %s "
-                "of query %r because TensorBoard scalars do not "
-                "support per-point colour.",
+                + "of query %r because TensorBoard scalars do not "
+                + "support per-point colour.",
                 query.color,
                 query.title,
             )
@@ -156,11 +133,7 @@ class TensorBoardReporter(Reporter):
         )
 
         for path, resolved_y, resolved_errors, path_label in zip(
-            query.y_paths,
-            ys,
-            errors,
-            labels,
-            strict=True,
+            query.y_paths, ys, errors, labels, strict=True
         ):
             for group, y_values in resolved_y.items():
                 if () in x:
@@ -173,40 +146,24 @@ class TensorBoardReporter(Reporter):
                             f"No x series exists for group {group}."
                         ) from None
 
-                label = self._series_label(
-                    path,
-                    group,
-                    label=path_label,
-                )
+                label = self._series_label(path, group, label=path_label)
                 tag = f"{title}/{sanitize_key(label)}"
 
-                for x_value, y_value in zip(
-                    x_values,
-                    y_values,
-                    strict=True,
-                ):
+                for x_value, y_value in zip(x_values, y_values, strict=True):
                     writer.add_scalar(
                         tag=tag,
                         scalar_value=y_value,
-                        global_step=self._step(
-                            x_value,
-                            query,
-                        ),
+                        global_step=self._step(x_value, query),
                     )
 
                 if group in resolved_errors:
                     for x_value, error_value in zip(
-                        x_values,
-                        resolved_errors[group],
-                        strict=True,
+                        x_values, resolved_errors[group], strict=True
                     ):
                         writer.add_scalar(
                             tag=f"{tag}/std",
                             scalar_value=error_value,
-                            global_step=self._step(
-                                x_value,
-                                query,
-                            ),
+                            global_step=self._step(x_value, query),
                         )
 
         writer.flush()

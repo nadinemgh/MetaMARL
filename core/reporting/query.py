@@ -72,28 +72,23 @@ class Query:
         if not self.error_path:
             raise ValueError(f"error={self.error!r} requires error_path.")
 
-        if isinstance(
-            self.error_path[-1],
-            ReduceProtocol,
-        ):
+        if isinstance(self.error_path[-1], ReduceProtocol):
             raise ValueError(
-                "error_path must point to the dynamic dimension, not its reduction operator."
+                "error_path must point to the dynamic dimension, not its reduction "
+                + "operator."
             )
 
         target = self.error_path + (ReduceProtocol.MEAN,)
 
         if not any(path[: len(target)] == target for path in self.y_paths):
             raise ValueError(
-                f"error_path {self.error_path} must be followed by ReduceProtocol.MEAN in one "
-                "of the query's y paths."
+                f"error_path {self.error_path} must be followed by "
+                + "ReduceProtocol.MEAN in one of the query's y paths."
             )
 
     @property
     def y_paths(self) -> tuple[Path, ...]:
         if self.y and isinstance(self.y[0], tuple):
-            return cast(
-                tuple[Path, ...],
-                self.y,
-            )
+            return cast(tuple[Path, ...], self.y)
 
         return (cast(Path, self.y),)

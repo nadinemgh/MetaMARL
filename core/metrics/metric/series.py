@@ -34,18 +34,12 @@ class SeriesMetric(Metric):
 
         self.values.append(value)
 
-    def peek(
-        self,
-        compile: bool = True,
-    ) -> list[PrimitiveType]:
+    def peek(self, compile: bool = True) -> list[PrimitiveType]:
         """Return a copy of the history; ``compile`` is ignored."""
 
         return list(self.values)
 
-    def reduce(
-        self,
-        compile: bool = True,
-    ) -> list[PrimitiveType] | SeriesMetric:
+    def reduce(self, compile: bool = True) -> list[PrimitiveType] | SeriesMetric:
         """Return the history and clear it.
 
         With ``compile`` false the history is returned inside a new

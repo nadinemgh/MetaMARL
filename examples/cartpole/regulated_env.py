@@ -13,8 +13,7 @@ from core.envs.marl_regulated import MultiAgentRegulatedEnv
 from core.world.context import EnvStepContext
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
 logger = logging.getLogger(__name__)
@@ -23,27 +22,16 @@ logger = logging.getLogger(__name__)
 # Numerical stability constant
 EPS = 1e-8
 
-# TODO add multiagent state in types
-# TODO ban proportional to violation severity
-
-
-# TODO number of agents spawned dynamically as a byproduct of config stating number of agents
-
 
 class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
-    def __init__(
-        self,
-        *,
-        render_mode: str | None = None,
-        **kwargs,
-    ):
+    def __init__(self, *, render_mode: str | None = None, **kwargs):
         super().__init__(**kwargs)
 
         # Ensure number of agents == 1
         if len(self.agents) != 1:
             raise ValueError(
                 "CartPoleRegulatedEnv is a single-agent QC environment. "
-                f"Got agents={self.agents}."
+                + f"Got agents={self.agents}."
             )
 
         self.agent_id = self.agents[0]
@@ -86,14 +74,8 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
         self.S_t = np.asarray(obs, dtype=np.float32)
         observations = {self.agent_id: self.S_t}
         rewards = {self.agent_id: float(reward)}
-        terminateds = {
-            self.agent_id: bool(terminated),
-            "__all__": bool(terminated),
-        }
-        truncateds = {
-            self.agent_id: bool(truncated),
-            "__all__": bool(truncated),
-        }
+        terminateds = {self.agent_id: bool(terminated), "__all__": bool(terminated)}
+        truncateds = {self.agent_id: bool(truncated), "__all__": bool(truncated)}
         infos = {self.agent_id: info}
 
         self._publish(
@@ -135,7 +117,7 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
     def transition_kernel(
         self, A_t: MultiAgentEnv, S_t: dict[str, float]
     ) -> dict[str, float]:
-        pass  # TODO
+        pass
 
     @override(MultiAgentRegulatedEnv)
     def aggregate_rewards(self, rewards: MultiAgentDict) -> MultiAgentDict:
@@ -143,7 +125,6 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
 
         return rewards
 
-    # TODO canonical observation in base multiagent env
     def _observation(self, agent_id: AgentID, S_t: dict[str, MultiAgentDict]):
         """We assume complete transparency. Observations normalized to [0, 1]."""
 

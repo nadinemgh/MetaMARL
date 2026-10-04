@@ -1,12 +1,15 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import ClassVar, Optional
+
+import numpy as np
 from gym.core import ActType
 from gymnasium import Space
-import numpy as np
-from core.mechanism.base import Mechanism, MDPState
+
+from core.mechanism.base import MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
 from core.types import AgentID, MechanismID, PolicyID
 from core.utils import sigmoid
+
 
 class Agent:
     _action: ClassVar[str | None] = None
@@ -27,33 +30,26 @@ class Agent:
         self.mechanisms = mechanisms
         self.observation_space = observation_space
 
-    def __init_subclass__(
-            cls,
-            **kwargs,
-        ):
+    def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
 
         for name, func in tuple(cls.__dict__.items()):
-            # TODO (nadine) only reset, transition and state space belong to env
-            if getattr(func, "action", False): cls._action = name
-            if getattr(func, "reward", False): cls._reward = name
-            if getattr(func, "observation", False): cls._observation = name  # o_i = O_i(S_t)
-            if getattr(func, "observation_spaces", False): cls._observation_spaces = name
-    
-    # TODO move this to Agent
-    # TODO make this configurable in future
-    def _normalize_action(
-        self,
-        action: ActType,
-    ) -> np.ndarray:
+            if getattr(func, "action", False):
+                cls._action = name
+            if getattr(func, "reward", False):
+                cls._reward = name
+            if getattr(func, "observation", False):
+                cls._observation = name  # o_i = O_i(S_t)
+            if getattr(func, "observation_spaces", False):
+                cls._observation_spaces = name
+
+    def _normalize_action(self, action: ActType) -> np.ndarray:
         z = np.asarray(action, dtype=np.float32).reshape(-1)
         temperature = 4.0
-        return np.asarray([sigmoid(float(value) / temperature) for value in z], dtype=np.float32)
+        return np.asarray(
+            [sigmoid(float(value) / temperature) for value in z], dtype=np.float32
+        )
 
-
-    # TODO (nadine) MDPState should be EnvState payload to replace MDPState
-
-    
     def action(self, mdp: MDPState) -> MDPState:
         """Apply this agent's mechanisms to the shared mdp.
 
@@ -73,22 +69,25 @@ class Agent:
         Returns:
             The mdp resulting from composing the original mdp with all
             mechanism residuals.
-    """
+        """
         acts = mdp.actions.data.get(self.id)
-        if not acts: return mdp
-        mdp = mdp.add([self.mechanisms[mid](mdp, a[mdp.t]) for mid, a in acts.items() if mid in self.mechanisms])
+        if not acts:
+            return mdp
+        mdp = mdp.add(
+            [
+                self.mechanisms[mid](mdp, a[mdp.t])
+                for mid, a in acts.items()
+                if mid in self.mechanisms
+            ]
+        )
         return mdp
 
-    def observation(
-            self,
-            mdp: MDPState,
-    ) -> MDPState:
-        # [self.logger.push(key=("by_agent", aid, "observation"), value=o) for aid, o in observations]
+    def observation(self, mdp: MDPState) -> MDPState:
         return MDPState()
 
     def reward(self, mdp: MDPState) -> MDPState:
-        # [self.logger.push(key=("by_agent", aid, "base_reward"), value=r) for aid, r in rewards]
         return MDPState()
+
 
 @dataclass(frozen=True)
 class AgentConfig:
@@ -100,12 +99,15 @@ class AgentConfig:
     observation_space: Optional[Space] = None
     agent_cls: ClassVar[type[Agent]] = Agent
 
-
     def __post_init__(self) -> None:
         if self.count < 1:
             raise ValueError("count must be at least 1.")
 
-        mechanisms = (self.mechanisms if isinstance(self.mechanisms, tuple) else (self.mechanisms,))
+        mechanisms = (
+            self.mechanisms
+            if isinstance(self.mechanisms, tuple)
+            else (self.mechanisms,)
+        )
 
         if not mechanisms:
             raise ValueError("mechanisms cannot be empty.")

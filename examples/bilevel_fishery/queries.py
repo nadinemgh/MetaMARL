@@ -6,28 +6,12 @@ ES_QUERIES = (
         title="Fitness over outer optimization iterations",
         x=("iter",),
         y=(
-            (
-                "by_mechanism",
-                ReduceProtocol.SERIES,
-                "fitness",
-            ),
-            (
-                "by_mechanism",
-                ReduceProtocol.MEAN,
-                "fitness",
-            ),
+            ("by_mechanism", ReduceProtocol.SERIES, "fitness"),
+            ("by_mechanism", ReduceProtocol.MEAN, "fitness"),
             ("fitness_best",),
         ),
-        legend_labels=(
-            "Candidates",
-            "Generation mean",
-            "Generation best",
-        ),
-        plot_modes=(
-            "markers",
-            "lines+markers",
-            "lines+markers",
-        ),
+        legend_labels=("Candidates", "Generation mean", "Generation best"),
+        plot_modes=("markers", "lines+markers", "lines+markers"),
         show_group_labels=False,
         x_label="outer optimization iteration",
         y_label="objective fitness",
@@ -43,11 +27,7 @@ ES_QUERIES = (
             "fixed_quota",
             "value",
         ),
-        y=(
-            "by_mechanism",
-            ReduceProtocol.SERIES,
-            "fitness",
-        ),
+        y=("by_mechanism", ReduceProtocol.SERIES, "fitness"),
         legend_labels=("Evaluated mechanisms",),
         plot_modes=("markers",),
         show_group_labels=False,
@@ -348,9 +328,6 @@ INNER_QUERIES = (
             "by_seed",
         ),
     ),
-    # TODO two ways over junction : either plot them in separete line or mean over
-    # TODO what if you wanna avergae over specific type of agent ?
-    # TODO seeding : is error bar, by_episode is mean, by_agent is mean -> for that we leave the separation int he mapping. ID should be by type strictly
     Query(
         title="Quota penalty mean over training episdoes",
         legend_labels=("train",),
@@ -523,7 +500,6 @@ INNER_QUERIES = (
             "by_seed",
         ),
     ),
-    # TODO Again seeding over policy ? error bars ?
     Query(
         title="Value loss over training episdoes",
         legend_labels=("train",),
@@ -638,17 +614,13 @@ INNER_QUERIES = (
     ),
 )
 
-# TODO x and y axis labels
-# TODO eval vs training from different logger instances
 FISHERY_ENV_QUERIES = (
-    # TODO since risk penality is null, violation singal == quota_penalty
     Query(
         title="mean quota penalty over agent",
         legend_labels=("quota penalty",),
         x=("iter",),
         y=("by_agent", ReduceProtocol.MEAN, "quota_penalty"),
     ),
-    # TODO plot none when the data is not pushed to prevent experiemnt breaking
     Query(
         title="intrinsic utility mean over agent",
         legend_labels=("intrinsic utility",),
