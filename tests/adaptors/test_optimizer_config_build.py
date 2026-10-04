@@ -602,7 +602,7 @@ def test_the_optimizer_level_reporter_is_built_once_and_loaded_with_the_declarat
 
     opt, _ = build(cfg)
 
-    reporter = opt.kwargs["reporter"]
+    reporter = opt.kwargs["reporting"]
     assert RecordingReporterConfig.built == [reporter]
     assert reporter.label == "StubOptimizer"
     assert reporter.schema is OptSchema
@@ -652,11 +652,6 @@ def test_a_config_without_reporter_builds_an_optimizer_without_reporter(
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason="build_optimizer passes `reporter=` but Optimizer.__init__ takes "
-    + "`reporting=`, so the keyword is swallowed by **kwargs",
-)
 def test_the_built_optimizer_holds_the_reporter_it_was_built_with(
     registered, monkeypatch
 ):

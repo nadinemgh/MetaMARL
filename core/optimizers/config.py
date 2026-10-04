@@ -272,7 +272,7 @@ class OptimizerConfig(_Config, ABC):
         reporter.schema = self._reporting_schema
         reporter.add_query(*(self._reporting_queries or ()))
 
-        opt: Optimizer = cfg.opt_class(world=world, reporter=reporter, config=cfg)
+        opt: Optimizer = cfg.opt_class(world=world, reporting=reporter, config=cfg)
 
         if world is not None:
             registry = ray.get(world.get_opt_registry.remote())

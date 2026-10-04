@@ -461,11 +461,6 @@ class TestBuildOptimizer:
         assert reporter.schema is dict
         assert reporter.queries == ["q"]
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="build_optimizer passes 'reporter=' but Optimizer.__init__ takes "
-        + "'reporting=', so the reporter is swallowed by **kwargs",
-    )
     def test_the_built_reporter_is_attached_to_the_optimizer(
         self, fake_world, reporter_config
     ):

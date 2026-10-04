@@ -13,10 +13,10 @@ starts and stops its own local Ray runtime, which is why the test is marked
 ``integration`` and not ``unit``.
 
 The run is a two-generation, two-fisherman, twenty-step fishery. The first
-test checks that the run completes and reports its final summary. The second
-test checks that the CSV reporter actually leaves ``.csv`` files behind; it is
-expected to fail today because the reporter object is created (its directories
-appear) but never receives any metrics.
+test checks that the run completes and reports its final summary. The others
+check that the CSV reporter leaves ``.csv`` files behind and that no query
+failed to render; until the optimizers received their reporter under the
+keyword they read, the directories appeared and no file was ever written.
 """
 
 from __future__ import annotations
@@ -92,9 +92,12 @@ def test_debug_script_creates_the_reporter_directory(csv_run):
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    strict=True, reason="the CSV reporter is created but no .csv file is ever written"
-)
 def test_debug_script_writes_csv_files(csv_run):
     csv_files = sorted((csv_run["workdir"] / "results").rglob("*.csv"))
     assert csv_files, "no CSV file under results/"
+
+
+@pytest.mark.integration
+def test_every_query_of_the_debug_script_renders(csv_run):
+    # ``Reporter.report`` logs a query it cannot render instead of raising.
+    assert "could not render query" not in csv_run["output"]

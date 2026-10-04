@@ -784,7 +784,7 @@ class RayOptimizerConfig(OptimizerConfig):
         reporter.schema = self._reporting_schema
         reporter.add_query(*(self._reporting_queries or ()))
 
-        opt = RayOptimizer(world=world, reporter=reporter, config=cfg)
+        opt = RayOptimizer(world=world, reporting=reporter, config=cfg)
         opt.id = opt_id
 
         return opt
