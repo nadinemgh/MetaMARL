@@ -65,7 +65,7 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] **with more than one training seed, evaluation crashed** ("fewer units than requested: requested=24, completed=48"): the evaluation runners inherited the training runners' environment count, which `debugging` multiplies by the number of seeds. `build_optimizer` now gives each evaluation runner one environment per mechanism, and the message says "fewer" or "more" as the case is, on Rémy's decision (`03330ef`). Measured with two seeds on the shrunk config: the run completes and all 80 sampled training and evaluation resets carry the candidate for both seeds;
   - [x] **runs are not reproducible**: investigation finished on 10-04; three sources found and measured (see "Findings for Nadine"), each removed by a scratch prototype, with bit-identical fitness over repeated runs once all are removed;
   - [x] **reproducibility fixed** on Rémy's decision, one commit per source, each with its test: the environment's metric logger is reset at every episode (`439249a`); `disable_env_checking` reaches RLlib (`be8d83e`); `core.config.cli` and `debug.py` restart themselves with `PYTHONHASHSEED=0` when the variable is unset (`2dd94c9`); evaluation waits for APPO's learner thread to apply every queued update (`ac83a64`). Measured from a shell without `PYTHONHASHSEED`, so every run went through the restart: five runs of the shrunk config with 10 inner iterations and three full-size runs (10 fishermen, horizon 100, 2 generations) each gave bit-identical fitness vectors, equal to those of the scratch prototypes. The test suite has 59 tests, all passing;
-  - [ ] `debug.py` documents `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` but parses no option and runs 1000 generations;
+  - [x] `debug.py` now parses `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` (`wandb` or `csv`), defaults being the former hard-coded values; measured: the smoke configuration of its docstring with `--reporter csv` exits 0 and writes the CSV files under `results/`;
   - [ ] port of `Subsidy`, `SocialInfluence` and `ThresholdPenalty` (own session, see next step).
 - [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`.
 - [ ] Phase 3 — docstrings and type hints on every public symbol of `core/` and `examples/bilevel_fishery`.
@@ -301,18 +301,14 @@ tracked.
 
 ## Next step
 
-Finish phase 1 with `debug.py`: it must parse the options its docstring documents
-(`--outer-iters`, `--train-iters`, `--num-agents`, `--horizon`, `--reporter`), with
-today's hard-coded values as defaults, on Rémy's decision. The script is top-level code
-with no `main()`, and `ensure_hash_seed()` must stay its first statement after the
-imports. Then the port of the three mechanisms in its own session. Still open from the
-reading of the code, for phase 2 or 3: `RayOptimizerConfig.build_optimizer` calls
-`self._reporter_cfg.build` without the `None` check its docstring describes, and
-`RayOptimizer.train` returns `self.logger.peek()` although it is annotated `-> None`.
+Phase 1 is complete except for the port of `Subsidy`, `SocialInfluence` and
+`ThresholdPenalty` to the `Mechanism.apply` interface on the model of `Quota`, with
+tests; it is its own session. Still open from the reading of the code, for phase 2 or 3:
+`RayOptimizerConfig.build_optimizer` calls `self._reporter_cfg.build` without the `None`
+check its docstring describes, and `RayOptimizer.train` returns `self.logger.peek()`
+although it is annotated `-> None`.
 
-**Suite conseillée :** modèle sonnet, effort medium — `debug.py` options are a bounded,
-already decided change to one script, checked by a short run. The port of the three
-mechanisms stays a separate session on fable.
+**Suite conseillée :** modèle fable, effort high — the port of three mechanisms touches the interface shared with the world and the environments, and must be measured against `Quota`.
 
 ## Probable bugs found while reading (not fixed yet)
 

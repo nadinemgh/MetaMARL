@@ -14,6 +14,7 @@ Smoke configuration::
 Full configuration: the defaults.
 """
 
+import argparse
 from typing import TypeAlias
 
 import numpy as np
@@ -29,6 +30,8 @@ from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
 from core.optimizers.es.schema import ESSchema
+from core.reporting.config import ReporterConfig
+from core.reporting.csv import CSVConfig
 from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
 from examples.bilevel_fishery.queries import (
@@ -45,6 +48,46 @@ from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 # Before any work: the call restarts the process when the seed is unset.
 ensure_hash_seed()
 
+
+def _parse_args() -> argparse.Namespace:
+    """Parse the size options of the experiment; the defaults are the full run."""
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument(
+        "--outer-iters", type=int, default=1000, help="ES generations (outer level)"
+    )
+    parser.add_argument(
+        "--train-iters", type=int, default=50, help="APPO iterations per generation"
+    )
+    parser.add_argument(
+        "--num-agents", type=int, default=10, help="number of fishermen"
+    )
+    parser.add_argument(
+        "--horizon", type=int, default=100, help="episode length of the fishery"
+    )
+    parser.add_argument(
+        "--reporter",
+        choices=("wandb", "csv"),
+        default="wandb",
+        help="where the queries are rendered",
+    )
+    return parser.parse_args()
+
+
+ARGS = _parse_args()
+
+REPORTER_CONFIG: ReporterConfig = (
+    CSVConfig(project="bilevel")
+    if ARGS.reporter == "csv"
+    else WandbConfig(
+        project="bilevel",
+        x_disable_stats=True,
+        x_disable_meta=True,
+        quiet=True,
+        max_end_of_run_summary_metrics=0,
+        max_end_of_run_history_metrics=0,
+    )
+)
+
 ray.shutdown()
 
 EPS = 1e-8
@@ -54,16 +97,7 @@ FisheriesRegulator: TypeAlias = AgentConfig
 bilevel_opt_cfg: BilevelConfig = (
     BilevelConfig()
     .world(world_name="fishery_world")
-    .reporter(
-        config=WandbConfig(
-            project="bilevel",
-            x_disable_stats=True,
-            x_disable_meta=True,
-            quiet=True,
-            max_end_of_run_summary_metrics=0,
-            max_end_of_run_history_metrics=0,
-        )
-    )
+    .reporter(config=REPORTER_CONFIG)
     .ray(
         device="cpu",
         num_cpus=4,
@@ -89,7 +123,7 @@ bilevel_opt_cfg: BilevelConfig = (
             sigma_lr=0.00,
             min_sigma=0.15,
             max_sigma=0.15,
-            episodes=1000,
+            episodes=ARGS.outer_iters,
         )
         .agents(
             FisheriesRegulator(
@@ -146,7 +180,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 },
                 "seed": 0,
             },
-            horizon=100,
+            horizon=ARGS.horizon,
             disable_env_checking=False,
             schema=FisheryMetricSchema,
             queries=(),
@@ -166,7 +200,7 @@ bilevel_opt_cfg: BilevelConfig = (
             on_episode_end=log_and_report_episode_metrics,
         )
         .training(
-            episodes=50,
+            episodes=ARGS.train_iters,
             vtrace=True,
             circular_buffer_num_batches=4,
             circular_buffer_iterations_per_batch=1,
@@ -215,7 +249,7 @@ bilevel_opt_cfg: BilevelConfig = (
                         ),
                     ),
                 ),
-                count=10,
+                count=ARGS.num_agents,
                 observation_space=spaces.Box(
                     low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32
                 ),
