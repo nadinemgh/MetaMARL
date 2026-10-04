@@ -41,7 +41,19 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] tutorials: the commented-out worked examples of `custom_benchmark_creation` and `mechanism_algorithms` were turned into fenced code blocks in markdown cells instead of being deleted, because deleting them would empty whole tutorial sections; phase 5 turns them back into runnable cells once the API they show works;
   - [x] phase 0 committed in two commits (tooling, then lint compliance).
   - [x] removal of the thirteen dead files (`core/registry.py`, five uncollected scripts, five test files that fail at import, two unread YAML files), run by Rémy on 10-04 after the safety guard refused it to Claude; `ruff check --no-fix .` and `ruff format --check .` now pass on the whole tree;
-- [ ] Phase 1 — every entry point of the fishery example runs end to end.
+- [ ] Phase 1 — every entry point of the fishery example runs end to end (in progress):
+  - [x] Ray could not start under `uv run`: the August override of `RAY_ENABLE_UV_RUN_RUNTIME_ENV` was lost in a merge on Nadine's branch while its docstring survived; restored with its test (`bfb3bed`);
+  - [x] the command line now logs the traceback of a configuration error instead of only the failing YAML path (`a882c1b`);
+  - [x] `RayOptimizer` raises a `ValueError` naming the missing `.evaluation(...)` call instead of `'NoneType' object has no attribute 'get'` (`9cfe798`);
+  - [x] `examples/bilevel_fishery/config.yaml` lacked the society's env runners, learners, evaluation, fishermen, fault tolerance, debugging and reporting; completed with the values of `debug.py` on Rémy's decision. A field-by-field comparison of both built configs differs only in the random world-name suffix and in the quota default (float32 in the YAML, float64 in `debug.py`) (`2f9021d`);
+  - [x] `ESOptimizer.train` returns `episodes` (generations run) and `converged`, the keys `BilevelOptimizer.train` reads; this also removes the `UnboundLocalError` at zero generations (`6eea234`);
+  - [x] two `Reporter` error messages lacked the `f` prefix (`9adb6ca`);
+  - [x] the ES bounds check lacked parentheses and let spaces such as [0, 2] through (`c99a214`);
+  - [x] measured: `python -m core.config.cli run` completes on a shrunk copy of the YAML (2 generations × 2 inner iterations, 2 fishermen, horizon 20, about 13 s, exit 0); the `mechanism_algorithms` tutorial still executes;
+  - [ ] fitness data path: decision waiting on Rémy (see "Waiting on");
+  - [ ] remaining small bugs: `RayOptimizer.stop` calls `reduce(complie=True)` (a `TypeError` if ever called; nothing calls it today); `_get_policy_handle` references `self.algo` (dead); `RayOptimizerConfig.build_optimizer` leaves `opt_id` and `agents` unbound without a world or agents; `Optimizer.__init__` reads `config.episodes` before its `None` guard; `ESOptimizer.batch_capacity` raises `AttributeError` before it is set;
+  - [ ] `debug.py` documents `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` but parses no option and runs 1000 generations;
+  - [ ] port of `Subsidy`, `SocialInfluence` and `ThresholdPenalty` (own session, see next step).
 - [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`.
 - [ ] Phase 3 — docstrings and type hints on every public symbol of `core/` and `examples/bilevel_fishery`.
 - [ ] Phase 4 — README, QUICKSTART, AGENTS, ARCHITECTURE and notes for Nadine rewritten against the tree.
@@ -121,10 +133,26 @@ assistant text.
 | 10-04 | In the tutorials, commented-out worked examples become fenced code blocks in markdown cells rather than being deleted | Rémy, on Claude's recommendation |
 | 10-04 | Delete `core/registry.py` and the five uncollected scripts in `tests/integration` | Rémy, on Claude's recommendation |
 | 10-04 | The pass lives in the main directory, which was switched to the new branch; the temporary audit worktree was removed | Rémy |
+| 10-04 | Complete `config.yaml` with exactly the values of `debug.py` and add a clear error when the evaluation setup is missing | Rémy, on Claude's recommendation |
 
 ## Waiting on
 
-Nothing waits on Rémy. The findings for Nadine are to be collected in the notes written in phase 4. Already
+**Fitness data path (Rémy, then probably Nadine).** Traced by a subagent and verified by
+Claude on 10-04. `FisheryRegulatorEnv.reward` averages the last `fitness_tail_steps` (50)
+entries of per-episode arrays to measure the steady state, but since commits `654dc20`,
+`04e9e7f` and `02eef11` (13–20 August) those arrays hold one value per episode: the
+episode callback stores `env.logger.reduce()`, i.e. the mean over every step of the
+episode, under `reduce="item"`. In evaluation each array therefore has length 1 and the
+tail window does nothing; in training it slices across episodes. The ES objective
+(`harvest_score + sustainability_weight * mean_fish`) is thus computed on whole-episode
+means, not on the last 50 steps. Separately, nothing pushes `reward_mean`, although the
+docstring of `core/envs/marl_regulated.py` says rewards are logged each step, so
+`mean_reward` is NaN in every report (it does not enter the objective). Two smaller
+findings: `fish_norm_next_last` is declared with `ReduceProtocol.MAX` although `LAST`
+exists (used by three plotting queries only), and `H_realized = B_{t-1} - fish_t` is
+negative whenever restoration adds fish, so the harvest score is a net harvest.
+
+The other findings for Nadine are to be collected in the notes written in phase 4. Already
 known: `ruff` warns that `isort.split-on-trailing-comma` conflicts with
 `format.skip-magic-trailing-comma = true` in her configuration (no oscillation was
 observed on this tree); `.gitignore` ignores `*.ipynb` although the tutorials are
