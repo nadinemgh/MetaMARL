@@ -305,8 +305,14 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
                 )
 
             if num_units_done != algo.config.evaluation_duration:
+                count = (
+                    "fewer"
+                    if num_units_done < algo.config.evaluation_duration
+                    else "more"
+                )
                 raise RuntimeError(
-                    "The single evaluation round returned fewer units than requested: "
+                    f"The single evaluation round returned {count} units than "
+                    + "requested: "
                     + f"requested={algo.config.evaluation_duration}, "
                     + f"completed={num_units_done}, "
                     + f"unit={unit}"

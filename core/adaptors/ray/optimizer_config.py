@@ -661,6 +661,12 @@ class RayOptimizerConfig(OptimizerConfig):
             num_eval_runners = num_eval_seeds * num_train_seeds
             num_eval_episodes = num_eval_runners * self.num_mechanisms
             evaluation_op.kwargs["evaluation_num_env_runners"] = num_eval_runners
+            # Each evaluation runner tests a single training seed, so it hosts
+            # one environment per mechanism rather than the training runners'
+            # count, which ``debugging`` multiplied by the number of seeds.
+            evaluation_op.kwargs.setdefault("evaluation_config", {})[
+                "num_envs_per_env_runner"
+            ] = self.num_mechanisms
 
             evaluation_op.kwargs["evaluation_duration"] = num_eval_episodes
             evaluation_op.kwargs["custom_evaluation_function"] = (
