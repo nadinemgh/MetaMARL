@@ -97,10 +97,13 @@ def get_env_steps(result: dict) -> tuple[int, int]:
 def get_policy_loss_if_present(result: dict) -> float:
     """Average ``policy_loss`` across policies, if the result exposes it.
 
-    Reads the classic layout ``info/learner/<policy>/learner_stats/
-    policy_loss``. The new API stack reports losses under
-    ``learners/<module>/policy_loss`` instead, so on that stack this returns
-    NaN and the training log prints ``policy_loss=NA``.
+    Reads the new API stack layout ``learners/<module>/policy_loss`` (the
+    ``__all_modules__`` entry carries no loss), and falls back to the classic
+    ``info/learner/<policy>/learner_stats/policy_loss``. Non-finite losses
+    are skipped: RLlib's IMPALA/APPO learner reduces its stats only once
+    every 20 gradient updates (``IMPALALearner.update`` in Ray 2.53), and the
+    module entries of the iterations in between hold NaN. Those iterations
+    return NaN and the training log prints ``policy_loss=NA``.
 
     Parameters
     ----------
@@ -113,8 +116,18 @@ def get_policy_loss_if_present(result: dict) -> float:
         Mean of the per-policy losses, or ``nan`` when none is found.
     """
 
+    learners = result.get("learners") or {}
+    losses = [
+        v
+        for module_id, stats in learners.items()
+        if module_id != "__all_modules__" and isinstance(stats, dict)
+        if (v := finite(stats.get("policy_loss"))) is not None
+    ]
+
+    if losses:
+        return float(np.mean(losses))
+
     learner_info = (result.get("info") or {}).get("learner") or {}
-    losses = []
 
     if isinstance(learner_info, dict):
         for _, policy_stats in learner_info.items():
