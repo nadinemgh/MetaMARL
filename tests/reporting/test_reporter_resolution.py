@@ -11,6 +11,8 @@ in ``conftest.py``; tests that need a broken tree copy it and edit the copy.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from core.metrics.enums import ReduceProtocol
@@ -471,18 +473,47 @@ class TestReport:
 
         assert backendless_reporter.calls == []
 
-    def test_a_resolution_error_stops_before_the_backend(
-        self, backendless_reporter, reporting_metrics
+    def test_a_failing_query_is_logged_and_the_others_are_rendered(
+        self, backendless_reporter, reporting_metrics, caplog
     ):
+        # Reporting runs at the end of every training iteration: a stale query
+        # must not abort the run nor hide the queries that come after it.
+        good = Query(title="good", x=("iter",), y=("loss",))
         backendless_reporter.add_query(
-            Query(title="bad", x=("iter",), y=("nope",)),
-            Query(title="never", x=("iter",), y=("loss",)),
+            Query(title="bad", x=("iter",), y=("nope",)), good
         )
 
-        with pytest.raises(KeyError, match="Unknown metric path"):
+        with caplog.at_level(logging.ERROR, logger="core.reporting.base"):
             backendless_reporter.report(reporting_metrics)
 
-        assert backendless_reporter.calls == []
+        assert [call[0] for call in backendless_reporter.calls] == [good]
+        (record,) = caplog.records
+        assert "'bad'" in record.getMessage()
+        assert record.exc_info is not None
+        assert "Unknown metric path" in str(record.exc_info[1])
+
+    def test_a_failing_backend_is_logged_and_the_others_are_rendered(
+        self, backendless_reporter, reporting_metrics, caplog, monkeypatch
+    ):
+        first = Query(title="first", x=("iter",), y=("loss",))
+        second = Query(title="second", x=("iter",), y=("loss",))
+        backendless_reporter.add_query(first, second)
+        rendered = []
+
+        def flaky_report(query, *args):
+            if query is first:
+                raise OSError("disk full")
+            rendered.append(query)
+
+        monkeypatch.setattr(backendless_reporter, "_report", flaky_report)
+
+        with caplog.at_level(logging.ERROR, logger="core.reporting.base"):
+            backendless_reporter.report(reporting_metrics)
+
+        assert rendered == [second]
+        (record,) = caplog.records
+        assert "'first'" in record.getMessage()
+        assert isinstance(record.exc_info[1], OSError)
 
     def test_backend_hooks_are_abstract(self):
         with pytest.raises(TypeError, match="abstract"):

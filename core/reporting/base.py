@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias
@@ -11,6 +12,8 @@ from core.reporting.query import Path, Query
 
 Group: TypeAlias = tuple[tuple[str, str], ...]
 Resolved: TypeAlias = dict[Group, list[PrimitiveType]]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,14 +323,28 @@ class Reporter(ABC):
         required values are available are forwarded to the backend-specific
         reporting implementation.
 
+        Each query is rendered on its own: an error raised while resolving or
+        rendering one query is logged with its traceback and the remaining
+        queries are still rendered. Reporting runs at the end of every
+        training iteration, so a single stale or malformed query must not
+        abort the run that called it.
+
         Args:
             metrics: Reduced metric schema to report.
         """
 
         for query in self._queries:
-            x, ys, errors, colors = self._resolve_query(metrics, query)
+            try:
+                x, ys, errors, colors = self._resolve_query(metrics, query)
 
-            self._report(query, x, ys, errors, colors)
+                self._report(query, x, ys, errors, colors)
+            except Exception:
+                logger.exception(
+                    "%s could not render query %r; the other queries are "
+                    + "still rendered.",
+                    type(self).__name__,
+                    query.title,
+                )
 
     @abstractmethod
     def close(self) -> None:
