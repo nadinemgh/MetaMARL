@@ -185,38 +185,41 @@ class MultiAgentEnv(ABC):
         self.logger.push(key=("seed",), value=self.seed)
         self.logger.push(key=("policy_seed",), value=self.policy_seed)
 
-        # Get regulator Agent
-        # Try to fetch a new mechanism if one is available (published)
-        # Otherwise keep the current mechanism for subsequent episodes
         if self.mechanism_id is None:
             raise RuntimeError(
                 "RegulatedEnv has no mechanism_id. "
                 + "mechanism_id must be injected at env creation."
             )
 
-        if not self.published_mechanism_assigned:
-            try:
-                new_ctx: MechanismContext = ray.get(
-                    self.world.get_mechanism_by_id.remote(
-                        mechanism_id=self.mechanism_id,
-                        seed=self.policy_seed,
-                        mode=self.mode,
-                    )
+        # The World hands a training candidate out only on its first fetch and
+        # returns None afterwards, while the adapter builds a fresh MDPState at
+        # every reset. Fetch at every reset, so a newly published candidate
+        # replaces the kept one, and give the kept one to the leaders otherwise.
+        try:
+            new_ctx: MechanismContext = ray.get(
+                self.world.get_mechanism_by_id.remote(
+                    mechanism_id=self.mechanism_id,
+                    seed=self.policy_seed,
+                    mode=self.mode,
                 )
-            except Exception as e:
-                self._debug_remote(
-                    "pre_reset_fetch_failed",
-                    {"error_type": type(e).__name__, "error_repr": repr(e)},
-                )
-                raise RuntimeError(
-                    f"Could not fetch mechanism_id={self.mechanism_id} from World."
-                ) from e
+            )
+        except Exception as e:
+            self._debug_remote(
+                "pre_reset_fetch_failed",
+                {"error_type": type(e).__name__, "error_repr": repr(e)},
+            )
+            raise RuntimeError(
+                f"Could not fetch mechanism_id={self.mechanism_id} from World."
+            ) from e
 
-            if new_ctx is not None:
-                # persist action to leaders
-                mdp = mdp.add(
-                    MDPState(actions={lid: new_ctx.mechanism for lid in self.lids})
-                )
+        if new_ctx is not None:
+            self.m_ctx = new_ctx
+            self.m = new_ctx.mechanism
+            self._using_default_mechanism = False
+
+        if self.m is not None:
+            # persist action to leaders
+            mdp = mdp.add(MDPState(actions={lid: self.m for lid in self.lids}))
 
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:
