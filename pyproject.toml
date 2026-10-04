@@ -64,3 +64,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 # Exclude legacy, tests and examples directories from automatic package discovery
 exclude = ["legacy_code*", "tests*", "examples*"]
+
+[tool.coverage.report]
+# Most directories of core/ are namespace packages (no __init__.py). Without this
+# option coverage leaves out every file that no test imports, which overstates
+# the total.
+include_namespace_packages = true
