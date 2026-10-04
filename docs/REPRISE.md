@@ -63,7 +63,8 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] **the regulator's candidate reached training only in the first episode of each environment**: the environment now keeps the last candidate it fetched and gives it to the leaders at every reset, on Rémy's decision (`b330a82`). Measured on the shrunk config: every sampled training episode (16 of 16) and every evaluation episode (24 of 24) carries the candidate; the resets without one all happen while RLlib builds its env runners, before the generation's candidates are published. In that config the quota never binds (the stock stays between 0.64 and 0.85 of capacity, untrained fishermen request about half their capacity, the quota allows at least 93 %), so training returns are unchanged by the fix there;
   - [x] **with more than one training seed, only the last seed's environments received the candidate**: `RegulatorEnv.step` built one context per seed but called `append_context` after the seed loop; the call is now inside it, on Rémy's decision (`dea1919`);
   - [x] **with more than one training seed, evaluation crashed** ("fewer units than requested: requested=24, completed=48"): the evaluation runners inherited the training runners' environment count, which `debugging` multiplies by the number of seeds. `build_optimizer` now gives each evaluation runner one environment per mechanism, and the message says "fewer" or "more" as the case is, on Rémy's decision (`03330ef`). Measured with two seeds on the shrunk config: the run completes and all 80 sampled training and evaluation resets carry the candidate for both seeds;
-  - [ ] **runs are not reproducible**: two runs of the same config give different ES trajectories (see "Findings for Nadine"); investigation in progress on Rémy's decision, to resume now that the mechanism fix is in;
+  - [x] **runs are not reproducible**: investigation finished on 10-04; three sources found and measured (see "Findings for Nadine"), each removed by a scratch prototype, with bit-identical fitness over repeated runs once all are removed;
+  - [ ] reproducibility fixes: four proposals wait on Rémy's decision (see "Waiting on"); no repository code was changed by the investigation;
   - [ ] `debug.py` documents `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` but parses no option and runs 1000 generations;
   - [ ] port of `Subsidy`, `SocialInfluence` and `ThresholdPenalty` (own session, see next step).
 - [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`.
@@ -158,8 +159,24 @@ assistant text.
 
 ## Waiting on
 
-Nothing. Decided and queued: the reproducibility investigation, then `debug.py` gets the
-options it documents.
+Rémy's decision on the four reproducibility proposals of 10-04 (sources described under
+"Runs are not reproducible" in the findings):
+
+1. Scope the environment's metric logger to the episode: `MultiAgentEnv.reset` calls
+   `self.logger.reset()` instead of flushing only `iter`, with a unit test. This removes
+   the leak of RLlib's environment-check step into the first real episode.
+2. Fix Python's string-hash seed. It must be set before the interpreter starts, and Ray
+   runs in `local_mode` inside the driver process, so the proposal is that
+   `core.config.cli` and `debug.py` re-execute themselves with `PYTHONHASHSEED=0` when the
+   variable is unset (an explicit value is respected and logged). Open sub-choice: the
+   constant 0 or a value derived from the experiment seed.
+3. Wait for APPO's learner thread to finish every queued update before evaluation, so the
+   evaluated policy is the trained one. This reads private RLlib attributes and changes
+   what is evaluated, hence a method decision.
+4. Forward `disable_env_checking` to RLlib, as the docstring of
+   `OptimizerConfig.environment` promises; the fishery config keeps `false`.
+
+Queued after that: `debug.py` gets the options it documents.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -220,27 +237,64 @@ by the fishery configuration, which trains on a single seed. Both fixed on Rémy
 (`dea1919`, `03330ef`).
 
 **Runs are not reproducible (measured on 10-04).** Two runs of the shrunk fishery config
-with the same seeds give identical training returns over the first two inner iterations
-(19.3691 then 20.0886) but different evaluation fitness from the first generation
-(1.4876 against 1.4803, then 1.4877, 1.4868 and 1.4886 in later runs), so the ES
-trajectories diverge (best mechanism 0.668, 0.561, 0.495). The spread between runs is
-of the order of 0.001 to 0.007, while the spread between candidates of one generation is
-about 0.03. Weight fingerprints taken inside the evaluation function show that the
-evaluated policies are the trained ones (learner, training runner and evaluation runners
-agree in the second generation), so the fitness is not computed on untrained policies.
-Tracing the circular buffer and every learner update then showed that the sampled data
-and the weights after each update are identical across runs, so the update itself is
-deterministic, but APPO's learner thread finishes its updates while evaluation is
-starting: RLlib copies the learner's weights to the evaluation runners at a moment that
-depends on timing. A prototype that waits for the thread to process every queued batch
-before evaluating made the evaluated weights identical in two of three runs, yet the
-fitness still differed slightly (1.4781 against 1.4779), and the third run had different
-weights, so at least one more source remains. Evaluation does not explore
-(`explore: false`). APPO's `CircularBuffer` draws batches with an unseeded
-`np.random.default_rng()`, which matters only when more than one batch is waiting.
-Separately, `PolicyActor.reset` builds a new `Algorithm` each generation without
-stopping the previous one, whose learner thread keeps polling its empty buffer every
-0.1 ms; the cost over many generations is not measured yet.
+with the same seeds give different evaluation fitness from the first generation, by
+0.001 to 0.007, while the spread between candidates of one generation is about 0.03, so
+the ES trajectories diverge. The investigation ran on scratch copies of the config (2
+generations, 2 fishermen, horizon 20, then 10 inner iterations, then the full size with 10
+fishermen and horizon 100) with a probe environment that logged the random generator
+state, the mechanism, the actions and the stock at every reset and step. It found three
+independent sources.
+
+The largest is a leak of RLlib's environment check into the fitness. When RLlib builds
+an env runner it calls `check_multiagent_environments`, which resets every
+sub-environment and steps it once with `action_space.sample()`, an unseeded random action.
+The step pushes its stock, harvest and reward into the environment's `MetricLogger`, and
+`MultiAgentEnv.reset` then flushes only the `iter` series, so the first real episode of
+every evaluation environment is reduced together with that random step. The probe showed
+the leftover value in the logger at the real reset, and showed that the real evaluation
+episodes themselves are bit-identical across runs. This check runs even with
+`disable_env_checking: true`, because `OptimizerConfig.environment` stores that flag and
+nothing forwards it to RLlib. Even with no training at all (zero inner iterations), three
+runs gave three different fitness vectors; clearing the logger at reset made them
+bit-identical.
+
+The second source is Python's randomised string hashing. RLlib's env-to-module connector
+iterates `MultiAgentEpisode.get_agents_that_stepped()`, which returns a `set` of agent ids,
+so the order of the fishermen in the inference batch depends on the per-process hash seed.
+The exploration noise is seeded and identical across runs, but it is handed to the
+fishermen in a different order: the probe showed the two fishermen's training actions
+exactly swapped between runs. Training returns then differ in the fourth decimal and the
+evaluated policies differ. With the logger fix alone, 10 inner iterations gave two
+distinct outcomes over five runs; with `PYTHONHASHSEED=0` in addition, five runs were
+bit-identical, and three full-size runs too. Because Ray runs in `local_mode`, everything
+executes in the driver process, so the hash seed must be set before the interpreter
+starts.
+
+The third is a race between APPO's learner thread and evaluation. `Algorithm.train`
+returns while the learner thread is still applying the last update, and evaluation copies
+the learner's weights immediately. A counter around the thread showed 9 of 10 updates done
+at every evaluation, in the shrunk and the full-size config, and waiting for the thread
+took 13 ms and 31 ms respectively. In these measurements the race always resolved the same
+way, so it did not break reproducibility, but the evaluated policy is not the trained one:
+at full size, waiting moved the best fitness from 1.4788 to 1.4651 and the ES mean after
+the first generation from 0.612 to 0.596. A slower update or a loaded machine could flip
+the outcome. Seeding APPO's `CircularBuffer` (`np.random.default_rng()` without a seed)
+changed nothing, because no more than one batch was ever waiting.
+
+The earlier reading of this section, that the learner thread's timing explained the
+divergence, was wrong: the swapped agent order and the leaked check step produced the
+differences attributed to it. Separately, `PolicyActor.reset` builds a new `Algorithm`
+each generation without stopping the previous one, whose learner thread keeps polling its
+empty buffer every 0.1 ms; the cost over many generations is not measured yet.
+
+**In the shrunk config the fitness ignores the candidate (measured on 10-04).** With zero
+inner iterations and the logger fix, the four fitness values of the second generation are
+bit-identical to those of the first, although the candidates differ (ES mean 0.5, then
+0.60). The quota never binds there, and each population slot keeps its rank across
+generations, because each slot trains and evaluates its own policy module
+(`fisher_policy_m<idx>_s<seed>`), whose initial weights differ. The ES gradient in that
+config therefore follows the differences between slot initialisations, not the
+mechanism. Whether the full-size config shows the same pattern is not measured yet.
 
 The other findings for Nadine are to be collected in the notes written in phase 4. Already
 known: `ruff` warns that `isort.split-on-trailing-comma` conflicts with
@@ -250,19 +304,19 @@ tracked.
 
 ## Next step
 
-Finish phase 1: the reproducibility investigation (separate the remaining source, then propose fixes before changing code),
-then `debug.py` (its documented options, on Rémy's decision). Then the port of the three mechanisms in its own
-session. Still open from the reading of the code, for phase 2 or 3:
+Finish phase 1: implement the reproducibility proposals Rémy accepts (see "Waiting on"),
+each with a test, then verify by repeating runs that the fitness is bit-identical; then
+`debug.py` (its documented options, on Rémy's decision). Then the port of the three
+mechanisms in its own session. Still open from the reading of the code, for phase 2 or 3:
 `RayOptimizerConfig.build_optimizer` calls `self._reporter_cfg.build` without the `None`
 check its docstring describes, and `RayOptimizer.train` returns `self.logger.peek()`
 although it is annotated `-> None`.
 
-**Suite conseillée :** modèle opus, effort high — the reproducibility investigation is
-measurement-driven debugging of RLlib's asynchronous learner: rerun the two-run comparison
-on the shrunk config now that the mechanism reaches every episode, separate the remaining
-source, and bring fix proposals to Rémy before changing code. The probes live in the
-session scratchpad and are lost on `/clear`; the method is described in "Findings for
-Nadine". The port of the three mechanisms stays a separate session on fable.
+**Suite conseillée :** modèle opus, effort high — implementing the accepted fixes touches
+the environment lifecycle, the entry points and RLlib internals, and each must be
+verified by repeated runs. The probes live in the session scratchpad and are lost on
+`/clear`; the method is described under "Runs are not reproducible". The port of the
+three mechanisms stays a separate session on fable.
 
 ## Probable bugs found while reading (not fixed yet)
 
