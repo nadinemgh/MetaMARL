@@ -38,8 +38,18 @@ class Trajectory(Generic[T]):
         return len(node)
 
     @classmethod
+    def _fill_value(cls, history: list[Any]) -> Any:
+        """Value of a timestep that has not been written yet.
+
+        A trajectory records stocks (state, actions in force), so an unwritten
+        timestep keeps the previous value; see ``FlowTrajectory`` for flows.
+        """
+
+        return history[-1] if history else 0
+
+    @classmethod
     def _carry_forward(cls, node: Any) -> None:
-        """Append the latest value to every existing leaf."""
+        """Open the next timestep on every existing leaf with its fill value."""
 
         if isinstance(node, dict):
             for value in node.values():
@@ -48,7 +58,7 @@ class Trajectory(Generic[T]):
             return
 
         if node:
-            node.append(node[-1])
+            node.append(cls._fill_value(node))
 
     @classmethod
     def _set_at_t(
@@ -84,7 +94,7 @@ class Trajectory(Generic[T]):
             history = destination[key]
 
             while len(history) < t:
-                history.append(history[-1] if history else 0)
+                history.append(cls._fill_value(history))
 
             if len(history) == t:
                 history.append(value)
@@ -127,7 +137,7 @@ class Trajectory(Generic[T]):
             history = destination[key]
 
             while len(history) <= t:
-                history.append(history[-1] if history else 0)
+                history.append(cls._fill_value(history))
 
             # Avoid += here because leaves can be numpy arrays.
             # += could mutate an array shared with the original trajectory.
@@ -175,3 +185,17 @@ class Trajectory(Generic[T]):
         self._set_at_t(result.data, incoming.data, t)
 
         return result
+
+
+class FlowTrajectory(Trajectory[T]):
+    """Trajectory of per-step flows, such as rewards.
+
+    A reward is earned at one timestep and does not persist to the next, so an
+    unwritten timestep starts from ``0`` instead of the previous value. Deltas
+    added at the same timestep are still summed, which is how a penalty or a
+    subsidy composes with an agent's utility.
+    """
+
+    @classmethod
+    def _fill_value(cls, history: list[Any]) -> Any:
+        return 0

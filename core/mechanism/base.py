@@ -19,7 +19,7 @@ from typing import Any, Optional, SupportsFloat, TypeVar
 import numpy as np
 from gymnasium import spaces
 
-from core.mechanism.types import Trajectory
+from core.mechanism.types import FlowTrajectory, Trajectory
 from core.types import AgentID, MechanismID
 from core.utils import intersect, logical_or_dict
 
@@ -38,7 +38,9 @@ class MDPState:
     state: Trajectory[StateType] | dict = field(default_factory=Trajectory)
     obs: Trajectory[ObsType] | dict = field(default_factory=Trajectory)
     actions: Trajectory[ActType] | dict = field(default_factory=Trajectory)
-    rewards: Trajectory[SupportsFloat] | dict = field(default_factory=Trajectory)
+    rewards: FlowTrajectory[SupportsFloat] | dict = field(
+        default_factory=FlowTrajectory
+    )
     state_space: Optional[spaces.Dict] = None
     action_spaces: Optional[spaces.Dict] = None
     obs_space: Optional[spaces.Dict] = None
@@ -50,7 +52,9 @@ class MDPState:
             value = getattr(self, name)
 
             if isinstance(value, dict):
-                setattr(self, name, Trajectory(value))
+                # Rewards are per-step flows; the other fields are stocks.
+                cls = FlowTrajectory if name == "rewards" else Trajectory
+                setattr(self, name, cls(value))
 
     # Mechanisms may introduce dimensions, but absence means "no change".
     # Deletion is not supported.
