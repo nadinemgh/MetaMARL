@@ -159,7 +159,7 @@ class RegulatorEnv(gym.Env):
                         metrics=None,
                     ),
                 )
-            ray.get(self.world.append_context.remote(ctx))
+                ray.get(self.world.append_context.remote(ctx))
 
         results = self.inner.train()
 
