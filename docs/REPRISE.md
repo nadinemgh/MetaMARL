@@ -41,7 +41,7 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] tutorials: the commented-out worked examples of `custom_benchmark_creation` and `mechanism_algorithms` were turned into fenced code blocks in markdown cells instead of being deleted, because deleting them would empty whole tutorial sections; phase 5 turns them back into runnable cells once the API they show works;
   - [x] phase 0 committed in two commits (tooling, then lint compliance).
   - [x] removal of the thirteen dead files (`core/registry.py`, five uncollected scripts, five test files that fail at import, two unread YAML files), run by Rémy on 10-04 after the safety guard refused it to Claude; `ruff check --no-fix .` and `ruff format --check .` now pass on the whole tree;
-- [ ] Phase 1 — every entry point of the fishery example runs end to end (in progress):
+- [x] Phase 1 — every entry point of the fishery example runs end to end (complete on 10-04):
   - [x] Ray could not start under `uv run`: the August override of `RAY_ENABLE_UV_RUN_RUNTIME_ENV` was lost in a merge on Nadine's branch while its docstring survived; restored with its test (`bfb3bed`);
   - [x] the command line now logs the traceback of a configuration error instead of only the failing YAML path (`a882c1b`);
   - [x] `RayOptimizer` raises a `ValueError` naming the missing `.evaluation(...)` call instead of `'NoneType' object has no attribute 'get'` (`9cfe798`);
@@ -66,7 +66,13 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] **runs are not reproducible**: investigation finished on 10-04; three sources found and measured (see "Findings for Nadine"), each removed by a scratch prototype, with bit-identical fitness over repeated runs once all are removed;
   - [x] **reproducibility fixed** on Rémy's decision, one commit per source, each with its test: the environment's metric logger is reset at every episode (`439249a`); `disable_env_checking` reaches RLlib (`be8d83e`); `core.config.cli` and `debug.py` restart themselves with `PYTHONHASHSEED=0` when the variable is unset (`2dd94c9`); evaluation waits for APPO's learner thread to apply every queued update (`ac83a64`). Measured from a shell without `PYTHONHASHSEED`, so every run went through the restart: five runs of the shrunk config with 10 inner iterations and three full-size runs (10 fishermen, horizon 100, 2 generations) each gave bit-identical fitness vectors, equal to those of the scratch prototypes. The test suite has 59 tests, all passing;
   - [x] `debug.py` now parses `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` (`wandb` or `csv`), defaults being the former hard-coded values; measured: the smoke configuration of its docstring with `--reporter csv` exits 0 and writes the CSV files under `results/`;
-  - [ ] port of `Subsidy`, `SocialInfluence` and `ThresholdPenalty` (own session, see next step).
+  - [x] **observations were cumulative**: the observation a fisherman received at step t was the sum of every observation since the reset (measured: first entry 0.766, 1.511, 2.261, then 14.569 at step 20, while the normalised stock went from 0.766 to 0.683). `MDPState.obs` is now a `FlowTrajectory`, like the rewards, on Rémy's decision (`0bb367c`, 3 tests). Re-measured on a shrunk run: the 2280 observations handed to RLlib equal the state they encode;
+  - [x] `Subsidy` ported to `Mechanism.apply` with 12 tests (`d317b9f`): the regulator's action is the subsidy rate normalised by `MAX_SUBSIDY`, and the residual `rate * e - cost * e**2` is added to each targeted fisherman's reward;
+  - [x] `ThresholdPenalty` ported with 12 tests (`20f878e`): a fixed rule with an empty action space, which subtracts the logistic penalty from every targeted fisherman's reward;
+  - [x] measured on a shrunk fishery whose regulator holds quota, subsidy and penalty: the ES searches two dimensions, the empty penalty action goes through the ES and the candidate hand-off, and over 4256 agent-steps the reward equals harvest plus subsidy residual plus penalty residual to 1.1e-16;
+  - [x] a mechanism can now contribute to the observations: `Mechanism.observe` returns nothing by default, and the environment adds the leaders' contributions where it already adds the followers' observations, at reset and at the end of each step, on Rémy's decision (`5c2c52f`, 5 tests);
+  - [x] `SocialInfluence` ported with 14 tests (`dbe2338`): it implements `observe` and writes each peer's delivered action of the step just finished into reserved entries of the observation. Measured on a shrunk fishery whose regulator holds all five mechanisms: over 4160 observations, entries 3 and 4 of each fisherman equal its peer's last delivered harvest and restoration exactly, and they stay zero while no candidate is published;
+  - [x] end-of-phase check on `dbe2338`: `ruff check --no-fix` and `ruff format --check` pass on the whole tree, the suite has 105 tests, all passing, `core.config.cli check` accepts the fishery configuration, two runs of the smoke configuration of `debug.py` give bit-identical fitness vectors, and the three tutorials that executed at baseline still execute.
 - [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`.
 - [ ] Phase 3 — docstrings and type hints on every public symbol of `core/` and `examples/bilevel_fishery`.
 - [ ] Phase 4 — README, QUICKSTART, AGENTS, ARCHITECTURE and notes for Nadine rewritten against the tree.
@@ -158,10 +164,24 @@ assistant text.
 | 10-04 | `debug.py` parses the options its docstring documents, with today's values as defaults | Rémy, on Claude's recommendation |
 | 10-04 | Apply all four reproducibility fixes (logger scoped to the episode, `disable_env_checking` forwarded, fixed string-hash seed, wait for the learner thread before evaluation), one commit each with a test, then verify by repeated runs | Rémy, on Claude's recommendation |
 | 10-04 | The string-hash seed is the constant 0 when `PYTHONHASHSEED` is unset; an explicit value is respected | Rémy, on Claude's recommendation |
+| 10-04 | Fix cumulative observations at the source (`FlowTrajectory` for `MDPState.obs`), as was done for the rewards | Rémy ("go" to the brief that recommended it), on Claude's recommendation |
+| 10-04 | Add an optional `observe` method to `Mechanism`, called by the environment for the leaders' mechanisms, and port `SocialInfluence` onto it | Rémy ("go" to the brief that recommended it), on Claude's recommendation |
 
 ## Waiting on
 
-Nothing. Queued, already decided: `debug.py` gets the options it documents.
+Nothing blocks phase 2. Two points were put to Rémy at the end of the port session of
+10-04 and have no answer yet.
+
+The first is a confirmation. Rémy answered "go" to a brief that listed the port of
+`Subsidy` and `ThresholdPenalty` and two recommendations, the observation fix and the
+`observe` method. Claude read that answer as approving both recommendations and recorded
+them as such in the decisions log; Rémy has not confirmed that reading in so many words.
+
+The second is a choice. The quota mechanism writes the allowed fraction into the shared
+state at every step, and that value accumulates instead of being replaced (see "Findings
+for Nadine"). Nothing reads it today. Claude recommends leaving the code unchanged and
+recording it for Nadine, because the correct fix depends on what she meant that entry to
+be; the alternative is to remove the write, which is a one-line change.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -293,6 +313,83 @@ generations, because each slot trains and evaluates its own policy module
 config therefore follows the differences between slot initialisations, not the
 mechanism. Whether the full-size config shows the same pattern is not measured yet.
 
+**Observations were cumulative (measured on 10-04, fixed in `0bb367c`).** The fishermen
+did not observe the current stock but the sum of every observation since the reset. A scratch
+probe wrapped `RLlibMultiAgentEnvAdapter.reset` and `step` during a shrunk run of
+`debug.py` (1 generation, 1 inner iteration, 2 fishermen, horizon 20) and logged the
+observation handed to RLlib next to the state it should encode. In one training episode
+the normalised stock went from 0.766 to 0.683 while the first entry of the observation
+went 0.766, 1.511, 2.261 and reached 14.569 at step 20; the usage entry accumulates in
+the same way. At the full horizon of 100 the first entry would be near 70. The cause is
+the one behind the cumulative rewards: `MultiAgentEnv.step` adds each follower's
+observation with `MDPState.add`, and `obs` is a carry-forward `Trajectory`, so the new
+observation is added on top of the previous one. The code dates from `32ef1b5` (09-30).
+The declared observation space is unbounded, so nothing failed. Every run between that
+commit and the fix trained the fishermen on these running sums, so results from that
+period are not comparable with later ones. The fix makes `obs` a `FlowTrajectory`, as
+`27fbd29` did for the rewards; the same probe then showed 2280 observations equal to the
+state they encode.
+
+**The quota's `allowed_frac` state entry accumulates (measured on 10-04, not fixed).**
+`QuotaMechanism.apply` returns `state={"allowed_frac": allowed_frac}`. State entries are
+stocks, so the returned value is added to the previous one instead of replacing it: the
+probe read 1.0, 1.9999, 2.9999 and 3.9998 over four steps. Nothing in `core/` or in the
+fishery example reads that entry, so no result is affected today, but any code that reads
+it later will get a running sum. Whether the entry should be a per-step value, a
+replacement, or should not exist is her choice.
+
+**A decoded action is decoded again at every step (measured on 10-04, not fixed).**
+`Mechanism.__call__` writes the decoded action back into `mdp.actions`, and the leader's
+action is set once at reset and carried forward, so at the next step `decode` receives
+its own previous output. A `decode` that is not idempotent therefore compounds: a first
+version of the subsidy that scaled the rate by 0.5 inside `decode` gave 0.15, 0.075,
+0.0375 and 0.01875 over four steps. `Quota` and the ported `Subsidy` only clip in
+`decode`, which is idempotent, and `Subsidy` applies its scaling in `apply`; its
+docstring says why. The interface does not state this constraint anywhere else, and the
+next mechanism written against it can fall into the same trap.
+
+**The action temperature is hard-coded in five places.** A follower's raw policy output
+`z` becomes an effort through `sigmoid(z / 4.0)`. The regulator acts before the
+followers, so a regulator mechanism that reads a follower's action must apply the same
+map itself. The constant 4.0 is now written in `QuotaMechanism.apply`,
+`Agent._normalize_action`, `Fishing`, `Restore` and `ACTION_TEMPERATURE` of
+`subsidy.py`. Changing it in one place silently breaks the others.
+
+**Differences between the ported mechanisms and their August versions.** The subsidy
+reads the effort the fisherman requested, not one modified by another mechanism of the
+same regulator, because all mechanisms of one agent read the same input state. The
+threshold penalty uses only the agent part of `acts_on`. `SocialInfluence` differs most.
+The new interface composes by addition, so it cannot append entries to an observation;
+the port fills entries the benchmark reserves, starting at `obs_offset`, and raises a
+`ValueError` naming the agent when they do not fit. One instance exposes the action of
+one mechanism, so the fishery needs two instances to expose harvest and restoration.
+Peers are ordered by their identifier sorted as a string, so `fisherman:10` comes before
+`fisherman:2`. The value exposed is the delivered action, after the quota, not the
+request. In the fishery the `Fisherman` observation has five entries, of which indices
+1, 3 and 4 are left at zero. One instance fills a contiguous range, so the two entries
+at indices 3 and 4 carry both actions of one peer (two fishermen) or one action of two
+peers (three fishermen); beyond that the benchmark's observation must be enlarged. The
+`influence_weight` parameter is kept and validated but has no effect: the causal
+influence reward of Jaques et al. (2019, PMLR 97) is not implemented.
+
+**Her own acceptance lists for these mechanisms are in `TODO.md`.** Sections 4 and 5 of
+the notes she committed on 08-21 ("fix `SubsidyMechanism`", "finish
+`SocialInfluenceMechanism`") give the intended subsidy formula and a list of checks. The
+port keeps that formula and its tests cover each check: the analytical value, the
+selection of the targeted action, the float residual, `ValueError` on the bounds, the
+peer ordering, the exclusion of the agent's own action and the size of the observation.
+One item stays open and is hers to decide: implement the KL influence term or rename
+the class, since it only shapes the observation. Those sections describe the earlier
+constructor arguments and were not edited.
+
+**The `mechanism_algorithms` tutorial shows the earlier constructors.** It still
+executes, but its worked examples of the three mechanisms are the fenced code blocks of
+phase 0 and build `SubsidyMechanism`, `SocialInfluenceMechanism` and
+`ThresholdPenaltyMechanism` directly with the earlier arguments. Phase 5 has to rewrite
+them against the ported configuration classes. The last section of `TODO.md` also
+carries two comments moved from the earlier `subsidy.py`, whose line numbers no longer
+match the file.
+
 The other findings for Nadine are to be collected in the notes written in phase 4. Already
 known: `ruff` warns that `isort.split-on-trailing-comma` conflicts with
 `format.skip-magic-trailing-comma = true` in her configuration (no oscillation was
@@ -301,14 +398,38 @@ tracked.
 
 ## Next step
 
-Phase 1 is complete except for the port of `Subsidy`, `SocialInfluence` and
-`ThresholdPenalty` to the `Mechanism.apply` interface on the model of `Quota`, with
-tests; it is its own session. Still open from the reading of the code, for phase 2 or 3:
-`RayOptimizerConfig.build_optimizer` calls `self._reporter_cfg.build` without the `None`
-check its docstring describes, and `RayOptimizer.train` returns `self.logger.peek()`
-although it is annotated `-> None`.
+Phase 1 is complete: the four mechanisms implement `Mechanism.apply`, the fishery example
+runs end to end from both entry points, and repeated runs are bit-identical. The five
+commits of the port session (`d317b9f` to `dbe2338`) are local; the branch has never been
+pushed.
 
-**Suite conseillée :** modèle fable, effort high — the port of three mechanisms touches the interface shared with the world and the environments, and must be measured against `Quota`.
+Phase 2 starts next: bring unit coverage of `core/` above 90 %. The first action is to
+measure coverage on the present suite of 105 tests
+(`uv run python -m pytest --cov=core --cov-report=term-missing`), so that the work is
+ordered by what is uncovered rather than by what the August suite happened to test. The
+second is to triage the 57 test files of `feature/integration-trial`
+(`../bilevel-fishery-integration/tests/`): the baseline found 13 passing unchanged, 35
+that cannot be imported and 123 failing tests, and the breakage follows the refactor
+listed in the baseline section. The metrics, callbacks, utilities and Ray runtime layers
+were stable and port first; the mechanism, environment and optimizer tests have to be
+rewritten against `MDPState`, `MultiAgentEnv` and its RLlib adapter. The fakes of the
+earlier `conftest.py` must be checked against the new `World` before reuse. Each file of
+the triage is independent, so the reading goes to subagents and the decisions stay in the
+main session. `integration/test_fishery_reporting.py` hung at baseline and must run with
+a timeout.
+
+Known gaps to cover in that phase: `quota.py` was at 36 % when last measured, before the
+port; `RayOptimizerConfig.build_optimizer` calls `self._reporter_cfg.build` without the
+`None` check its docstring describes; and `RayOptimizer.train` returns
+`self.logger.peek()` although it is annotated `-> None`. Each bug found gets a failing
+test before its fix, and a fix that changes a method Nadine chose waits for Rémy.
+
+The scratch scripts of the port session (the probes and the three-mechanism and
+five-mechanism copies of `debug.py`) lived in a session directory and are not kept. The
+measurements they produced are recorded above; phase 2 should turn the two composition
+checks into integration tests so that they can be repeated.
+
+**Suite conseillée :** modèle fable, effort high — porting the earlier tests means reading each one against the refactored interface and deciding whether a failure is a stale test or a real bug, and the bugs found so far all came from that kind of reading.
 
 ## Probable bugs found while reading (not fixed yet)
 
