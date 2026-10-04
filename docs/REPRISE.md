@@ -257,10 +257,12 @@ session. Still open from the reading of the code, for phase 2 or 3:
 check its docstring describes, and `RayOptimizer.train` returns `self.logger.peek()`
 although it is annotated `-> None`.
 
-**Suite conseillée :** modèle opus, effort high — phases 0 to 2 are orchestration and
-test porting against an API delta that is already mapped. The port of the three mechanisms
-is the one part of phase 1 to run as its own session on fable, since it touches the
-scientific core; do the base and the two crashes first.
+**Suite conseillée :** modèle opus, effort high — the reproducibility investigation is
+measurement-driven debugging of RLlib's asynchronous learner: rerun the two-run comparison
+on the shrunk config now that the mechanism reaches every episode, separate the remaining
+source, and bring fix proposals to Rémy before changing code. The probes live in the
+session scratchpad and are lost on `/clear`; the method is described in "Findings for
+Nadine". The port of the three mechanisms stays a separate session on fable.
 
 ## Probable bugs found while reading (not fixed yet)
 
