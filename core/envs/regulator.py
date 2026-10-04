@@ -92,9 +92,12 @@ class RegulatorEnv(gym.Env):
 
         # reporting
         reporting_env_id = self.__class__.__name__
-        self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
-        self.reporter.schema = schema
-        self.reporter.add_query(*(queries or ()))
+        self.reporter: Optional[Reporter] = None
+
+        if reporter_cfg is not None:
+            self.reporter = reporter_cfg.build(label=reporting_env_id)
+            self.reporter.schema = schema
+            self.reporter.add_query(*(queries or ()))
 
     @property
     def opt_id(self) -> OptimizerID:

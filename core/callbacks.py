@@ -120,7 +120,8 @@ def log_and_report_episode_metrics(
     """Report the sub-environment's episode metrics and hand them to RLlib.
 
     Intended for the ``on_episode_end`` hook. The sub-environment's
-    ``MetricLogger`` is peeked and sent to the env-level reporter, then
+    ``MetricLogger`` is peeked and sent to the env-level reporter (when the
+    environment has one), then
     reduced and stored in RLlib's ``MetricsLogger`` under
     ``("by_episode", <episode_id>)`` with ``reduce="item"``, where
     ``<episode_id>`` is the structured prefix written by
@@ -148,7 +149,8 @@ def log_and_report_episode_metrics(
 
     metrics = env.logger.peek()
 
-    env.reporter.report(metrics)
+    if env.reporter is not None:
+        env.reporter.report(metrics)
 
     reduced = env.logger.reduce()
     episode_id = episode.id_.partition("|raw=")[0]

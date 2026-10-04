@@ -242,14 +242,6 @@ def test_default_transforms_return_nothing(toy, inner):
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    raises=AttributeError,
-    reason=(
-        "reporter_cfg defaults to None but __init__ calls reporter_cfg.build "
-        + "unconditionally"
-    ),
-)
 def test_environment_can_be_built_without_a_reporter(toy, inner):
     env = make_env(toy, inner, reporter_cfg=None)
 

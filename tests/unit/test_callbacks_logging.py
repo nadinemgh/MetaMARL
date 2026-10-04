@@ -93,6 +93,25 @@ def test_episode_end_hook_reports_then_reduces():
 
 
 @pytest.mark.unit
+def test_episode_end_hook_without_a_reporter_still_hands_the_metrics_to_rllib():
+    # An environment built without a reporter config has ``reporter = None``.
+    env, env_runner = make_runner(values=(2.0, 4.0))
+    env.reporter = None
+    metrics_logger, logged = recording_metrics_logger()
+
+    log_and_report_episode_metrics(
+        episode=SimpleNamespace(id_="env=0|raw=abc"),
+        env_runner=env_runner,
+        env=None,
+        env_index=0,
+        metrics_logger=metrics_logger,
+    )
+
+    (call,) = logged
+    assert call["value"].value == pytest.approx(3.0)
+
+
+@pytest.mark.unit
 def test_episode_end_hook_empties_the_env_logger():
     env, env_runner = make_runner(values=(2.0,))
     metrics_logger, _ = recording_metrics_logger()

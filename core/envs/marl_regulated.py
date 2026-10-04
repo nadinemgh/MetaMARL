@@ -146,9 +146,12 @@ class MultiAgentEnv(ABC):
             + f"|ps={policy_seed}"
             + f"|ss={self.seed}"
         )
-        self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
-        self.reporter.schema = schema
-        self.reporter.add_query(*(queries or ()))
+        self.reporter: Optional[Reporter] = None
+
+        if reporter_cfg is not None:
+            self.reporter = reporter_cfg.build(label=reporting_env_id)
+            self.reporter.schema = schema
+            self.reporter.add_query(*(queries or ()))
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)

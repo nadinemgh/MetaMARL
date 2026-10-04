@@ -468,6 +468,16 @@ class TestBuildOptimizer:
 
         assert opt.reporting is reporter_config.built[0]
 
+    def test_a_config_without_reporter_builds_an_optimizer_without_reporter(
+        self, fake_world
+    ):
+        # Reporting is optional: no reporter config means no reporter at any
+        # level, not a crash on ``None.build``.
+        opt = self.make(None).build_optimizer(world=fake_world)
+
+        assert opt.reporting is None
+        assert opt.env.kwargs["reporter_cfg"] is None
+
     @pytest.mark.xfail(
         strict=True,
         reason="build_optimizer reads opt.id before checking whether a World "

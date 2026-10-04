@@ -256,10 +256,11 @@ class OptimizerConfig(_Config, ABC):
         """Build an ``Optimizer`` from a frozen deep copy of this config.
 
         The optimizer is registered with ``world`` (when given) to obtain its
-        ``opt_id``, receives the optimizer-level reporter, and its environment
-        is instantiated once through ``_env_creator`` with ``world``,
-        ``opt_id``, ``inner_opt`` and the ``env_config`` entries. Extra
-        keyword arguments are accepted for subclass compatibility and ignored.
+        ``opt_id``, receives the optimizer-level reporter (``None`` when no
+        reporter configuration was set), and its environment is instantiated
+        once through ``_env_creator`` with ``world``, ``opt_id``,
+        ``inner_opt`` and the ``env_config`` entries. Extra keyword arguments
+        are accepted for subclass compatibility and ignored.
         """
 
         cfg = self.copy(copy_frozen=True)
@@ -267,10 +268,13 @@ class OptimizerConfig(_Config, ABC):
         if cfg.opt_class is None:
             raise ValueError("OptimizerConfig has no opt_class")
 
-        # Build reporter
-        reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
-        reporter.schema = self._reporting_schema
-        reporter.add_query(*(self._reporting_queries or ()))
+        # Build reporter; reporting is optional
+        reporter = None
+
+        if self._reporter_cfg is not None:
+            reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
+            reporter.schema = self._reporting_schema
+            reporter.add_query(*(self._reporting_queries or ()))
 
         opt: Optimizer = cfg.opt_class(world=world, reporting=reporter, config=cfg)
 

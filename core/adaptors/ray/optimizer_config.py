@@ -614,7 +614,7 @@ class RayOptimizerConfig(OptimizerConfig):
            ``env_creator`` below), and point ``rllib_cfg`` at it.
         6. Freeze a deep copy of this config and hand it to ``RayOptimizer``;
            the ``Algorithm`` itself is built later inside ``PolicyActor``.
-        7. Build the optimizer-level reporter through ``_build_reporter``
+        7. Build the optimizer-level reporter from ``reporter_cfg``
            (``None`` when no ``reporter_cfg`` was set) and attach it as
            ``opt.reporting``. Each environment receives a copy of
            ``reporter_cfg`` plus the env-level queries and schema so it can
@@ -779,10 +779,13 @@ class RayOptimizerConfig(OptimizerConfig):
 
         cfg = self.copy(copy_frozen=True)
 
-        # Build reporter
-        reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
-        reporter.schema = self._reporting_schema
-        reporter.add_query(*(self._reporting_queries or ()))
+        # Build reporter; reporting is optional
+        reporter = None
+
+        if self._reporter_cfg is not None:
+            reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
+            reporter.schema = self._reporting_schema
+            reporter.add_query(*(self._reporting_queries or ()))
 
         opt = RayOptimizer(world=world, reporting=reporter, config=cfg)
         opt.id = opt_id

@@ -633,11 +633,6 @@ def test_every_environment_receives_its_own_copy_of_the_reporter_config(
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason="build_optimizer calls self._reporter_cfg.build without the None "
-    + "check its docstring describes",
-)
 def test_a_config_without_reporter_builds_an_optimizer_without_reporter(
     registered, stub_optimizer
 ):
@@ -648,7 +643,7 @@ def test_a_config_without_reporter_builds_an_optimizer_without_reporter(
 
     opt, _ = build(cfg)
 
-    assert opt.kwargs.get("reporter") is None
+    assert "reporting" in opt.kwargs and opt.kwargs["reporting"] is None
 
 
 @pytest.mark.unit

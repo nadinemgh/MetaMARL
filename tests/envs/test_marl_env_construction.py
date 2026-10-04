@@ -101,14 +101,6 @@ def test_logger_is_built_from_the_schema(toy):
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    raises=AttributeError,
-    reason=(
-        "reporter_cfg defaults to None and the docstring says None disables "
-        + "reporting, but __init__ calls reporter_cfg.build unconditionally"
-    ),
-)
 def test_environment_can_be_built_without_a_reporter(toy):
     env = toy.make_env(toy.ScriptedWorld(), reporter_cfg=None, schema=None)
 
