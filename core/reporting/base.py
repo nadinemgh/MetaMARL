@@ -83,7 +83,7 @@ class Reporter(ABC):
             if any(isinstance(value, list) for value in metrics):
                 raise ValueError(
                     "Path resolves to a nested metric series. "
-                    + "A series reduction is required: {path}"
+                    + f"A series reduction is required: {path}"
                 )
 
             return PathResolution(values={group: metrics}, errors={})
@@ -243,7 +243,7 @@ class Reporter(ABC):
                     if len(x) != len(y):
                         raise ValueError(
                             "Query series must have equal length: "
-                            + "x={query.x} ({len(x)}), "
+                            + f"x={query.x} ({len(x)}), "
                             + f"y={path}, group={group} ({len(y)})."
                         )
             else:
