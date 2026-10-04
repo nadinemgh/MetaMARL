@@ -113,7 +113,7 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
         json_schema_extra={"reduce": ReduceProtocol.MAX}
     )
     fish_norm_next_last: Optional[float] = Field(
-        json_schema_extra={"reduce": ReduceProtocol.MAX}
+        json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
 
     by_agent: dict[AgentID, FisheryAgentMetricSchema] = Field(default_factory=dict)
