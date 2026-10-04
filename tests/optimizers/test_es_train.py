@@ -27,14 +27,18 @@ class ConstantFitnessEnv:
         return None, np.ones(len(actions), dtype=np.float32), True, False, {}
 
 
-def make_es(episodes: int, population: int = 2) -> ESOptimizer:
+def make_es(
+    episodes: int, population: int = 2, low: float = 0.0, high: float = 1.0
+) -> ESOptimizer:
     regulator = AgentConfig(
         id="regulator",
         policy_id="quota_policy",
         mechanisms=(
             Quota(
                 id="quota",
-                action_space=spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+                action_space=spaces.Box(
+                    low=low, high=high, shape=(1,), dtype=np.float32
+                ),
                 acts_on=("fisherman", "harvest"),
                 obs_map={"resource_level": "fish"},
                 default=np.asarray(0.5, dtype=np.float32),
@@ -74,3 +78,13 @@ def test_bilevel_train_accepts_the_es_summary():
     result = bilevel.train()
 
     assert result["episodes"] == 2 and result["converged"] is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "low, high", [(0.0, 2.0), (0.5, 2.0), (0.2, 1.0)], ids=["high", "both", "low"]
+)
+def test_action_bounds_outside_unit_interval_are_rejected(low, high):
+    # The ES samples in logit space and maps candidates back to (0, 1).
+    with pytest.raises(ValueError, match=r"bounds in \[0, 1\]"):
+        make_es(episodes=1, low=low, high=high)

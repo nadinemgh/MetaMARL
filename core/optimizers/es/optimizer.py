@@ -101,8 +101,9 @@ class ESOptimizer(Optimizer):
         self.search_space = flatten_space(self.action_space)
         self.dimension = flatdim(self.action_space)
 
-        if not np.allclose(self.search_space.low, 0.0) and np.allclose(
-            self.search_space.high, 1.0
+        if not (
+            np.allclose(self.search_space.low, 0.0)
+            and np.allclose(self.search_space.high, 1.0)
         ):
             raise ValueError(
                 "ESOptimizer currently requires action bounds in [0, 1]. "
