@@ -15,21 +15,16 @@ from dataclasses import dataclass, field
 from typing import ClassVar
 
 import numpy as np
-from gymnasium import Space, spaces
+from gymnasium import Space
 
 from core.annotations import override
 from core.mechanism.base import ActType, MDPState, Mechanism
-from core.mechanism.config import MechanismConfig
+from core.mechanism.config import MechanismConfig, empty_action_space
 
 EPS = 1e-8
 
 MAX_EXPONENT = 60.0
 """Bound on the logistic exponent; ``exp(60)`` is finite in double precision."""
-
-
-def _no_action_space() -> spaces.Box:
-    """Empty action space of a mechanism the regulator does not search."""
-    return spaces.Box(low=0.0, high=1.0, shape=(0,), dtype=np.float32)
 
 
 class ThresholdPenaltyMechanism(Mechanism):
@@ -164,7 +159,7 @@ class ThresholdPenaltyMechanism(Mechanism):
 @dataclass(frozen=True, kw_only=True)
 class ThresholdPenalty(MechanismConfig):
     mechanism_cls: ClassVar[type[Mechanism]] = ThresholdPenaltyMechanism
-    action_space: Space = field(default_factory=_no_action_space)
+    action_space: Space = field(default_factory=empty_action_space)
     threshold: float = 0.20
     penalty_amount: float = 0.10
     transition_width: float = 0.03
