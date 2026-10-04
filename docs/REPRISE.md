@@ -60,7 +60,8 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] `RayOptimizer.stop` raised `TypeError` on a misspelled keyword and nothing called it; `BilevelOptimizer.train` now stops both levels in its `finally` block on Rémy's decision, and the stop is logged (`691e08e`); whether `stop` should return the reduced metrics is left to Nadine;
   - [x] the two unused helpers `_build_agent_policy_map` and `_get_policy_handle` (the latter broken) were removed on Rémy's decision (`82aaac2`); `TODO.md` still mentions the first one;
   - [x] `RayOptimizerConfig.build_optimizer` now requires a World and declared agents, with an error naming what to add, on Rémy's decision (`9f765da`);
-  - [ ] **runs are not reproducible**: two runs of the same config give different ES trajectories (see "Findings for Nadine"); waiting on Rémy;
+  - [ ] **the regulator's candidate reaches training only in the first episode of each generation** (measured 10-04, see "Findings for Nadine"); fix waiting on Rémy;
+  - [ ] **runs are not reproducible**: two runs of the same config give different ES trajectories (see "Findings for Nadine"); investigation in progress on Rémy's decision, resumed after the mechanism fix because that fix changes the training data;
   - [ ] `debug.py` documents `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` but parses no option and runs 1000 generations;
   - [ ] port of `Subsidy`, `SocialInfluence` and `ThresholdPenalty` (own session, see next step).
 - [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`.
@@ -150,11 +151,13 @@ assistant text.
 | 10-04 | `BilevelOptimizer.train` stops both levels at the end of the run | Rémy, on Claude's recommendation |
 | 10-04 | Remove the two unused policy helpers of `RayOptimizer` | Rémy, on Claude's recommendation |
 | 10-04 | `build_optimizer` of the society requires a World and declared agents | Rémy, on Claude's recommendation |
+| 10-04 | Investigate the non-reproducibility now and come back with a fix proposal before changing code | Rémy, on Claude's recommendation |
+| 10-04 | `debug.py` parses the options its docstring documents, with today's values as defaults | Rémy, on Claude's recommendation |
 
 ## Waiting on
 
-Rémy: whether to separate the two sources of non-reproducibility now (phase 1) or record
-the finding for Nadine; and the documented options of `debug.py`.
+Rémy: how to fix the missing training mechanism. Decided and queued: the reproducibility
+investigation continues after that fix, and `debug.py` gets the options it documents.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -184,6 +187,24 @@ that made it crash was fixed without settling which contract is wanted.
 statistics once every 20 gradient updates, so the loss appears in the training log only
 on those iterations. This is RLlib's behaviour, not a bug of the framework.
 
+**The candidate mechanism is missing from almost every training episode (measured on
+10-04).** `MultiAgentEnv.reset` fetches the mechanism from the World, but
+`World.get_mechanism_by_id` returns it only on the first training fetch of a candidate
+(it moves the entry from `published` to `train`, and `train` is not a valid predecessor
+of `train`). The environment never stores what it fetched (`self.m` and `self.m_ctx` are
+never assigned), and the RLlib adapter builds a fresh `MDPState` at every reset, so from
+the second episode on the leaders hold no action and `AgentConfig.action` returns the
+state unchanged: no quota is applied. A probe logging every reset of the shrunk config
+showed the candidate quota in the first training episode of each environment and in
+every evaluation episode (`eval` is a valid predecessor of `eval`), and no mechanism in
+every later training episode. The fishermen therefore train almost entirely without
+regulation and are then scored under the candidate, so the ES does not optimise the
+bilevel objective it is meant to. The code dates from `08dbeb9` (08-16); Nadine's own
+TODO at that spot warned that a missing mechanism after training starts "leads to silent
+error". The comment above the fetch ("keep the current mechanism for subsequent
+episodes") and the unused `m` and `m_ctx` fields suggest the intended design was to keep
+the fetched mechanism.
+
 **Runs are not reproducible (measured on 10-04).** Two runs of the shrunk fishery config
 with the same seeds give identical training returns over the first two inner iterations
 (19.3691 then 20.0886) but different evaluation fitness from the first generation
@@ -193,11 +214,19 @@ of the order of 0.001 to 0.007, while the spread between candidates of one gener
 about 0.03. Weight fingerprints taken inside the evaluation function show that the
 evaluated policies are the trained ones (learner, training runner and evaluation runners
 agree in the second generation), so the fitness is not computed on untrained policies.
-They also show that the learner's weights already differ between runs after its first
-update, and that two runs whose evaluation runners held identical weights still
-returned different fitness. Two sources are therefore suspected and not yet separated:
-APPO's learner thread runs concurrently with sampling, so the state of the weights at
-evaluation depends on timing, and evaluation sampling itself is not seeded.
+Tracing the circular buffer and every learner update then showed that the sampled data
+and the weights after each update are identical across runs, so the update itself is
+deterministic, but APPO's learner thread finishes its updates while evaluation is
+starting: RLlib copies the learner's weights to the evaluation runners at a moment that
+depends on timing. A prototype that waits for the thread to process every queued batch
+before evaluating made the evaluated weights identical in two of three runs, yet the
+fitness still differed slightly (1.4781 against 1.4779), and the third run had different
+weights, so at least one more source remains. Evaluation does not explore
+(`explore: false`). APPO's `CircularBuffer` draws batches with an unseeded
+`np.random.default_rng()`, which matters only when more than one batch is waiting.
+Separately, `PolicyActor.reset` builds a new `Algorithm` each generation without
+stopping the previous one, whose learner thread keeps polling its empty buffer every
+0.1 ms; the cost over many generations is not measured yet.
 
 The other findings for Nadine are to be collected in the notes written in phase 4. Already
 known: `ruff` warns that `isort.split-on-trailing-comma` conflicts with
