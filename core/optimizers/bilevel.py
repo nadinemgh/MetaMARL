@@ -188,7 +188,7 @@ class BilevelOptimizer(Optimizer):
         Inner optimizer, driven by the outer env; kept for lifecycle access.
     reporter : Reporter
         Primary (bilevel-level) reporter built from ``config.reporter_cfg``;
-        closed at the end of :meth:`run`.
+        closed at the end of :meth:`train`, after both levels are stopped.
     """
 
     def __init__(
@@ -229,9 +229,14 @@ class BilevelOptimizer(Optimizer):
             self.world_name,
         )
 
+        # Stop both levels even when training fails, so the RLlib algorithm
+        # and its env runners are released before the reporter closes.
         try:
             result = self.outer.train()
         finally:
+            for level in (self.outer, self.inner):
+                if level is not None:
+                    level.stop()
             if self.reporting is not None:
                 self.reporting.close()
 

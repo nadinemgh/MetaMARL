@@ -275,12 +275,21 @@ class RayOptimizer(Optimizer):
         self.logger.reset()
 
     @override(Optimizer)
-    def stop(self) -> None:
-        """Stop the RLlib ``Algorithm`` held by the policy actor."""
+    def stop(self) -> RaySchema:
+        """Stop the RLlib ``Algorithm`` held by the policy actor.
+
+        Returns
+        -------
+        RaySchema
+            The optimizer's metrics reduced over the whole run. The base
+            ``Optimizer.stop`` returns nothing; whether this one should is
+            still an open choice.
+        """
 
         ray.get(self.policy_actor.stop.remote())
+        logger.info("[PPO] Algorithm stopped")
 
-        return self.logger.reduce(complie=True)
+        return self.logger.reduce()
 
     @override(Optimizer)
     def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:
