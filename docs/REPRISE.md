@@ -65,7 +65,7 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] **with more than one training seed, evaluation crashed** ("fewer units than requested: requested=24, completed=48"): the evaluation runners inherited the training runners' environment count, which `debugging` multiplies by the number of seeds. `build_optimizer` now gives each evaluation runner one environment per mechanism, and the message says "fewer" or "more" as the case is, on Rémy's decision (`03330ef`). Measured with two seeds on the shrunk config: the run completes and all 80 sampled training and evaluation resets carry the candidate for both seeds;
   - [x] **runs are not reproducible**: investigation finished on 10-04; three sources found and measured (see "Findings for Nadine"), each removed by a scratch prototype, with bit-identical fitness over repeated runs once all are removed;
   - [x] **reproducibility fixed** on Rémy's decision, one commit per source, each with its test: the environment's metric logger is reset at every episode (`439249a`); `disable_env_checking` reaches RLlib (`be8d83e`); `core.config.cli` and `debug.py` restart themselves with `PYTHONHASHSEED=0` when the variable is unset (`2dd94c9`); evaluation waits for APPO's learner thread to apply every queued update (`ac83a64`). Measured from a shell without `PYTHONHASHSEED`, so every run went through the restart: five runs of the shrunk config with 10 inner iterations and three full-size runs (10 fishermen, horizon 100, 2 generations) each gave bit-identical fitness vectors, equal to those of the scratch prototypes. The test suite has 59 tests, all passing;
-  - [x] `debug.py` now parses `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` (`wandb` or `csv`), defaults being the former hard-coded values; measured: the smoke configuration of its docstring with `--reporter csv` exits 0 and writes the CSV files under `results/`;
+  - [x] `debug.py` now parses `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` (`wandb` or `csv`), defaults being the former hard-coded values; measured: the smoke configuration of its docstring with `--reporter csv` exits 0. **Correction of 10-04 (phase 2):** this line used to say that the run "writes the CSV files under `results/`". That was wrong: the run creates the directories under `results/` and no file, because the optimizers never receive their reporter (see "Reports are never written" in the findings);
   - [x] **observations were cumulative**: the observation a fisherman received at step t was the sum of every observation since the reset (measured: first entry 0.766, 1.511, 2.261, then 14.569 at step 20, while the normalised stock went from 0.766 to 0.683). `MDPState.obs` is now a `FlowTrajectory`, like the rewards, on Rémy's decision (`0bb367c`, 3 tests). Re-measured on a shrunk run: the 2280 observations handed to RLlib equal the state they encode;
   - [x] `Subsidy` ported to `Mechanism.apply` with 12 tests (`d317b9f`): the regulator's action is the subsidy rate normalised by `MAX_SUBSIDY`, and the residual `rate * e - cost * e**2` is added to each targeted fisherman's reward;
   - [x] `ThresholdPenalty` ported with 12 tests (`20f878e`): a fixed rule with an empty action space, which subtracts the logistic penalty from every targeted fisherman's reward;
@@ -73,7 +73,20 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] a mechanism can now contribute to the observations: `Mechanism.observe` returns nothing by default, and the environment adds the leaders' contributions where it already adds the followers' observations, at reset and at the end of each step, on Rémy's decision (`5c2c52f`, 5 tests);
   - [x] `SocialInfluence` ported with 14 tests (`dbe2338`): it implements `observe` and writes each peer's delivered action of the step just finished into reserved entries of the observation. Measured on a shrunk fishery whose regulator holds all five mechanisms: over 4160 observations, entries 3 and 4 of each fisherman equal its peer's last delivered harvest and restoration exactly, and they stay zero while no candidate is published;
   - [x] end-of-phase check on `dbe2338`: `ruff check --no-fix` and `ruff format --check` pass on the whole tree, the suite has 105 tests, all passing, `core.config.cli check` accepts the fishery configuration, two runs of the smoke configuration of `debug.py` give bit-identical fitness vectors, and the three tutorials that executed at baseline still execute.
-- [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`.
+- [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`. The coverage target is reached (99 %); the phase stays open only for the decisions on the defects it found.
+  - [x] honest baseline: most directories of `core/` are namespace packages, so coverage silently left out every file that no test imported and reported 63 % on 52 of 59 files. With `include_namespace_packages = true` in `pyproject.toml` (`3db1e46`) the true starting point was 57 % (3691 statements, 1597 missed) for the 105 tests of phase 1;
+  - [x] triage of the August suite against the tree after phase 1: of 54 files, 11 pass unchanged, 2 are skipped entirely, 1 runs no test and 40 fail in whole or in part, 17 of them at import;
+  - [x] the work was split by layer between eight subagents sharing one brief (test files only, no change under `core/` or `examples/`, a defect is demonstrated by a strict `xfail` test and never fixed or hidden). Claude re-ran every layer, re-measured its coverage, linted it and read the code behind every reported defect before committing;
+  - [x] metrics: 174 tests, `core/metrics` at 100 % (`7e4b2de`);
+  - [x] reporting: 157 tests, `core/reporting` at 100 % (`70c5244`);
+  - [x] Ray adaptor: 252 tests and 4 recorded defects, `core/adaptors/ray` at 100 % (`a8db5a4`, `9c22690`);
+  - [x] World, callbacks, utilities and annotations: 157 tests and 4 recorded defects, all at 100 % (`a89fb77`);
+  - [x] environments, agents, YAML loader, command line and fishery ecology: 194 tests and 9 recorded defects; `marl_regulated.py` at 99 % and `regulator.py` at 95 %, the missing lines being unreachable until two of those defects are fixed (`9c74d85`);
+  - [x] optimizers: 253 tests and 4 recorded defects; `es/optimizer.py` at 97 %, the missing lines being unreachable or behind one of those defects (`1cdf19f`);
+  - [x] mechanisms: 154 tests and 3 recorded defects, `core/mechanism` at 100 %, quota included (36 % before) (`7dccabd`);
+  - [x] the two composition checks of phase 1 are now repeatable tests in `tests/integration/test_fishery_regulator_composition.py`: they step the real shrunk fishery with the real mechanisms behind a scripted World, without Ray, in about one second. The debug script is run as a child process with the CSV reporter and a 180 s limit in `test_debug_script_csv_smoke.py`;
+  - [x] end-of-phase measurement on `7dccabd` with the default command (`WANDB_MODE=offline uv run python -m pytest`): 1341 passed, 24 xfailed, no failure, 27 s; `core/` at 99 % (3691 statements, 13 missed, all in the three files named above); `ruff check . --no-fix` and `ruff format --check .` pass on the whole tree;
+  - [ ] the 24 strict `xfail` tests record 14 distinct defects, none fixed (see "Defects recorded by the phase 2 tests"). The fix of the first one, the lost reporter, is proposed and waits on Rémy; the others are recommended for Nadine's notes.
 - [ ] Phase 3 — docstrings and type hints on every public symbol of `core/` and `examples/bilevel_fishery`.
 - [ ] Phase 4 — README, QUICKSTART, AGENTS, ARCHITECTURE and notes for Nadine rewritten against the tree.
 - [ ] Phase 5 — the five notebooks execute and are exercised by the test suite.
@@ -169,8 +182,15 @@ assistant text.
 
 ## Waiting on
 
-Nothing blocks phase 2. Two points were put to Rémy at the end of the port session of
-10-04 and have no answer yet.
+Nothing blocks phase 3. Four points are with Rémy and have no answer yet; the first two
+date from the port session of 10-04, the last two from phase 2.
+
+- [ ] Confirm that his "go" approved both the observation fix and the `observe` method.
+- [ ] Quota `allowed_frac`: leave it and record it for Nadine (recommended), or remove
+  the write.
+- [ ] Reports are never written: fix now (recommended), or record for Nadine.
+- [ ] The other thirteen recorded defects: record them for Nadine with their tests
+  (recommended), or fix some of them now.
 
 The first is a confirmation. Rémy answered "go" to a brief that listed the port of
 `Subsidy` and `ThresholdPenalty` and two recommendations, the observation fix and the
@@ -182,6 +202,34 @@ state at every step, and that value accumulates instead of being replaced (see "
 for Nadine"). Nothing reads it today. Claude recommends leaving the code unchanged and
 recording it for Nadine, because the correct fix depends on what she meant that entry to
 be; the alternative is to remove the write, which is a one-line change.
+
+The third is a fix proposal, put to Rémy during phase 2. No report file is produced
+today, whatever the reporter (see "Reports are never written" below). Claude recommends
+fixing it now, each step in its own commit with its test. The keyword fix cannot go
+alone, because it turns a silent run into a crashing one, so three things go with it.
+The reporter is passed under the keyword the optimizers read (`reporting=`) in the two
+`build_optimizer` methods. The two stale ES queries of
+`examples/bilevel_fishery/queries.py` are pointed at the parameter names the ES logs
+today. A query that fails is logged with its traceback and the other queries are still
+rendered, so that a reporting error can no longer abort a training run at its last
+line. That leaves one question that is a choice of method and is put to Rémy
+separately: what the four learner queries should show when APPO reports its statistics
+only on some iterations. Claude recommends padding the missing iterations with NaN at
+the place where the learner statistics are logged, so that the series keeps one value
+per iteration and the plots show gaps where there is no measurement. The four queries
+on metrics that nothing writes are left as they are and recorded for Nadine. Two small
+companions were proposed with the first brief: the `None` check on the reporter
+configuration that the docstrings describe, and a clear error instead of the
+`ZeroDivisionError` on an empty seed list. The strict `xfail` tests that record these
+defects turn into failures as soon as the code is fixed, so each fix removes its marker
+in the same commit.
+
+The fourth is the handling of the other recorded defects. Reading their call sites,
+none of them changes what the fishery example computes as it is configured today, and
+several touch structures Nadine chose (the
+World's cursors, the configuration snapshot, the ES "fixed" mode). Claude recommends
+leaving the code unchanged and handing them over in the phase 4 notes, each with the
+name of the test that demonstrates it.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -196,8 +244,9 @@ tail window does nothing; in training it slices across episodes. The ES objectiv
 means, not on the last 50 steps. Separately, nothing pushes `reward_mean`, although the
 docstring of `core/envs/marl_regulated.py` says rewards are logged each step, so
 `mean_reward` was NaN in every report (it does not enter the objective; fixed in
-`733be6c`). `H_realized = B_{t-1} - fish_t` is negative whenever restoration adds fish,
-so the harvest score is a net harvest: a modelling question, left unchanged.
+`733be6c`). The earlier note here said that `H_realized` is a net harvest that turns
+negative when restoration adds fish. Phase 2 measured more than that: the logged value is
+not the harvest at all (see "The logged harvest is not the harvest" below).
 
 **Cumulative rewards (fixed in `27fbd29`).** Every run since `32ef1b5` (09-30) trained
 the fishermen on running sums of their harvests; results from that period are not
@@ -390,6 +439,153 @@ them against the ported configuration classes. The last section of `TODO.md` als
 carries two comments moved from the earlier `subsidy.py`, whose line numbers no longer
 match the file.
 
+**Reports are never written (measured on 10-04 in phase 2, not fixed; fix proposed to
+Rémy).** `OptimizerConfig.build_optimizer` (`core/optimizers/config.py:275`) and
+`RayOptimizerConfig.build_optimizer` (`core/adaptors/ray/optimizer_config.py:787`) hand
+the reporter to the optimizer as `reporter=...`, while `Optimizer.__init__` names that
+argument `reporting`. The keyword falls into `**kwargs`, `self.reporting` stays `None`,
+and `report_metrics` returns at once. Only `BilevelOptimizer` keeps its reporter. A run
+of `debug.py --reporter csv` therefore exits 0, creates the directories under `results/`
+and writes no file; the same holds for W&B and TensorBoard, since the loss happens before
+the reporter is chosen. Three strict `xfail` tests record the keyword mismatch
+(`tests/adaptors/test_optimizer_config_build.py`,
+`tests/optimizers/test_base_optimizer_config.py` and the CSV smoke test in
+`tests/integration`).
+
+The mismatch hides three further problems, measured with a scratch prototype that made
+`Optimizer.__init__` accept the keyword. Fixing the keyword alone turns a run that
+writes nothing into a run that crashes, because `Reporter.report` resolves the queries
+one after the other and the first error aborts the optimizer that called it.
+
+The first problem is two stale ES queries. `Candidate fitness vs fixed quota` and
+`Restoration subsidy vs fixed quota` ask for the parameters `fixed_quota` and
+`restoration_subsidy`, which the ES no longer logs. The smoke configuration (2
+generations of 2 iterations) crashes at the end of the first generation with
+`KeyError: Unknown metric path`.
+
+The second problem is the four learner queries of the inner optimizer (total loss, value
+loss, policy loss and policy entropy). APPO reports its learner statistics only once
+every 20 gradient updates, and an iteration without statistics adds nothing to the
+series. As long as no statistic exists the queries are empty and skipped. As soon as one
+exists the series is shorter than the iteration axis: a run of 22 iterations stopped at
+the end of the first inner training with `ValueError: Query series must have equal
+length: x=('iter',) (22), y=(... 'value_loss'), group=(...) (1)`, after writing 5 files.
+The default of both entry points is 50 iterations per generation, so the full-size run
+is on the wrong side of that threshold. How a sparse series should be reported (padded
+with NaN, given its own axis, or skipped) is a choice about Nadine's reporting design.
+
+The third problem is four queries that can never produce anything. They ask for
+`quota_penalty` and `intrinsic_utility`, which the metric schema declares and which no
+code in `core/` or in the fishery example writes any more. They resolve to zero values
+and the reporter skips them without a word.
+
+With each query rendered on its own, so that a failure does not hide the others, the
+smoke configuration resolves 19 of its 21 queries and writes 11 CSV files (6 for the ES,
+5 for the inner optimizer), and its fitness vectors are bit-identical to those of the
+run without the prototype. The eight queries that resolve without writing a file are
+the four learner queries, empty at 2 iterations, and the four queries on unwritten
+metrics.
+
+**The logged harvest is not the harvest (measured on 10-04 in phase 2, not changed).**
+A scratch probe stepped the real `FisheryRegulatedEnv` without noise or restoration, two
+fishermen each asking for half of their capacity from a stock of 800, and recomputed
+every quantity by hand. Four things came out, all in the `pella_tomlinson` transition of
+`examples/bilevel_fishery/regulated_env.py`.
+
+First, the value logged as `H_realized` is the true harvest minus the growth of the
+previous step. From step 1 on the transition recovers the harvest as the difference
+between the stock of the previous step and the current one, and that difference already
+contains the previous growth. The probe read 0.0 at step 0 for a true harvest of 115.5,
+then 43.4 for 108.2, 37.1 for 101.9, and 17.3 for 90.6 at step 5: the logged value falls
+toward zero as the stock settles, whatever the fishermen catch. `FisheryRegulatorEnv`
+builds the harvest term of the ES objective from this value (`realized_harvest /
+msy`), so that term measures the net decline of the stock, not the catch. This
+consequence is read from the code; it has not been measured on a full run.
+
+Second, the growth term is computed on the stock of the previous step, not on the
+current one. At step 1 the code gives a stock of 705.897 where growth on the current
+post-harvest stock would give 710.136.
+
+Third, the code harvests and then grows, while the module docstring states the equation
+with growth on the stock before the harvest. From 800 the first step gives 749.288 in
+the code and 728.000 with the documented equation, and the gap persists (610.9 against
+576.8 at step 5).
+
+Fourth, the fishermen harvest one after the other, each from what the previous one left,
+so two identical requests of 60 deliver 115.5 in total and the order of the agents
+matters.
+
+`tests/examples/test_fishery_env_dynamics.py` pins only quantities that do not depend on
+these choices and lists the three order questions in its docstring. Rémy's decision of
+10-04 not to change the ES objective stands; these are modelling questions for Nadine.
+
+**Defects recorded by the phase 2 tests (none fixed).** Each of the following is
+demonstrated by one or more strict `xfail` tests, whose reason string names the defect;
+`uv run python -m pytest -rx` lists them. Claude read the code behind each one.
+
+- The reporter keyword mismatch above (3 tests).
+- A missing reporter configuration is documented as "no reporting" but is not handled:
+  `RayOptimizerConfig.build_optimizer`, `MultiAgentEnv.__init__` and
+  `RegulatorEnv.__init__` call `reporter_cfg.build` on `None` (3 tests).
+- An empty list of training seeds reaches `num_envs % len(seeds)` in
+  `_apply_agents_to_rllib` and raises `ZeroDivisionError`
+  (`core/adaptors/ray/optimizer_config.py:512`); line 660 of the same file guards the
+  same case correctly (1 test).
+- The configuration snapshot handed to the Ray optimizer is not frozen, because
+  `RayOptimizerConfig.freeze` is a deferred RLlib mutator and `copy(copy_frozen=True)`
+  never applies it (1 test).
+- `Mechanism.__init__` keeps its default with `default if default else None`
+  (`core/mechanism/base.py:151`): an array of several entries raises "truth value of an
+  array is ambiguous" and a default equal to zero is silently replaced by `None`
+  (3 tests).
+- `MultiAgentEnv` cannot be built without leaders although `leaders_cfg_dict` is
+  optional (1 test), and cannot reset without a metric schema although the docstring
+  says `schema=None` disables logging (1 test).
+- The `opt_id` getter of `MultiAgentEnv` and of `RegulatorEnv` returns `self.opt_id` and
+  so calls itself until the recursion limit (2 tests).
+- When the fetch of a mechanism fails, `MultiAgentEnv.reset` calls `self._debug_remote`,
+  which no class defines, so an `AttributeError` hides the error meant to name the
+  mechanism (1 test).
+- `RegulatorEnv.reset(seed=...)` reads `self.seed`, which is never assigned (1 test).
+- `OptimizerConfig.training` is annotated `-> Self` and returns `None`, which breaks
+  chained calls (1 test).
+- `OptimizerConfig.build_optimizer` reads `opt.id` before checking for a World, so
+  `world=None` raises although the signature allows it (1 test).
+- The ES "fixed" mode, a regulator with no parameter to optimise, crashes when it logs:
+  `_to_logger_payload` reads `env.m_space`, which no environment defines
+  (`core/optimizers/es/optimizer.py:618`) (1 test).
+- In `World`, `set_new_context` and `update_context` store the context before rejecting
+  one that lacks `env_id`, so a failed call still mutates the registries (2 tests). The
+  cursors of `get_new_env_step_contexts` count positions in lists that `flush_ctx` and
+  `remove_context` shrink, so contexts appended afterwards are skipped (2 tests). No
+  live code calls these four methods today.
+
+**Points the tests do not settle (open questions for Nadine).** The subagents listed
+these and no test asserts either way, because the intended behaviour is hers to state.
+The ES convergence test `_has_converged` always answers "not converged": the two
+convergence settings are stored and never read, although the docstring says they stop
+the loop. `RegulatorEnv.step` ends the episode one step early for a horizon of two or
+more. The `Max` and `Min` metrics depend on the order of their inputs when one is NaN,
+and the numeric metrics reject `np.float32` and `np.int64` values. `WandbConfig`
+swallows unknown keyword arguments. Three `or` chains in `core/adaptors/ray/utils.py`
+(lines 62, 241 and 381) treat a value of 0.0 as missing. A fractional
+`module_train_batch_size_mean` raises a pydantic error. Calling `debugging` twice
+compounds its scaling, and it must be called after `env_runners`. `PolicyActor.reset`
+does not stop the previous algorithm. `RayOptimizer.train` returns `logger.peek()`
+although it is annotated `-> None`, and `core/envs/regulator.py:164` uses that return
+value; `_inner_iter` is set only by `reset`. When two hooks carry the same name the last
+one wins silently. `core/agents/base.py` imports `ActType` from the unmaintained `gym`
+package, which prints a deprecation notice at every start. `debug.py` parses its command
+line at import time, so no test can import it with its own arguments. Several docstrings
+describe removed behaviour; phase 3 rewrites them.
+
+**What the August suite tested that no longer exists.** The mechanism tests of August
+checked `dimension`, `encode`, `to_vector`, `param_names` and `clip` on every mechanism;
+none of these is defined in `core/` any more, since a mechanism's parameters now live in
+its action space. The two composition test files were dropped with the composition
+classes they tested; composition is now covered through `Agent.action` in the quota
+tests and in the integration test of the composed fishery.
+
 The other findings for Nadine are to be collected in the notes written in phase 4. Already
 known: `ruff` warns that `isort.split-on-trailing-comma` conflicts with
 `format.skip-magic-trailing-comma = true` in her configuration (no oscillation was
@@ -398,43 +594,52 @@ tracked.
 
 ## Next step
 
-Phase 1 is complete: the four mechanisms implement `Mechanism.apply`, the fishery example
-runs end to end from both entry points, and repeated runs are bit-identical. The five
-commits of the port session (`d317b9f` to `dbe2338`) are local; the branch has never been
-pushed.
+Phase 2 has reached its target. The suite has 1341 passing tests and 24 strict `xfail`
+tests, `core/` is covered at 99 %, and the whole tree passes the lint and format checks.
+The nine commits of the phase (`3db1e46` to `7dccabd`) are local; the branch has never
+been pushed. No file under `core/` or `examples/` was modified during the phase.
 
-Phase 2 starts next: bring unit coverage of `core/` above 90 %. The first action is to
-measure coverage on the present suite of 105 tests
-(`uv run python -m pytest --cov=core --cov-report=term-missing`), so that the work is
-ordered by what is uncovered rather than by what the August suite happened to test. The
-second is to triage the 57 test files of `feature/integration-trial`
-(`../bilevel-fishery-integration/tests/`): the baseline found 13 passing unchanged, 35
-that cannot be imported and 123 failing tests, and the breakage follows the refactor
-listed in the baseline section. The metrics, callbacks, utilities and Ray runtime layers
-were stable and port first; the mechanism, environment and optimizer tests have to be
-rewritten against `MDPState`, `MultiAgentEnv` and its RLlib adapter. The fakes of the
-earlier `conftest.py` must be checked against the new `World` before reuse. Each file of
-the triage is independent, so the reading goes to subagents and the decisions stay in the
-main session. `integration/test_fishery_reporting.py` hung at baseline and must run with
-a timeout.
+Two things come next, and they are independent.
 
-Known gaps to cover in that phase: `quota.py` was at 36 % when last measured, before the
-port; `RayOptimizerConfig.build_optimizer` calls `self._reporter_cfg.build` without the
-`None` check its docstring describes; and `RayOptimizer.train` returns
-`self.logger.peek()` although it is annotated `-> None`. Each bug found gets a failing
-test before its fix, and a fix that changes a method Nadine chose waits for Rémy.
+The first depends on Rémy's answers to the four points of "Waiting on". If he approves
+the reporting fix, it is done before anything else, in the order given there: each step
+starts by turning its `xfail` test into a plain failing test, and the phase closes when
+`debug.py --reporter csv` leaves its CSV files behind on the smoke configuration and on
+a run of at least 22 training iterations. The scratch prototype that served for the
+measurements patched `Optimizer.__init__` to accept `reporter=`; the real fix renames
+the keyword at the two call sites instead.
 
-The scratch scripts of the port session (the probes and the three-mechanism and
-five-mechanism copies of `debug.py`) lived in a session directory and are not kept. The
-measurements they produced are recorded above; phase 2 should turn the two composition
-checks into integration tests so that they can be repeated.
+The second is phase 3, which waits on nothing: a docstring and type hints on every
+public symbol of `core/` and `examples/bilevel_fishery`. The baseline measured 71 % of
+public symbols documented (304 of 429) and 92 % of public callables fully annotated,
+with the gap in `core/agents`, `core/mechanism`, `core/envs` and the CSV and TensorBoard
+reporters; the first action is to measure both figures again on the present tree, since
+phases 0 and 1 changed them. The docstrings follow the NumPy style with shapes, units,
+a "When to use" note, a runnable example and the source papers. Each one must describe
+what the code does today, which the phase 2 tests now pin: where a docstring promises
+behaviour that an `xfail` test shows missing (a `None` reporter, a `None` schema,
+convergence settings that stop the loop), the docstring states the present behaviour
+and the defect stays in the notes for Nadine. The work splits by layer exactly as phase
+2 did, so the writing goes to subagents with one shared brief and the main session
+verifies each layer by running the suite, the lint and a docstring coverage count.
 
-**Suite conseillée :** modèle fable, effort high — porting the earlier tests means reading each one against the refactored interface and deciding whether a failure is a stale test or a real bug, and the bugs found so far all came from that kind of reading.
+The scratch files of phase 2 (the shared brief, the triage logs, the reporting and
+dynamics probes) lived in a session directory and are not kept. Everything they
+measured is recorded above.
+
+**Suite conseillée :** modèle opus, effort high — phase 3 is careful reading and writing against behaviour that the tests now pin, spread over subagents; it needs accuracy more than the bug-hunting depth phase 2 required. If Rémy approves the reporting fix, do it first in the same session at the same setting.
 
 ## Probable bugs found while reading (not fixed yet)
 
-The lint agents listed these while reading the code; none was changed. They feed phases
-1 and 2, where each gets a failing test before its fix.
+The lint agents listed these while reading the code during phase 0. Status after phase
+2: the ES return keys, the bounds check, the undefined `generation`, the capacity read
+before assignment, the `None` guard of `Optimizer.__init__`, the misspelled `complie`
+keyword, the unbound `opt_id` and `agents`, and the two missing `f` prefixes were fixed
+in phase 1. The reporter built without a `None` check is now recorded by an `xfail`
+test, and the values returned from methods annotated `-> None` are listed in the open
+questions for Nadine. The two unported examples and the stale docstring of
+`examples/bilevel_fishery/__init__.py` are unchanged. The paragraph below is kept as it
+was written.
 
 The ES optimizer's `train` returns the key `"episode"` while `BilevelOptimizer.train`
 reads `result["episodes"]` and `result["converged"]`; this is the known crash at
@@ -461,6 +666,14 @@ Clear `__pycache__` after switching branches. The main directory holds ignored l
 because the virtual environment has none; use `uv run --with nbconvert --with ipykernel`
 and an explicit kernel name. Three notebooks carry no kernel specification. Never run
 `ruff check .` without `--no-fix` while `fix = true` is in `ruff.toml`.
+
+The test directories have no `__init__.py`, so every test file needs a basename that is
+unique in the whole of `tests/`; two files of the same name in different directories
+fail at collection. A strict `xfail` test fails the suite the day its defect is fixed:
+remove the marker in the commit that fixes the code. When several processes measure
+coverage at the same time, give each its own `COVERAGE_FILE`. The smoke test of the
+debug script starts a child process that runs Ray for about 15 s. In zsh an unquoted
+variable holding several paths is not split into words; use an array.
 
 ## Resume commands
 
