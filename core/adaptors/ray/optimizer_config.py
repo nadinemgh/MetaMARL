@@ -679,6 +679,13 @@ class RayOptimizerConfig(OptimizerConfig):
             for op in self._cfg_ops.values():
                 self.rllib_cfg = op(self.rllib_cfg)
 
+            # ``environment`` stores this flag on the framework config; RLlib
+            # only honours it on its own config.
+            if self.disable_env_checking is not None:
+                self.rllib_cfg = self.rllib_cfg.environment(
+                    disable_env_checking=self.disable_env_checking
+                )
+
         if self.opt_class is None:
             raise ValueError("OptimizerConfig has no opt_class")
 

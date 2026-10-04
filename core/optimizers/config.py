@@ -102,6 +102,7 @@ class OptimizerConfig(_Config, ABC):
         self.env: Optional[Union[str, EnvType]] = None
         self.env_config: dict = {}
         self.horizon: int = None
+        self.disable_env_checking: Optional[bool] = None
         self.agents_cfgs: Optional[dict[AgentID, AgentConfig]] = None
 
         # training

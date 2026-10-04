@@ -68,3 +68,18 @@ def test_evaluation_runners_host_one_environment_per_mechanism():
     assert cfg.rllib_cfg.evaluation_config["num_envs_per_env_runner"] == 4
     assert cfg.rllib_cfg.evaluation_num_env_runners == 3 * 2
     assert cfg.rllib_cfg.evaluation_duration == 3 * 2 * 4
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("disable", [True, False])
+def test_disable_env_checking_reaches_rllib(disable):
+    cfg = fisher_society(num_mechanisms=1, num_train_seeds=1)
+    cfg.environment(
+        env=FisheryRegulatedEnv, env_config={}, horizon=5, disable_env_checking=disable
+    )
+
+    # The build stops at the missing world name, after the RLlib config is replayed.
+    with pytest.raises(ValueError, match="world_name must be provided"):
+        cfg.build_optimizer(world=object(), world_name=None)
+
+    assert cfg.rllib_cfg.disable_env_checking is disable
