@@ -64,7 +64,7 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] **with more than one training seed, only the last seed's environments received the candidate**: `RegulatorEnv.step` built one context per seed but called `append_context` after the seed loop; the call is now inside it, on Rémy's decision (`dea1919`);
   - [x] **with more than one training seed, evaluation crashed** ("fewer units than requested: requested=24, completed=48"): the evaluation runners inherited the training runners' environment count, which `debugging` multiplies by the number of seeds. `build_optimizer` now gives each evaluation runner one environment per mechanism, and the message says "fewer" or "more" as the case is, on Rémy's decision (`03330ef`). Measured with two seeds on the shrunk config: the run completes and all 80 sampled training and evaluation resets carry the candidate for both seeds;
   - [x] **runs are not reproducible**: investigation finished on 10-04; three sources found and measured (see "Findings for Nadine"), each removed by a scratch prototype, with bit-identical fitness over repeated runs once all are removed;
-  - [ ] reproducibility fixes: four proposals wait on Rémy's decision (see "Waiting on"); no repository code was changed by the investigation;
+  - [x] **reproducibility fixed** on Rémy's decision, one commit per source, each with its test: the environment's metric logger is reset at every episode (`439249a`); `disable_env_checking` reaches RLlib (`be8d83e`); `core.config.cli` and `debug.py` restart themselves with `PYTHONHASHSEED=0` when the variable is unset (`2dd94c9`); evaluation waits for APPO's learner thread to apply every queued update (`ac83a64`). Measured from a shell without `PYTHONHASHSEED`, so every run went through the restart: five runs of the shrunk config with 10 inner iterations and three full-size runs (10 fishermen, horizon 100, 2 generations) each gave bit-identical fitness vectors, equal to those of the scratch prototypes. The test suite has 59 tests, all passing;
   - [ ] `debug.py` documents `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` but parses no option and runs 1000 generations;
   - [ ] port of `Subsidy`, `SocialInfluence` and `ThresholdPenalty` (own session, see next step).
 - [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`.
@@ -156,27 +156,12 @@ assistant text.
 | 10-04 | `build_optimizer` of the society requires a World and declared agents | Rémy, on Claude's recommendation |
 | 10-04 | Investigate the non-reproducibility now and come back with a fix proposal before changing code | Rémy, on Claude's recommendation |
 | 10-04 | `debug.py` parses the options its docstring documents, with today's values as defaults | Rémy, on Claude's recommendation |
+| 10-04 | Apply all four reproducibility fixes (logger scoped to the episode, `disable_env_checking` forwarded, fixed string-hash seed, wait for the learner thread before evaluation), one commit each with a test, then verify by repeated runs | Rémy, on Claude's recommendation |
+| 10-04 | The string-hash seed is the constant 0 when `PYTHONHASHSEED` is unset; an explicit value is respected | Rémy, on Claude's recommendation |
 
 ## Waiting on
 
-Rémy's decision on the four reproducibility proposals of 10-04 (sources described under
-"Runs are not reproducible" in the findings):
-
-1. Scope the environment's metric logger to the episode: `MultiAgentEnv.reset` calls
-   `self.logger.reset()` instead of flushing only `iter`, with a unit test. This removes
-   the leak of RLlib's environment-check step into the first real episode.
-2. Fix Python's string-hash seed. It must be set before the interpreter starts, and Ray
-   runs in `local_mode` inside the driver process, so the proposal is that
-   `core.config.cli` and `debug.py` re-execute themselves with `PYTHONHASHSEED=0` when the
-   variable is unset (an explicit value is respected and logged). Open sub-choice: the
-   constant 0 or a value derived from the experiment seed.
-3. Wait for APPO's learner thread to finish every queued update before evaluation, so the
-   evaluated policy is the trained one. This reads private RLlib attributes and changes
-   what is evaluated, hence a method decision.
-4. Forward `disable_env_checking` to RLlib, as the docstring of
-   `OptimizerConfig.environment` promises; the fishery config keeps `false`.
-
-Queued after that: `debug.py` gets the options it documents.
+Nothing. Queued, already decided: `debug.py` gets the options it documents.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -287,6 +272,18 @@ differences attributed to it. Separately, `PolicyActor.reset` builds a new `Algo
 each generation without stopping the previous one, whose learner thread keeps polling its
 empty buffer every 0.1 ms; the cost over many generations is not measured yet.
 
+All three sources were fixed on Rémy's decision. The environment's logger is now reset
+at every episode, and `disable_env_checking` is forwarded to RLlib, so the fishery config
+can also skip the check entirely. The command line and `debug.py` restart themselves with
+`PYTHONHASHSEED=0` when the variable is unset and log the value in use; an explicit value
+is respected, and `random` is logged as a warning. `PolicyActor.evaluate` waits until the
+learner thread has itself found its input buffer empty, which it only does once its
+previous update is complete. That wait reads private RLlib attributes and raises rather
+than skipping when they are missing; it also raises for GPU learners and for IMPALA's
+deque queue, which it does not cover. Scores produced before these fixes are not
+comparable with later ones: the leaked check step changed every fitness, and at full size
+the wait alone moved the best fitness of the first generation from 1.4788 to 1.4651.
+
 **In the shrunk config the fitness ignores the candidate (measured on 10-04).** With zero
 inner iterations and the logger fix, the four fitness values of the second generation are
 bit-identical to those of the first, although the candidates differ (ES mean 0.5, then
@@ -304,19 +301,18 @@ tracked.
 
 ## Next step
 
-Finish phase 1: implement the reproducibility proposals Rémy accepts (see "Waiting on"),
-each with a test, then verify by repeating runs that the fitness is bit-identical; then
-`debug.py` (its documented options, on Rémy's decision). Then the port of the three
-mechanisms in its own session. Still open from the reading of the code, for phase 2 or 3:
-`RayOptimizerConfig.build_optimizer` calls `self._reporter_cfg.build` without the `None`
-check its docstring describes, and `RayOptimizer.train` returns `self.logger.peek()`
-although it is annotated `-> None`.
+Finish phase 1 with `debug.py`: it must parse the options its docstring documents
+(`--outer-iters`, `--train-iters`, `--num-agents`, `--horizon`, `--reporter`), with
+today's hard-coded values as defaults, on Rémy's decision. The script is top-level code
+with no `main()`, and `ensure_hash_seed()` must stay its first statement after the
+imports. Then the port of the three mechanisms in its own session. Still open from the
+reading of the code, for phase 2 or 3: `RayOptimizerConfig.build_optimizer` calls
+`self._reporter_cfg.build` without the `None` check its docstring describes, and
+`RayOptimizer.train` returns `self.logger.peek()` although it is annotated `-> None`.
 
-**Suite conseillée :** modèle opus, effort high — implementing the accepted fixes touches
-the environment lifecycle, the entry points and RLlib internals, and each must be
-verified by repeated runs. The probes live in the session scratchpad and are lost on
-`/clear`; the method is described under "Runs are not reproducible". The port of the
-three mechanisms stays a separate session on fable.
+**Suite conseillée :** modèle sonnet, effort medium — `debug.py` options are a bounded,
+already decided change to one script, checked by a short run. The port of the three
+mechanisms stays a separate session on fable.
 
 ## Probable bugs found while reading (not fixed yet)
 
@@ -360,3 +356,7 @@ WANDB_MODE=offline uv run python -m pytest
 WANDB_MODE=offline uv run python -m core.config.cli check examples/bilevel_fishery/config.yaml
 WANDB_MODE=offline uv run python -m core.config.cli run examples/bilevel_fishery/config.yaml
 ```
+
+The entry points restart once with `PYTHONHASHSEED=0` when the variable is unset; the
+first two log lines say so. Bit-identical repeat runs are the check for reproducibility:
+compare the `fitness=[...]` part of the `[ES] BEFORE UPDATE` lines.
