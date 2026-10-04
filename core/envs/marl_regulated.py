@@ -180,7 +180,11 @@ class MultiAgentEnv(ABC):
 
     @override(gym.Env)
     def reset(self, mdp: MDPState) -> None:
-        self.logger.flush(key=("iter",))
+        # The logger holds one episode. RLlib's environment check resets and
+        # steps every new environment once with an unseeded random action,
+        # outside any episode; without this reset that step would be reduced
+        # into the first real episode and reach the regulator's fitness.
+        self.logger.reset()
         self.logger.push(key=("mechanism_id",), value=self.mechanism_id)
         self.logger.push(key=("seed",), value=self.seed)
         self.logger.push(key=("policy_seed",), value=self.policy_seed)
