@@ -60,8 +60,10 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] `RayOptimizer.stop` raised `TypeError` on a misspelled keyword and nothing called it; `BilevelOptimizer.train` now stops both levels in its `finally` block on Rémy's decision, and the stop is logged (`691e08e`); whether `stop` should return the reduced metrics is left to Nadine;
   - [x] the two unused helpers `_build_agent_policy_map` and `_get_policy_handle` (the latter broken) were removed on Rémy's decision (`82aaac2`); `TODO.md` still mentions the first one;
   - [x] `RayOptimizerConfig.build_optimizer` now requires a World and declared agents, with an error naming what to add, on Rémy's decision (`9f765da`);
-  - [ ] **the regulator's candidate reaches training only in the first episode of each generation** (measured 10-04, see "Findings for Nadine"); fix waiting on Rémy;
-  - [ ] **runs are not reproducible**: two runs of the same config give different ES trajectories (see "Findings for Nadine"); investigation in progress on Rémy's decision, resumed after the mechanism fix because that fix changes the training data;
+  - [x] **the regulator's candidate reached training only in the first episode of each environment**: the environment now keeps the last candidate it fetched and gives it to the leaders at every reset, on Rémy's decision (`b330a82`). Measured on the shrunk config: every sampled training episode (16 of 16) and every evaluation episode (24 of 24) carries the candidate; the resets without one all happen while RLlib builds its env runners, before the generation's candidates are published. In that config the quota never binds (the stock stays between 0.64 and 0.85 of capacity, untrained fishermen request about half their capacity, the quota allows at least 93 %), so training returns are unchanged by the fix there;
+  - [ ] **with more than one training seed, only the last seed's environments receive the candidate** (measured 10-04 with two seeds): `FisheryRegulatorEnv.step` builds one context per seed but calls `append_context` after the seed loop instead of inside it, while its docstring says one context is published per (candidate, seed). Fix waiting on Rémy;
+  - [ ] **with more than one training seed, evaluation crashes** ("fewer units than requested: requested=24, completed=48"): `debugging` multiplies `num_envs_per_env_runner` by the number of seeds for the training runners, and the evaluation runners inherit that count, while the evaluation layout and `evaluation_duration` expect one environment per mechanism on each evaluation runner. The error message also says "fewer" when the count is higher. Fix waiting on Rémy;
+  - [ ] **runs are not reproducible**: two runs of the same config give different ES trajectories (see "Findings for Nadine"); investigation in progress on Rémy's decision, to resume now that the mechanism fix is in;
   - [ ] `debug.py` documents `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` but parses no option and runs 1000 generations;
   - [ ] port of `Subsidy`, `SocialInfluence` and `ThresholdPenalty` (own session, see next step).
 - [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`.
@@ -156,8 +158,9 @@ assistant text.
 
 ## Waiting on
 
-Rémy: how to fix the missing training mechanism. Decided and queued: the reproducibility
-investigation continues after that fix, and `debug.py` gets the options it documents.
+Rémy: how to fix the two multi-seed bugs (the publish loop and the evaluation env count).
+Decided and queued: the reproducibility investigation, and `debug.py` gets the options it
+documents.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -203,7 +206,18 @@ bilevel objective it is meant to. The code dates from `08dbeb9` (08-16); Nadine'
 TODO at that spot warned that a missing mechanism after training starts "leads to silent
 error". The comment above the fetch ("keep the current mechanism for subsequent
 episodes") and the unused `m` and `m_ctx` fields suggest the intended design was to keep
-the fetched mechanism.
+the fetched mechanism. Fixed in `b330a82` on Rémy's decision: the environment still asks
+the World at every reset, so a newly published candidate replaces the kept one, and
+otherwise reuses the one it kept. Every result produced before this fix trained the
+fishermen without regulation after their first episode.
+
+**Multi-seed runs are broken in two places (measured on 10-04).** With two training seeds
+the regulator publishes the candidates only for the last seed, because the
+`append_context` call sits after the seed loop, so the first seed's fishermen never see a
+candidate. The same run then crashes at evaluation: the evaluation runners inherit the
+training runners' environment count, which `debugging` multiplied by the number of seeds,
+so each one runs twice the episodes `evaluation_duration` expects. Both paths are unused
+by the fishery configuration, which trains on a single seed.
 
 **Runs are not reproducible (measured on 10-04).** Two runs of the shrunk fishery config
 with the same seeds give identical training returns over the first two inner iterations
@@ -236,8 +250,9 @@ tracked.
 
 ## Next step
 
-Finish phase 1: Rémy's decision on the reproducibility finding, then `debug.py` (its
-documented options, on Rémy's decision). Then the port of the three mechanisms in its own
+Finish phase 1: Rémy's decision on the two multi-seed bugs, then the reproducibility
+investigation (separate the remaining source, then propose fixes before changing code),
+then `debug.py` (its documented options, on Rémy's decision). Then the port of the three mechanisms in its own
 session. Still open from the reading of the code, for phase 2 or 3:
 `RayOptimizerConfig.build_optimizer` calls `self._reporter_cfg.build` without the `None`
 check its docstring describes, and `RayOptimizer.train` returns `self.logger.peek()`
