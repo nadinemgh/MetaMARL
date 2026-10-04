@@ -666,7 +666,7 @@ class ESOptimizer(Optimizer):
         return False
 
     def train(self) -> dict[str, Any]:
-        """Run one generation and return its summary.
+        """Run up to ``self.episodes`` generations and return a summary.
 
         Samples the population, calls ``self.env.step(population)`` and reads
         the fitness array (shape ``(batch_capacity,)``), appends the pair to
@@ -676,9 +676,11 @@ class ESOptimizer(Optimizer):
         Returns
         -------
         dict
-            ``best_fitness`` (best value seen so far) and
-            ``population_history``. An empty fitness array skips the update
-            and adds ``converged=False``.
+            ``episodes`` (generations actually run, fewer than
+            ``self.episodes`` when the convergence criterion stops the loop),
+            ``converged``, ``best_fitness`` (best value seen so far),
+            ``best_mechanism`` (the candidate that reached it) and
+            ``population_history``.
 
         Raises
         ------
@@ -691,6 +693,7 @@ class ESOptimizer(Optimizer):
             raise RuntimeError("ESOptimizer requires a RegulatorEnv")
 
         converged = False
+        generations_run = 0
 
         for generation in range(self.episodes):
             logger.info(
@@ -787,6 +790,7 @@ class ESOptimizer(Optimizer):
                 self.sigma,
             )
 
+            generations_run += 1
             converged = self._has_converged()
 
             if converged:
@@ -799,7 +803,8 @@ class ESOptimizer(Optimizer):
                 break
 
         return {
-            "episode": generation,
+            "episodes": generations_run,
+            "converged": converged,
             "best_fitness": self.best_fitness,
             "best_mechanism": self.best_candidate,
             "population_history": self.population_history,
