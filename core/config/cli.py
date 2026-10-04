@@ -38,7 +38,9 @@ def main() -> int:
 
         return 0
     except ConfigError as exc:
-        logging.error("Configuration error: %s", exc)
+        # The ConfigError only names the failing YAML path; the traceback
+        # carries the chained exception that explains why it failed.
+        logging.error("Configuration error: %s", exc, exc_info=exc)
 
         return 2
     except KeyboardInterrupt:
