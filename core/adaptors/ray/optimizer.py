@@ -56,9 +56,9 @@ class RayOptimizer(Optimizer):
         Remote owner of the ``Algorithm``.
     eval_episodes : int
         ``evaluation_duration // evaluation_config["rollout_fragment_length"]``,
-        an estimate of episodes per evaluation. Raises ``TypeError`` at
-        construction when the evaluation config has no
-        ``rollout_fragment_length``.
+        an estimate of episodes per evaluation. Raises ``ValueError`` at
+        construction when ``evaluation`` was never called or its
+        ``evaluation_config`` has no ``rollout_fragment_length``.
     _inner_iter : int
         Training iterations since the last ``reset``.
     _es_round : int
@@ -72,10 +72,17 @@ class RayOptimizer(Optimizer):
 
         self.logger = MetricLogger.from_schema(RaySchema)
 
-        self.eval_episodes = (
-            config.rllib_cfg.evaluation_duration
-            // config.rllib_cfg.evaluation_config.get("rollout_fragment_length")
-        )
+        eval_config = config.rllib_cfg.evaluation_config or {}
+        fragment_length = eval_config.get("rollout_fragment_length")
+
+        if fragment_length is None:
+            raise ValueError(
+                "RayOptimizer needs an evaluation setup: call "
+                + ".evaluation(evaluation_config={'rollout_fragment_length': ...}) "
+                + "on the society optimizer config."
+            )
+
+        self.eval_episodes = config.rllib_cfg.evaluation_duration // fragment_length
 
         from core.adaptors.ray.policy_actor import PolicyActor
 
