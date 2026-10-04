@@ -54,8 +54,13 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] `fish_norm_next_last` reduced with `MAX` instead of `LAST` (`bc5a02d`);
   - [x] **rewards were cumulative**: `MDPState.rewards` used the carry-forward `Trajectory`, so the reward RLlib received at step t was the sum of all rewards since the start of the episode (measured: 0.89463 at t=2 for harvests 0.45785 and 0.43679, 9.47 at t=20; behaviour introduced by `32ef1b5` on 09-30). Fixed with a `FlowTrajectory` whose unwritten steps start at 0 while same-step deltas still sum, on Rémy's decision (`27fbd29`). Re-measured: reward equals harvest at every step; episode return of the shrunk config 205.9 → 19.4; the three tutorials that executed at baseline still execute;
   - [x] the step reward is logged again, as the env docstring states, into the five reward fields (`733be6c`); `mean_reward` is no longer NaN;
-  - [ ] two `Mean of empty slice` warnings remain inside RLlib's EMA stats at the second training step, and the training log shows `policy_loss=NA`: not investigated yet;
-  - [ ] remaining small bugs: `RayOptimizer.stop` calls `reduce(complie=True)` (a `TypeError` if ever called; nothing calls it today); `_get_policy_handle` references `self.algo` (dead); `RayOptimizerConfig.build_optimizer` leaves `opt_id` and `agents` unbound without a world or agents; `Optimizer.__init__` reads `config.episodes` before its `None` guard; `ESOptimizer.batch_capacity` raises `AttributeError` before it is set;
+  - [x] `policy_loss=NA` on every training line: the reader only knew the classic `info/learner` layout; it now reads `learners/<module>/policy_loss` (`3ec65bc`). Measured on 45 inner iterations: APPO's learner reports its stats only once every 20 gradient updates (`IMPALALearner.update` in Ray 2.53), so real losses appear at iterations 21 and 42 and the other lines correctly print NA;
+  - [x] the `Mean of empty slice` warnings were traced to RLlib's own EMA timers (`env_reset_timer` and connector timers of the env runners) on iterations where they measured nothing; they do not touch learning and are left visible;
+  - [x] `Optimizer.__init__` read `config.episodes` before its `None` guard, and an unset batch capacity raised a bare `AttributeError`; it now raises a `RuntimeError` naming the optimizer (`16d1c6d`);
+  - [x] `RayOptimizer.stop` raised `TypeError` on a misspelled keyword and nothing called it; `BilevelOptimizer.train` now stops both levels in its `finally` block on Rémy's decision, and the stop is logged (`691e08e`); whether `stop` should return the reduced metrics is left to Nadine;
+  - [x] the two unused helpers `_build_agent_policy_map` and `_get_policy_handle` (the latter broken) were removed on Rémy's decision (`82aaac2`); `TODO.md` still mentions the first one;
+  - [x] `RayOptimizerConfig.build_optimizer` now requires a World and declared agents, with an error naming what to add, on Rémy's decision (`9f765da`);
+  - [ ] **runs are not reproducible**: two runs of the same config give different ES trajectories (see "Findings for Nadine"); waiting on Rémy;
   - [ ] `debug.py` documents `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` but parses no option and runs 1000 generations;
   - [ ] port of `Subsidy`, `SocialInfluence` and `ThresholdPenalty` (own session, see next step).
 - [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`.
@@ -141,10 +146,15 @@ assistant text.
 | 10-04 | Leave the ES objective and its no-op tail window unchanged; record the finding for Nadine | Rémy, on Claude's recommendation |
 | 10-04 | Log the step reward and reduce `fish_norm_next_last` with `LAST`; record the negative net harvest for Nadine | Rémy, on Claude's recommendation |
 | 10-04 | Fix cumulative rewards at the source (`FlowTrajectory` for `MDPState.rewards`) | Rémy, on Claude's recommendation |
+| 10-04 | Whether `RayOptimizer.stop` returns metrics is Nadine's choice; it keeps its intended return with the typo fixed | Rémy |
+| 10-04 | `BilevelOptimizer.train` stops both levels at the end of the run | Rémy, on Claude's recommendation |
+| 10-04 | Remove the two unused policy helpers of `RayOptimizer` | Rémy, on Claude's recommendation |
+| 10-04 | `build_optimizer` of the society requires a World and declared agents | Rémy, on Claude's recommendation |
 
 ## Waiting on
 
-Nothing waits on Rémy.
+Rémy: whether to separate the two sources of non-reproducibility now (phase 1) or record
+the finding for Nadine; and the documented options of `debug.py`.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -166,6 +176,29 @@ so the harvest score is a net harvest: a modelling question, left unchanged.
 the fishermen on running sums of their harvests; results from that period are not
 comparable with runs after the fix.
 
+**`RayOptimizer.stop` return value (her choice).** The base `Optimizer.stop` returns
+nothing, while `RayOptimizer.stop` returns the metrics reduced over the run. The typo
+that made it crash was fixed without settling which contract is wanted.
+
+**Policy loss cadence.** With APPO on the new API stack the learner reduces its
+statistics once every 20 gradient updates, so the loss appears in the training log only
+on those iterations. This is RLlib's behaviour, not a bug of the framework.
+
+**Runs are not reproducible (measured on 10-04).** Two runs of the shrunk fishery config
+with the same seeds give identical training returns over the first two inner iterations
+(19.3691 then 20.0886) but different evaluation fitness from the first generation
+(1.4876 against 1.4803, then 1.4877, 1.4868 and 1.4886 in later runs), so the ES
+trajectories diverge (best mechanism 0.668, 0.561, 0.495). The spread between runs is
+of the order of 0.001 to 0.007, while the spread between candidates of one generation is
+about 0.03. Weight fingerprints taken inside the evaluation function show that the
+evaluated policies are the trained ones (learner, training runner and evaluation runners
+agree in the second generation), so the fitness is not computed on untrained policies.
+They also show that the learner's weights already differ between runs after its first
+update, and that two runs whose evaluation runners held identical weights still
+returned different fitness. Two sources are therefore suspected and not yet separated:
+APPO's learner thread runs concurrently with sampling, so the state of the weights at
+evaluation depends on timing, and evaluation sampling itself is not seeded.
+
 The other findings for Nadine are to be collected in the notes written in phase 4. Already
 known: `ruff` warns that `isort.split-on-trailing-comma` conflicts with
 `format.skip-magic-trailing-comma = true` in her configuration (no oscillation was
@@ -174,9 +207,12 @@ tracked.
 
 ## Next step
 
-Finish phase 1: the RLlib `policy_loss=NA` and empty-slice warnings, the remaining small
-bugs listed in the status board, then `debug.py` (its documented options, on Rémy's
-decision). Then the port of the three mechanisms in its own session.
+Finish phase 1: Rémy's decision on the reproducibility finding, then `debug.py` (its
+documented options, on Rémy's decision). Then the port of the three mechanisms in its own
+session. Still open from the reading of the code, for phase 2 or 3:
+`RayOptimizerConfig.build_optimizer` calls `self._reporter_cfg.build` without the `None`
+check its docstring describes, and `RayOptimizer.train` returns `self.logger.peek()`
+although it is annotated `-> None`.
 
 **Suite conseillée :** modèle opus, effort high — phases 0 to 2 are orchestration and
 test porting against an API delta that is already mapped. The port of the three mechanisms
