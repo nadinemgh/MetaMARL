@@ -12,8 +12,8 @@ Ported from the August suite. ``LearnerSchema`` is now grouped as
 against that layout. The August test that expected the ``__all_modules__``
 block to become a pseudo-policy was inverted: the block is now skipped as a
 policy and only feeds the queue-wait lag indicator. The August test that
-expected a fractional ``module_train_batch_size_mean`` to raise is not kept,
-because it is unclear whether that is intended (see the report).
+expected a fractional ``module_train_batch_size_mean`` to raise is inverted:
+RLlib reports a mean batch size, so ``batch_size`` is a float.
 """
 
 from __future__ import annotations
@@ -295,6 +295,16 @@ def test_build_learner_copies_stats_and_derives_quantities():
     # lag1 + training calls since sync + outstanding reqs + queue wait.
     assert policy.sample_staleness == pytest.approx(1.0 + 3 + 2 + 0.5)
     assert policy.residual_variance is None
+
+
+@pytest.mark.unit
+def test_build_learner_keeps_a_fractional_mean_batch_size():
+    # RLlib reports the batch size averaged over the iteration's updates.
+    policy = _only_policy(
+        build_learner(_learner_result(module_train_batch_size_mean=210.5))
+    )
+
+    assert policy.batch_size == 210.5
 
 
 @pytest.mark.unit

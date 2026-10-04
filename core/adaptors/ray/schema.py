@@ -22,21 +22,21 @@ class PolicyLearnerSchema(MetricSchema):
 
     Every field is optional and dimensionless unless stated otherwise;
     ``json_schema_extra["reduce"]`` gives the reduction applied across the
-    iteration's mini-batches. ``batch_size`` is the number of samples per
-    update; ``total_loss``, ``policy_loss`` and ``value_loss`` are the
-    optimized losses; ``residual_variance`` is the unexplained fraction of
-    the value target; ``sample_staleness`` is the age of the samples in
-    learner updates; ``policy_entropy`` and ``policy_entropy_coeff`` are the
-    action-distribution entropy (nats) and its coefficient;
-    ``policy_relative_entropy`` and ``entropy_pressure`` track entropy
-    against its initial level; ``policy_kl`` and ``policy_kl_coeff`` are the
-    KL divergence to the behaviour policy (nats) and its coefficient;
-    ``value_mean`` and ``value_target`` are the mean predicted and target
-    returns (reward units); ``gradient_norm`` and ``gradient_noise`` describe
-    the update direction.
+    iteration's mini-batches. ``batch_size`` is the mean number of samples
+    per update, as RLlib reports it; ``total_loss``, ``policy_loss`` and
+    ``value_loss`` are the optimized losses; ``residual_variance`` is the
+    unexplained fraction of the value target; ``sample_staleness`` is the age
+    of the samples in learner updates; ``policy_entropy`` and
+    ``policy_entropy_coeff`` are the action-distribution entropy (nats) and
+    its coefficient; ``policy_relative_entropy`` and ``entropy_pressure``
+    track entropy against its initial level; ``policy_kl`` and
+    ``policy_kl_coeff`` are the KL divergence to the behaviour policy (nats)
+    and its coefficient; ``value_mean`` and ``value_target`` are the mean
+    predicted and target returns (reward units); ``gradient_norm`` and
+    ``gradient_noise`` describe the update direction.
     """
 
-    batch_size: Optional[int] = Field(
+    batch_size: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
