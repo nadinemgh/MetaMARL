@@ -36,7 +36,7 @@ class MDPState:
 
     # assumes tau additive
     state: Trajectory[StateType] | dict = field(default_factory=Trajectory)
-    obs: Trajectory[ObsType] | dict = field(default_factory=Trajectory)
+    obs: FlowTrajectory[ObsType] | dict = field(default_factory=FlowTrajectory)
     actions: Trajectory[ActType] | dict = field(default_factory=Trajectory)
     rewards: FlowTrajectory[SupportsFloat] | dict = field(
         default_factory=FlowTrajectory
@@ -52,8 +52,9 @@ class MDPState:
             value = getattr(self, name)
 
             if isinstance(value, dict):
-                # Rewards are per-step flows; the other fields are stocks.
-                cls = FlowTrajectory if name == "rewards" else Trajectory
+                # Rewards and observations are rebuilt at every step; the
+                # other fields are stocks that carry forward.
+                cls = FlowTrajectory if name in ("rewards", "obs") else Trajectory
                 setattr(self, name, cls(value))
 
     # Mechanisms may introduce dimensions, but absence means "no change".

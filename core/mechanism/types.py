@@ -188,12 +188,18 @@ class Trajectory(Generic[T]):
 
 
 class FlowTrajectory(Trajectory[T]):
-    """Trajectory of per-step flows, such as rewards.
+    """Trajectory of per-step values, such as rewards and observations.
 
     A reward is earned at one timestep and does not persist to the next, so an
     unwritten timestep starts from ``0`` instead of the previous value. Deltas
     added at the same timestep are still summed, which is how a penalty or a
     subsidy composes with an agent's utility.
+
+    Observations follow the same rule: every agent rebuilds its whole
+    observation at each step, so adding it on top of the previous one would
+    hand the policy a running sum. Contributions written at the same timestep
+    are summed, which lets a mechanism fill entries of the observation vector
+    that the agent leaves at zero.
     """
 
     @classmethod
