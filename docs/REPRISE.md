@@ -50,7 +50,11 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] two `Reporter` error messages lacked the `f` prefix (`9adb6ca`);
   - [x] the ES bounds check lacked parentheses and let spaces such as [0, 2] through (`c99a214`);
   - [x] measured: `python -m core.config.cli run` completes on a shrunk copy of the YAML (2 generations × 2 inner iterations, 2 fishermen, horizon 20, about 13 s, exit 0); the `mechanism_algorithms` tutorial still executes;
-  - [ ] fitness data path: decision waiting on Rémy (see "Waiting on");
+  - [x] fitness tail window: Rémy decided on 10-04 not to change the objective and to record the finding for Nadine (see "Findings for Nadine");
+  - [x] `fish_norm_next_last` reduced with `MAX` instead of `LAST` (`bc5a02d`);
+  - [x] **rewards were cumulative**: `MDPState.rewards` used the carry-forward `Trajectory`, so the reward RLlib received at step t was the sum of all rewards since the start of the episode (measured: 0.89463 at t=2 for harvests 0.45785 and 0.43679, 9.47 at t=20; behaviour introduced by `32ef1b5` on 09-30). Fixed with a `FlowTrajectory` whose unwritten steps start at 0 while same-step deltas still sum, on Rémy's decision (`27fbd29`). Re-measured: reward equals harvest at every step; episode return of the shrunk config 205.9 → 19.4; the three tutorials that executed at baseline still execute;
+  - [x] the step reward is logged again, as the env docstring states, into the five reward fields (`733be6c`); `mean_reward` is no longer NaN;
+  - [ ] two `Mean of empty slice` warnings remain inside RLlib's EMA stats at the second training step, and the training log shows `policy_loss=NA`: not investigated yet;
   - [ ] remaining small bugs: `RayOptimizer.stop` calls `reduce(complie=True)` (a `TypeError` if ever called; nothing calls it today); `_get_policy_handle` references `self.algo` (dead); `RayOptimizerConfig.build_optimizer` leaves `opt_id` and `agents` unbound without a world or agents; `Optimizer.__init__` reads `config.episodes` before its `None` guard; `ESOptimizer.batch_capacity` raises `AttributeError` before it is set;
   - [ ] `debug.py` documents `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` but parses no option and runs 1000 generations;
   - [ ] port of `Subsidy`, `SocialInfluence` and `ThresholdPenalty` (own session, see next step).
@@ -134,10 +138,17 @@ assistant text.
 | 10-04 | Delete `core/registry.py` and the five uncollected scripts in `tests/integration` | Rémy, on Claude's recommendation |
 | 10-04 | The pass lives in the main directory, which was switched to the new branch; the temporary audit worktree was removed | Rémy |
 | 10-04 | Complete `config.yaml` with exactly the values of `debug.py` and add a clear error when the evaluation setup is missing | Rémy, on Claude's recommendation |
+| 10-04 | Leave the ES objective and its no-op tail window unchanged; record the finding for Nadine | Rémy, on Claude's recommendation |
+| 10-04 | Log the step reward and reduce `fish_norm_next_last` with `LAST`; record the negative net harvest for Nadine | Rémy, on Claude's recommendation |
+| 10-04 | Fix cumulative rewards at the source (`FlowTrajectory` for `MDPState.rewards`) | Rémy, on Claude's recommendation |
 
 ## Waiting on
 
-**Fitness data path (Rémy, then probably Nadine).** Traced by a subagent and verified by
+Nothing waits on Rémy.
+
+## Findings for Nadine (to go into the phase 4 notes)
+
+**Fitness tail window (left unchanged on Rémy's decision).** Traced by a subagent and verified by
 Claude on 10-04. `FisheryRegulatorEnv.reward` averages the last `fitness_tail_steps` (50)
 entries of per-episode arrays to measure the steady state, but since commits `654dc20`,
 `04e9e7f` and `02eef11` (13–20 August) those arrays hold one value per episode: the
@@ -147,10 +158,13 @@ tail window does nothing; in training it slices across episodes. The ES objectiv
 (`harvest_score + sustainability_weight * mean_fish`) is thus computed on whole-episode
 means, not on the last 50 steps. Separately, nothing pushes `reward_mean`, although the
 docstring of `core/envs/marl_regulated.py` says rewards are logged each step, so
-`mean_reward` is NaN in every report (it does not enter the objective). Two smaller
-findings: `fish_norm_next_last` is declared with `ReduceProtocol.MAX` although `LAST`
-exists (used by three plotting queries only), and `H_realized = B_{t-1} - fish_t` is
-negative whenever restoration adds fish, so the harvest score is a net harvest.
+`mean_reward` was NaN in every report (it does not enter the objective; fixed in
+`733be6c`). `H_realized = B_{t-1} - fish_t` is negative whenever restoration adds fish,
+so the harvest score is a net harvest: a modelling question, left unchanged.
+
+**Cumulative rewards (fixed in `27fbd29`).** Every run since `32ef1b5` (09-30) trained
+the fishermen on running sums of their harvests; results from that period are not
+comparable with runs after the fix.
 
 The other findings for Nadine are to be collected in the notes written in phase 4. Already
 known: `ruff` warns that `isort.split-on-trailing-comma` conflicts with
@@ -160,8 +174,9 @@ tracked.
 
 ## Next step
 
-Phase 1: the end-to-end crashes, each with a failing test written first,
-starting from the list of probable bugs above.
+Finish phase 1: the RLlib `policy_loss=NA` and empty-slice warnings, the remaining small
+bugs listed in the status board, then `debug.py` (its documented options, on Rémy's
+decision). Then the port of the three mechanisms in its own session.
 
 **Suite conseillée :** modèle opus, effort high — phases 0 to 2 are orchestration and
 test porting against an API delta that is already mapped. The port of the three mechanisms
