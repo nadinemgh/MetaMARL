@@ -47,7 +47,7 @@ class Optimizer(ABC):
     ):
         from core.optimizers.config import OptimizerConfig
 
-        self.episodes: int = config.episodes
+        self.episodes: Optional[int] = config.episodes if config else None
         self.config: OptimizerConfig = config
         self.world = world
         self.reporting: Optional[Reporter] = reporting
@@ -55,6 +55,9 @@ class Optimizer(ABC):
 
         # Assigned by World or Orchestrator
         self.opt_id: OptimizerID | None = None
+
+        # Set by the subclass or by the bilevel driver (see ``batch_capacity``)
+        self._batch_capacity: Optional[int] = None
 
         # Optional environment (may be None for meta-optimizers)
         self._env: gym.Env | None = config.env if config else None
@@ -111,12 +114,19 @@ class Optimizer(ABC):
     def batch_capacity(self) -> int:
         """Number of candidates this optimizer can process per iteration.
 
-        The base class returns ``self._batch_capacity`` but never sets it, so
-        subclasses must either override the property (``RayOptimizer``) or
-        assign the attribute (the ES optimizer); otherwise ``AttributeError``
-        is raised. The bilevel driver copies the inner optimizer's capacity
-        onto the outer one to size the ES population.
+        The base class returns ``self._batch_capacity``, which starts unset:
+        subclasses either override the property (``RayOptimizer``) or assign
+        the attribute (the ES optimizer). The bilevel driver copies the inner
+        optimizer's capacity onto the outer one to size the ES population.
+
+        Raises
+        ------
+        RuntimeError
+            If the capacity has not been set yet.
         """
+
+        if self._batch_capacity is None:
+            raise RuntimeError(f"{type(self).__name__}.batch_capacity not set")
 
         return self._batch_capacity
 

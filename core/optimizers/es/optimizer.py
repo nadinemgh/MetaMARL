@@ -198,9 +198,16 @@ class ESOptimizer(Optimizer):
 
     @property
     def batch_capacity(self) -> int:
-        """Population size: number of candidates evaluated per generation."""
+        """Population size: number of candidates evaluated per generation.
 
-        return self._batch_capacity
+        Raises
+        ------
+        RuntimeError
+            If the size has not been set yet (``BilevelOptimizer`` sets it from
+            the inner optimizer's capacity).
+        """
+
+        return super().batch_capacity
 
     @batch_capacity.setter
     def batch_capacity(self, value: int) -> None:
@@ -267,13 +274,15 @@ class ESOptimizer(Optimizer):
             ``(batch_capacity, dimension)`` and values in ``(0, 1)``.
         """
 
+        capacity = self.batch_capacity
+
         if self.fixed_mode:
-            return np.empty((self._batch_capacity, 0), dtype=np.float32)
-        if self._batch_capacity == 1 and self.fitness_baseline is None:
+            return np.empty((capacity, 0), dtype=np.float32)
+        if capacity == 1 and self.fitness_baseline is None:
             return self.mean[None, :].copy()
 
-        half_pop = self._batch_capacity // 2
-        remaining = self._batch_capacity - (2 * half_pop)
+        half_pop = capacity // 2
+        remaining = capacity - (2 * half_pop)
         noise_half = self.rng.standard_normal(
             (half_pop, self.dimension), dtype=np.float32
         )
@@ -291,7 +300,7 @@ class ESOptimizer(Optimizer):
 
         # When requested, replace one mirrored sample with an independent
         # sample so the population is no longer strictly antithetic.
-        if self.break_symmetry and self._batch_capacity % 2 == 0 and half_pop > 0:
+        if self.break_symmetry and capacity % 2 == 0 and half_pop > 0:
             noise_matrix[-1] = self.rng.standard_normal(
                 self.dimension, dtype=np.float32
             )

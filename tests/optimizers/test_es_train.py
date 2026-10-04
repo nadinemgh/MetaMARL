@@ -88,3 +88,12 @@ def test_action_bounds_outside_unit_interval_are_rejected(low, high):
     # The ES samples in logit space and maps candidates back to (0, 1).
     with pytest.raises(ValueError, match=r"bounds in \[0, 1\]"):
         make_es(episodes=1, low=low, high=high)
+
+
+@pytest.mark.unit
+def test_train_before_population_size_is_set_raises_a_clear_error():
+    opt = make_es(episodes=1)
+    opt._batch_capacity = None
+
+    with pytest.raises(RuntimeError, match="batch_capacity not set"):
+        opt.train()
