@@ -23,6 +23,7 @@ from gymnasium import spaces
 from core.adaptors.ray.schema import RaySchema
 from core.agents.base import AgentConfig
 from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
+from core.config.hash_seed import ensure_hash_seed
 from core.mechanism.algorithms.quota import Quota
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
@@ -40,6 +41,9 @@ from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulated_env import FishingConfig as Fishing
 from examples.bilevel_fishery.regulated_env import RestoreConfig as Restore
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
+
+# Before any work: the call restarts the process when the seed is unset.
+ensure_hash_seed()
 
 ray.shutdown()
 

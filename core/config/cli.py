@@ -4,6 +4,7 @@ import argparse
 import logging
 import sys
 
+from core.config.hash_seed import ensure_hash_seed
 from core.config.yaml import ConfigError, load_experiment, run_experiment
 
 
@@ -48,4 +49,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Same format as the library modules that configure logging at import, so
+    # the hash-seed notice is visible before any of them is imported.
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
+    # Before any work: the call restarts the process when the seed is unset.
+    ensure_hash_seed()
     sys.exit(main())
