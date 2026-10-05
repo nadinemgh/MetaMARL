@@ -12,13 +12,11 @@ them.
 from dataclasses import dataclass
 from typing import ClassVar, Optional
 
-import numpy as np
 from gymnasium import Space
 
-from core.mechanism.base import ActType, MDPState, Mechanism
+from core.mechanism.base import MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
 from core.types import AgentID, MechanismID, PolicyID
-from core.utils import sigmoid
 
 
 class Agent:
@@ -85,13 +83,6 @@ class Agent:
         self.policy_id = policy_id
         self.mechanisms = mechanisms
         self.observation_space = observation_space
-
-    def _normalize_action(self, action: ActType) -> np.ndarray:
-        z = np.asarray(action, dtype=np.float32).reshape(-1)
-        temperature = 4.0
-        return np.asarray(
-            [sigmoid(float(value) / temperature) for value in z], dtype=np.float32
-        )
 
     def action(self, mdp: MDPState) -> MDPState:
         """Apply this agent's mechanisms to the shared MDP state.

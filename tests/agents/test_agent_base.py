@@ -22,7 +22,6 @@ from gymnasium import spaces
 from core.agents.base import Agent, AgentConfig
 from core.mechanism.base import MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
-from core.utils import sigmoid
 
 BOX = spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32)
 
@@ -81,17 +80,6 @@ def test_default_observation_and_reward_contribute_nothing():
 
     for contribution in (agent.observation(mdp), agent.reward(mdp)):
         assert contribution.obs.data == {} and contribution.rewards.data == {}
-
-
-@pytest.mark.unit
-def test_normalize_action_squashes_each_component_with_a_temperature_of_four():
-    agent = make_agent()
-
-    normalized = agent._normalize_action([[0.0, 8.0], [-8.0, 4.0]])
-
-    assert normalized.dtype == np.float32 and normalized.shape == (4,)
-    expected = [sigmoid(0.0), sigmoid(2.0), sigmoid(-2.0), sigmoid(1.0)]
-    np.testing.assert_allclose(normalized, expected, rtol=1e-6)
 
 
 @pytest.mark.unit
