@@ -187,34 +187,6 @@ class World:
 
         return set(self._opt_ctx_map.keys())
 
-    def get_mechanism(self) -> MechanismContext:
-        """Claim the first published mechanism, regardless of index or seed.
-
-        Legacy accessor: the first entry with status ``published`` is moved to
-        ``assigned`` and returned. The current environments use
-        ``get_mechanism_by_id`` instead, which matches index and seed. An entry
-        in status ``assigned`` is not accepted by any fetch mode of
-        ``get_mechanism_by_id``.
-
-        Returns
-        -------
-        MechanismContext
-            The claimed mechanism, now in status ``assigned``.
-
-        Raises
-        ------
-        RuntimeError
-            If no mechanism is in status ``published``.
-        """
-
-        for m_ctx in self._mechanism_registry.values():
-            if m_ctx.status == MechanismStatus.published:
-                m_ctx.status = MechanismStatus.assigned
-
-                return m_ctx
-
-        raise RuntimeError("no available mechanisms to train")
-
     # Use the contextID as mechanismID
     def get_mechanism_by_id(
         self, mechanism_id: int, seed: int, mode: MechanismStatus
@@ -279,27 +251,6 @@ class World:
                 and m_ctx.status in target_prev_status
             ):
                 m_ctx.status = mode
-
-                return m_ctx
-
-        return None
-
-    def try_get_mechanism(self) -> MechanismContext | None:
-        """Claim the first published mechanism, or return ``None``.
-
-        Non-raising variant of ``get_mechanism``: the first entry in status
-        ``published`` is moved to ``assigned`` and returned, regardless of index
-        or seed.
-
-        Returns
-        -------
-        MechanismContext or None
-            The claimed mechanism, or ``None`` if no entry is ``published``.
-        """
-
-        for m_ctx in self._mechanism_registry.values():
-            if m_ctx.status == MechanismStatus.published:
-                m_ctx.status = MechanismStatus.assigned
 
                 return m_ctx
 
@@ -391,10 +342,10 @@ class World:
 
         Notes
         -----
-        Unlike ``update_context``, this method does not require
-        ``MechanismContext.env_id`` to be set, which is why regulators can
-        publish candidates with ``env_id=None``. When the singleton check or
-        the duplicate-ID check raises, nothing has been stored yet.
+        This method does not require ``MechanismContext.env_id`` to be set,
+        which is why regulators can publish candidates with ``env_id=None``.
+        When the singleton check or the duplicate-ID check raises, nothing has
+        been stored yet.
         """
 
         # Enforce singleton schemas if requested
@@ -444,44 +395,6 @@ class World:
             self._opt_ctx_map[opt_id] = []
 
         return opt_id
-
-    def update_context(self, ctx: Context) -> None:
-        """Replace a registered context by an updated one.
-
-        The stored context under ``ctx.id`` is replaced by ``ctx`` and the
-        mechanism registry follows the new payload: a ``MechanismContext``
-        payload replaces the registry entry, any other payload removes an
-        earlier entry, so the registry only holds the mechanism payloads of
-        contexts that are registered. The checks run before anything is
-        stored, so a call that raises leaves the World unchanged. The
-        optimizer map is not updated: ``ctx.opt_id`` is expected to be the one
-        the context was registered with.
-
-        Parameters
-        ----------
-        ctx : Context
-            Context whose ``id`` is already registered.
-
-        Raises
-        ------
-        KeyError
-            If ``ctx.id`` is not registered.
-        ValueError
-            If the payload is a ``MechanismContext`` with ``env_id=None``.
-        """
-
-        if ctx.id not in self._contexts:
-            raise KeyError(f"Context {ctx.id} not registered")
-
-        if isinstance(ctx.payload, MechanismContext):
-            if ctx.payload.env_id is None:
-                raise ValueError("MechanismContext must include env_id")
-
-            self._mechanism_registry[ctx.id] = ctx.payload
-        else:
-            self._mechanism_registry.pop(ctx.id, None)
-
-        self._contexts[ctx.id] = ctx
 
     def flush(self, status: Optional[MechanismStatus] = None) -> None:
         """Drop mechanisms, and the contexts that carried them, from the World.

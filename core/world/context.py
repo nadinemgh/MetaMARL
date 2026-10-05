@@ -55,12 +55,6 @@ class MechanismStatus(Enum):
     - ``done``: written by regulators when they publish the aggregated fitness
       of a candidate (``mechanism=None``, ``metrics`` filled in).
 
-    Two values sit outside that path. ``assigned`` is set by the legacy
-    ``World.get_mechanism`` / ``try_get_mechanism`` accessors, which hand out
-    any published mechanism without matching an index or a seed. ``init`` is
-    a placeholder for a context created before publication; the core code
-    never assigns it.
-
     The same enum also stamps ``EnvStepContext.status`` with the mode of the
     producing environment (``train`` or ``eval``), and
     ``MultiAgentEnv.mode`` is built with ``MechanismStatus(mode)`` from the
@@ -76,12 +70,10 @@ class MechanismStatus(Enum):
     >>> MechanismStatus("eval") is MechanismStatus.eval
     True
     >>> [status.value for status in MechanismStatus]
-    ['init', 'published', 'assigned', 'train', 'eval', 'done']
+    ['published', 'train', 'eval', 'done']
     """
 
-    init = "init"
     published = "published"
-    assigned = "assigned"
     train = "train"
     eval = "eval"
     done = "done"
@@ -136,9 +128,9 @@ class MechanismContext(ContextSchema):
         matching ``mechanism_id`` and fetch their candidate by this index.
     env_id : str or None
         Identifier of the environment that produced the context. Publication
-        from the regulator leaves it ``None``. ``World.update_context`` rejects
-        a ``None`` value; ``append_context``, the path used by
-        ``RegulatorEnv.step`` and by the regulators of the examples, does not.
+        from the regulator leaves it ``None``; ``World.append_context``, the
+        path used by ``RegulatorEnv.step`` and by the regulators of the
+        examples, accepts it.
     seed : int or None
         Policy (training) seed this copy of the candidate is meant for. The
         regulator publishes one copy per training seed so that each seeded

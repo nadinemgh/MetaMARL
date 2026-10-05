@@ -1,12 +1,11 @@
-"""Context registration, lookup and update in the ``World``.
+"""Context registration and lookup in the ``World``.
 
 Three registries must stay consistent: the context registry, the mechanism
 registry (keyed by the ``ContextID`` of the carrying context) and the
-optimizer-to-contexts map. The tests exercise the public accessors and mutators
-of the plain class behind the Ray actor, including the error paths (singleton
-violation, duplicate IDs, missing ``env_id``, unknown context on update).
-
-A rejected update must leave every registry as it was.
+optimizer-to-contexts map. The tests exercise the public accessors and
+``append_context`` on the plain class behind the Ray actor, including its error
+paths (singleton violation, duplicate IDs). A rejected registration must leave
+every registry as it was.
 """
 
 from __future__ import annotations
@@ -169,62 +168,3 @@ def test_set_new_opt_id_without_id_draws_distinct_identifiers(world):
 
     assert first != second
     assert world.get_opt_ids() == {first, second}
-
-
-# --------------------------------------------------------------------------- #
-# update_context
-# --------------------------------------------------------------------------- #
-
-
-@pytest.mark.unit
-def test_update_context_replaces_the_payload(
-    world, make_context, make_mechanism, make_other
-):
-    cid = world.append_context(make_context(make_mechanism(env_id="env-0")))
-
-    replacement = make_context(
-        make_mechanism(index=9, env_id="env-1"), step=1, ctx_id=cid
-    )
-    world.update_context(replacement)
-
-    assert world.get_context(cid) is replacement
-    assert world.get_mechanism_registry()[cid].index == 9
-
-    plain = make_context(make_other(), step=2, ctx_id=cid)
-    world.update_context(plain)
-
-    assert world.get_context(cid) is plain
-    # A payload that is no longer a mechanism leaves the mechanism registry.
-    assert cid not in world.get_mechanism_registry()
-
-
-@pytest.mark.unit
-def test_update_context_rejects_an_unknown_context(world, make_context, make_other):
-    with pytest.raises(KeyError, match="not registered"):
-        world.update_context(make_context(make_other()))
-
-
-@pytest.mark.unit
-def test_update_context_rejects_a_mechanism_without_env_id(
-    world, make_context, make_mechanism
-):
-    cid = world.append_context(make_context(make_mechanism(env_id="env-0")))
-
-    with pytest.raises(ValueError, match="MechanismContext must include env_id"):
-        world.update_context(make_context(make_mechanism(env_id=None), ctx_id=cid))
-
-
-@pytest.mark.unit
-def test_update_context_keeps_the_old_context_when_it_raises(
-    world, make_context, make_mechanism
-):
-    original = make_context(make_mechanism(index=1, env_id="env-0"))
-    cid = world.append_context(original)
-
-    with pytest.raises(ValueError):
-        world.update_context(
-            make_context(make_mechanism(index=2, env_id=None), ctx_id=cid)
-        )
-
-    assert world.get_context(cid) is original
-    assert world.get_mechanism_registry()[cid] is original.payload

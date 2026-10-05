@@ -11,9 +11,9 @@ fetched for evaluation. The tests pin down the transition table of
 
 The asymmetry between the two is intentional: since commit ``b330a82`` the
 environment keeps the last candidate it fetched, so ``None`` means "keep what
-you have". The legacy accessors ``get_mechanism`` and ``try_get_mechanism`` and
-``flush`` are covered here too. The ``World`` is the plain class
-behind the Ray actor, so no Ray runtime is involved.
+you have". ``get_mechanism_by_index`` and ``flush`` are covered here too. The
+``World`` is the plain class behind the Ray actor, so no Ray runtime is
+involved.
 """
 
 from __future__ import annotations
@@ -111,15 +111,7 @@ def test_get_mechanism_by_id_prefers_the_first_registered_duplicate(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "mode",
-    [
-        MechanismStatus.init,
-        MechanismStatus.published,
-        MechanismStatus.assigned,
-        MechanismStatus.done,
-    ],
-)
+@pytest.mark.parametrize("mode", [MechanismStatus.published, MechanismStatus.done])
 def test_get_mechanism_by_id_rejects_a_mode_that_is_not_train_or_eval(
     world, make_context, make_mechanism, mode
 ):
@@ -135,50 +127,6 @@ def test_get_mechanism_by_id_rejects_a_mode_that_is_not_train_or_eval(
         world.get_mechanism_by_id(5, 5, mode)
 
     assert payload.status == MechanismStatus.published
-
-
-@pytest.mark.unit
-def test_get_mechanism_claims_published_entries_in_order(
-    world, make_context, make_mechanism
-):
-    world.append_context(
-        make_context(make_mechanism(index=0, status=MechanismStatus.train))
-    )
-    world.append_context(make_context(make_mechanism(index=1)))
-    world.append_context(make_context(make_mechanism(index=2)))
-
-    first = world.get_mechanism()
-    assert (first.index, first.status) == (1, MechanismStatus.assigned)
-
-    second = world.get_mechanism()
-    assert (second.index, second.status) == (2, MechanismStatus.assigned)
-
-    with pytest.raises(RuntimeError, match="no available mechanisms to train"):
-        world.get_mechanism()
-
-
-@pytest.mark.unit
-def test_try_get_mechanism_returns_none_when_nothing_is_published(
-    world, make_context, make_mechanism
-):
-    assert world.try_get_mechanism() is None
-
-    world.append_context(make_context(make_mechanism(index=4)))
-    claimed = world.try_get_mechanism()
-
-    assert (claimed.index, claimed.status) == (4, MechanismStatus.assigned)
-    assert world.try_get_mechanism() is None
-
-
-@pytest.mark.unit
-def test_assigned_entry_cannot_be_fetched_by_id(world, make_context, make_mechanism):
-    """The legacy claim leaves ``assigned``, which no fetch mode accepts."""
-    payload = make_mechanism(index=3, seed=1)
-    world.append_context(make_context(payload))
-    world.try_get_mechanism()
-
-    assert world.get_mechanism_by_id(3, 1, MechanismStatus.train) is None
-    assert world.get_mechanism_by_id(3, 1, MechanismStatus.eval) is None
 
 
 @pytest.mark.unit
