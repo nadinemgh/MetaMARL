@@ -71,14 +71,6 @@ def test_reset_requires_a_mechanism_id(toy, identity_ray_get):
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    raises=AttributeError,
-    reason=(
-        "the except branch calls self._debug_remote, which no class defines, so "
-        + "the AttributeError hides the RuntimeError meant to name the mechanism"
-    ),
-)
 def test_a_failing_fetch_is_reported_with_the_mechanism_id(toy, identity_ray_get):
     world = toy.ScriptedWorld()
 

@@ -368,7 +368,9 @@ class MultiAgentEnv(ABC):
         Raises
         ------
         RuntimeError
-            If ``mechanism_id`` is ``None``.
+            If ``mechanism_id`` is ``None``, or if fetching the candidate from
+            the ``World`` fails; the message then names the ``mechanism_id`` and
+            the original exception is chained as the cause.
         """
         # The logger holds one episode. RLlib's environment check resets and
         # steps every new environment once with an unseeded random action,
@@ -399,10 +401,6 @@ class MultiAgentEnv(ABC):
                 )
             )
         except Exception as e:
-            self._debug_remote(
-                "pre_reset_fetch_failed",
-                {"error_type": type(e).__name__, "error_repr": repr(e)},
-            )
             raise RuntimeError(
                 f"Could not fetch mechanism_id={self.mechanism_id} from World."
             ) from e
