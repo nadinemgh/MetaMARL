@@ -437,9 +437,11 @@ class RaySchema(MetricSchema):
     eval : EvalSchema or None
         Evaluation branch; ``None`` when nothing was logged.
 
-    When to use: pass it as the ``schema`` of ``RayOptimizerConfig.reporting``
-    so the inner optimizer logs typed metrics that the regulator environment
-    can aggregate into a fitness per mechanism.
+    When to use: as the reference for query paths over the inner optimizer's
+    metrics. ``RayOptimizer`` builds its ``MetricLogger`` from this class
+    itself, so the schema is never passed to ``RayOptimizerConfig.reporting``,
+    which takes only the queries; the regulator environment aggregates these
+    typed metrics into a fitness per mechanism.
 
     Examples
     --------
