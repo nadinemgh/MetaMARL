@@ -1,8 +1,8 @@
 """``ESConfig`` and ``ESOptimizer`` construction: defaults, validation, regimes.
 
 The search dimension is not configured directly: it is the size of the flattened
-action space of the regulator's mechanisms, so every test builds a regulator
-with the mechanisms it needs (see ``es_factory`` in ``conftest.py``). Gymnasium
+action space of the mechanisms of every regulator agent, so every test builds
+the regulators it needs (see ``es_factory`` in ``conftest.py``). Gymnasium
 sorts the keys of a ``Dict`` space, so the flat vector and ``parameter_names``
 follow the alphabetical order of the mechanism ids, not the declaration order.
 """
@@ -13,12 +13,23 @@ import numpy as np
 import pytest
 from gymnasium import spaces
 
+from core.agents.base import AgentConfig
+from core.mechanism.config import MechanismConfig
 from core.optimizers.es.config import ESConfig
 from core.optimizers.es.optimizer import ESOptimizer
 
 
 def unit_box(size: int = 1) -> spaces.Box:
     return spaces.Box(low=0.0, high=1.0, shape=(size,), dtype=np.float32)
+
+
+def leader(agent_id: str, mechanism_id: str, size: int = 1) -> AgentConfig:
+    """Regulator agent ``agent_id`` owning one mechanism of ``size`` parameters."""
+    return AgentConfig(
+        id=agent_id,
+        policy_id=f"{agent_id}_policy",
+        mechanisms=(MechanismConfig(id=mechanism_id, action_space=unit_box(size)),),
+    )
 
 
 @pytest.mark.unit
@@ -207,13 +218,28 @@ class TestSearchSpace:
         with pytest.raises(TypeError, match=r"'rule' has Discrete"):
             es_factory({"rule": spaces.Discrete(3)})
 
-    def test_the_regulator_is_the_first_declared_agent(self, es_config_factory):
-        cfg = es_config_factory({"quota": unit_box()})
+    def test_the_search_space_is_the_union_of_every_leader(self):
+        cfg = ESConfig().training(episodes=1).debugging(seed=0)
+        cfg.agents((leader("regulator", "quota"), leader("treasury", "subsidy", 2)))
 
         opt = ESOptimizer(cfg)
 
-        assert opt.agents_cfgs is cfg.agents_cfgs["regulator"]
-        assert list(opt.action_space.spaces) == ["quota"]
+        assert list(opt.action_space.spaces) == ["quota", "subsidy"]
+        assert opt.parameter_names == ["quota", "subsidy[0]", "subsidy[1]"]
+        assert opt.dimension == 3
+
+    def test_a_mechanism_id_shared_by_two_leaders_is_rejected(self):
+        cfg = ESConfig().training(episodes=1).debugging(seed=0)
+        cfg.agents((leader("regulator", "quota"), leader("treasury", "quota")))
+
+        with pytest.raises(ValueError, match=r"'quota'.*'regulator'.*'treasury'"):
+            ESOptimizer(cfg)
+
+    def test_a_config_without_leaders_is_rejected(self):
+        cfg = ESConfig().training(episodes=1).debugging(seed=0)
+
+        with pytest.raises(ValueError, match=r"at least one regulator agent"):
+            ESOptimizer(cfg)
 
 
 @pytest.mark.unit

@@ -40,6 +40,7 @@ from core.optimizers.es.schema import ESCandidateSchema, ESParameterSchema, ESSc
 
 if TYPE_CHECKING:
     from core.optimizers.es.config import ESConfig
+    from core.types import AgentID, MechanismID
 
 logger = logging.getLogger(__name__)
 EPS = 1e-8
@@ -63,9 +64,13 @@ class ESOptimizer(Optimizer):
     and returns one fitness each), updates the mean and ``sigma``, and logs an
     ``ESSchema`` payload. The population size comes from :attr:`batch_capacity`,
     which ``BilevelConfig`` sets to the inner optimizer's capacity. The
-    dimension is the size of the flattened action space of the regulator's
-    mechanisms; gymnasium orders the mechanisms by id, so the vector and
-    ``parameter_names`` follow the alphabetical order of the mechanism ids.
+    dimension is the size of the flattened action space of the mechanisms of
+    every regulator agent. The regulator environment hands the same candidate
+    to every leader and each leader applies the mechanisms it owns, so the
+    search space is the union of the leaders' mechanisms and a mechanism id may
+    be declared by one leader only. Gymnasium orders the mechanisms by id, so
+    the vector and ``parameter_names`` follow the alphabetical order of the
+    mechanism ids, whichever leader owns them.
 
     The run stops before ``config.episodes`` generations when the search mean
     has converged: the Euclidean norm of the change of the mean between two
@@ -89,7 +94,7 @@ class ESOptimizer(Optimizer):
         Hyperparameters (``sigma``, ``mean_lr``, sigma adaptation and bounds,
         ``break_symmetry``, ``initial_mean``), the number of generations
         (``episodes``), the convergence rule (``convergence_eps``,
-        ``convergence_patience``) and the regulator agent (``agents_cfgs``);
+        ``convergence_patience``) and the regulator agents (``agents_cfgs``);
         ``config.base_seed`` seeds the random generator.
     **kwargs : Any
         Forwarded to :class:`~core.optimizers.base.Optimizer` (``world``,
@@ -130,16 +135,15 @@ class ESOptimizer(Optimizer):
     Raises
     ------
     TypeError
-        If a mechanism of the regulator has a non-``Box`` action space.
+        If a mechanism of a regulator agent has a non-``Box`` action space.
     ValueError
-        On action bounds other than ``[0, 1]``, a negative dimension, a
-        non-positive ``mean_lr``, a negative ``sigma_lr``, a ``sigma_decay``
-        outside ``(0, 1]``, a non-positive ``min_sigma``, ``max_sigma`` below
-        ``min_sigma``, a negative ``convergence_eps``, a ``convergence_patience``
-        below 1, or an ``initial_mean`` of the wrong shape, not finite or
-        outside ``[0, 1]``.
-    AttributeError
-        If no regulator agent was set on the config (``agents``).
+        If no regulator agent was set on the config (``agents``), if two
+        regulator agents declare the same mechanism id, on action bounds other
+        than ``[0, 1]``, a negative dimension, a non-positive ``mean_lr``, a
+        negative ``sigma_lr``, a ``sigma_decay`` outside ``(0, 1]``, a
+        non-positive ``min_sigma``, ``max_sigma`` below ``min_sigma``, a
+        negative ``convergence_eps``, a ``convergence_patience`` below 1, or an
+        ``initial_mean`` of the wrong shape, not finite or outside ``[0, 1]``.
 
     When to use: the mechanism has a handful of continuous parameters and the
     fitness is a noisy black box (an inner RL run), which is exactly where
@@ -197,10 +201,30 @@ class ESOptimizer(Optimizer):
     def __init__(self, config: ESConfig, **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
 
-        self.agents_cfgs = next(iter(config.agents_cfgs.values()))
-        self.action_space = spaces.Dict(
-            {m.id: m.action_space for m in self.agents_cfgs.mechanisms}
-        )
+        if not config.agents_cfgs:
+            raise ValueError(
+                "ESOptimizer needs at least one regulator agent; declare it "
+                + "with ESConfig.agents(...)."
+            )
+
+        # The regulator environment hands the same candidate dictionary to
+        # every leader, and each leader applies the entries of the mechanisms
+        # it owns, so the search space is the union of every leader's
+        # mechanisms. A mechanism id must therefore name one mechanism only.
+        owners: dict[MechanismID, AgentID] = {}
+        mechanism_spaces: dict[MechanismID, spaces.Space] = {}
+        for agent_id, agent_cfg in config.agents_cfgs.items():
+            for mechanism in agent_cfg.mechanisms:
+                if mechanism.id in owners:
+                    raise ValueError(
+                        f"Mechanism id {mechanism.id!r} is declared by both "
+                        + f"{owners[mechanism.id]!r} and {agent_id!r}; the ES "
+                        + "searches one coordinate block per mechanism id, so "
+                        + "ids must be unique across regulator agents."
+                    )
+                owners[mechanism.id] = agent_id
+                mechanism_spaces[mechanism.id] = mechanism.action_space
+        self.action_space = spaces.Dict(mechanism_spaces)
         for mechanism_id, action_space in self.action_space.spaces.items():
             if not isinstance(action_space, spaces.Box):
                 raise TypeError(

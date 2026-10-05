@@ -18,7 +18,7 @@ class ESConfig(OptimizerConfig):
 
     The search dimension and the population size are not set here. The
     optimizer takes its dimension from the flattened action space of the
-    mechanisms of the regulator agent given to ``agents``, and
+    mechanisms of every regulator agent given to ``agents``, and
     ``BilevelConfig`` sets the population size from the inner optimizer's batch
     capacity.
 
@@ -57,7 +57,7 @@ class ESConfig(OptimizerConfig):
 
     When to use: to configure the outer mechanism search of a bilevel run,
     typically passed to ``BilevelConfig.regulator``. Call ``agents`` with the
-    regulator agent whose mechanisms define the search space, ``training`` for
+    regulator agents whose mechanisms define the search space, ``training`` for
     the hyperparameters and the number of generations, and ``debugging`` for
     the seed.
 
