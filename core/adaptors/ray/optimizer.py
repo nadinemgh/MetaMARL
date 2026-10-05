@@ -31,8 +31,6 @@ from core.adaptors.ray.utils import (
 from core.annotations import override
 from core.metrics.logger import MetricLogger
 from core.optimizers.base import Optimizer
-
-# Deprecated
 from core.utils import to_float
 from core.world.context import MechanismStatus
 
