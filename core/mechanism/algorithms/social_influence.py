@@ -6,7 +6,10 @@ peers delivered at step ``t - 1``:
 
     o_i[k : k + (N - 1) * d] = [a_{j, t-1} for j != i]
 
-with ``k = obs_offset`` and the peers ordered by identifier. The targeted
+with ``k = obs_offset`` and the peers ordered by the numeric index that
+follows the last ``":"`` of their identifier, so ``"fisherman:2"`` comes before
+``"fisherman:10"``; identifiers without a numeric index follow, in string
+order. The targeted
 agents must leave those entries of their observation at zero, because the
 contribution is summed with the observation each agent builds.
 
@@ -33,6 +36,19 @@ from gymnasium import Space
 from core.annotations import override
 from core.mechanism.base import ActType, MDPState, Mechanism
 from core.mechanism.config import MechanismConfig, empty_action_space
+
+
+def _peer_order(aid: Any) -> tuple[int, int, str]:
+    """Sort key of a peer: numeric index first, string order as the fallback.
+
+    Agent instances are named ``"<type>:<index>"``. Comparing the identifiers
+    as strings would put ``"fisherman:10"`` before ``"fisherman:2"``, so the
+    index is compared as an integer when it is one.
+    """
+    index = str(aid).rpartition(":")[2]
+    if index.isdecimal():
+        return (0, int(index), "")
+    return (1, 0, str(aid))
 
 
 class SocialInfluenceMechanism(Mechanism):
@@ -157,7 +173,7 @@ class SocialInfluenceMechanism(Mechanism):
                 -1
             )
             for aid, a in sorted(
-                mdp.actions.data.items(), key=lambda item: str(item[0])
+                mdp.actions.data.items(), key=lambda item: _peer_order(item[0])
             )
             if str(aid).startswith(f"{target_agent}:") and target_mechanism in a
         }

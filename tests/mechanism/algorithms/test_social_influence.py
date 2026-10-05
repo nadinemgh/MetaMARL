@@ -103,6 +103,27 @@ class TestObservationResidual:
 
         np.testing.assert_allclose(delta.obs["fisherman:1"][0], [0, 0, 1, 10, 3, 30])
 
+    def test_peers_follow_the_numeric_order_of_their_index(self):
+        # String order would put "fisherman:10" before "fisherman:2".
+        delivered = {"fisherman:2": [2.0], "fisherman:10": [10.0], "fisherman:1": [1.0]}
+
+        delta = make(obs_offset=0).observe(mdp_after_a_step(delivered, obs_size=2))
+
+        np.testing.assert_allclose(delta.obs["fisherman:1"][0], [2, 10])
+        np.testing.assert_allclose(delta.obs["fisherman:10"][0], [1, 2])
+
+    def test_non_numeric_indices_follow_the_numeric_ones_in_string_order(self):
+        delivered = {
+            "fisherman:b": [-2.0],
+            "fisherman:10": [10.0],
+            "fisherman:a": [-1.0],
+            "fisherman:9": [9.0],
+        }
+
+        delta = make(obs_offset=0).observe(mdp_after_a_step(delivered, obs_size=3))
+
+        np.testing.assert_allclose(delta.obs["fisherman:b"][0], [9, 10, -1])
+
     def test_scalar_actions_are_accepted(self):
         # A mechanism such as ``Fishing`` decodes its action to a plain float.
         mdp = mdp_after_a_step({"fisherman:0": 0.25, "fisherman:1": 0.75}, obs_size=3)
