@@ -32,16 +32,17 @@ from typing import Any, ClassVar, Optional
 import gymnasium as gym
 import numpy as np
 import ray
+from ray.actor import ActorHandle
 
 from core.agents.base import AgentConfig
 from core.annotations import override
-from core.mechanism.base import MDPState, Mechanism, StateType
+from core.mechanism.base import MDPState, StateType
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
-from core.types import AgentID, OptimizerID
+from core.types import AgentID, MechanismID, OptimizerID
 from core.world.base import World
 from core.world.context import MechanismContext, MechanismStatus
 
@@ -63,7 +64,7 @@ class MultiAgentEnv(ABC):
 
     Parameters
     ----------
-    world : World
+    world : ActorHandle[World]
         Handle of the ``World`` Ray actor holding the published mechanism
         candidates.
     opt_id : OptimizerID, optional
@@ -79,11 +80,11 @@ class MultiAgentEnv(ABC):
         Configurations of the leaders. The default ``None`` builds an
         environment without leaders, like an empty dictionary (default
         ``None``).
-    mechanism_id : str
-        Identifier of the candidate mechanism this env instance trains against
-        (the Ray optimizer configuration passes the integer index of the
-        candidate in the generation). Used to fetch the candidate from the
-        ``World``. Required, and ``reset`` raises when it is ``None``.
+    mechanism_id : int or None
+        Index of the candidate mechanism this env instance trains against, in
+        the generation (the Ray optimizer configuration passes it). Used to
+        fetch the candidate from the ``World``. Required, and ``reset`` raises
+        when it is ``None``.
     seed : int, optional
         Seed of the environment's random generator ``rng``, created once at
         construction (default ``None``, which draws fresh entropy).
@@ -96,7 +97,7 @@ class MultiAgentEnv(ABC):
     reporter_cfg : ReporterConfig, optional
         Builds the env-level ``Reporter``; ``None`` disables reporting
         (default ``None``).
-    queries : tuple of Query, optional
+    queries : tuple[Query, ...], optional
         Queries added to the reporter when there is one (default ``None``).
     schema : type[MetricSchema], optional
         Metric schema from which the logger is built and which is handed to the
@@ -109,7 +110,7 @@ class MultiAgentEnv(ABC):
 
     Attributes
     ----------
-    world : World
+    world : ActorHandle[World]
         The ``World`` handle.
     horizon : int or None
         Episode length in steps.
@@ -119,11 +120,11 @@ class MultiAgentEnv(ABC):
         Random generator seeded with ``seed``; never reseeded by ``reset``.
     mode : MechanismStatus
         Status of the candidate fetched at reset.
-    mechanism_id : str
-        Identifier of the candidate this env trains against.
+    mechanism_id : int or None
+        Index of the candidate this env trains against.
     m_ctx : MechanismContext or None
         Context of the last candidate fetched from the ``World``.
-    m : dict or None
+    m : dict[MechanismID, numpy.ndarray] or None
         Mechanism of that candidate (a dictionary from mechanism identifier to
         action array), or ``None`` until one was fetched.
     followers, leaders : dict[AgentID, Agent]
@@ -158,6 +159,7 @@ class MultiAgentEnv(ABC):
     >>> from core.agents.base import Agent, AgentConfig
     >>> from core.envs.hooks import reset, transition
     >>> from core.envs.schema import EpisodeRolloutSchema
+    >>> from core.mechanism.base import Mechanism
     >>> from core.mechanism.config import MechanismConfig
     >>> class Harvest(Mechanism):
     ...     def apply(self, mdp, action):
@@ -214,19 +216,19 @@ class MultiAgentEnv(ABC):
     def __init__(
         self,
         *,
-        world: World,
+        world: ActorHandle[World],
         opt_id: Optional[OptimizerID] = None,
         env_name: Optional[str] = None,
         horizon: Optional[int] = None,
         agents_cfg_dict: dict[AgentID, AgentConfig],
         leaders_cfg_dict: Optional[dict[AgentID, AgentConfig]] = None,
-        mechanism_id: str,
+        mechanism_id: Optional[int],
         seed: Optional[int] = None,
         policy_seed: Optional[int] = None,
-        mode: Optional[str] = "train",
+        mode: str = "train",
         reporter_cfg: Optional[ReporterConfig] = None,
-        queries: Optional[tuple[Query]] = None,
-        schema: Optional[MetricSchema] = None,
+        queries: Optional[tuple[Query, ...]] = None,
+        schema: Optional[type[MetricSchema]] = None,
         **kwargs: Any,
     ):
         self.world = world
@@ -243,8 +245,8 @@ class MultiAgentEnv(ABC):
 
         # Mechanism
         self.mechanism_id = mechanism_id
-        self.m_ctx: MechanismContext = None
-        self.m: Mechanism = None
+        self.m_ctx: Optional[MechanismContext] = None
+        self.m: Optional[dict[MechanismID, np.ndarray]] = None
         self._using_default_mechanism = True
 
         # Bilevel Multi-agent environment
@@ -291,7 +293,7 @@ class MultiAgentEnv(ABC):
                 cls._transition = name  # S_{t+1} = T(S_t, A_t)
 
     @property
-    def mechanism(self) -> Mechanism:
+    def mechanism(self) -> Optional[dict[MechanismID, np.ndarray]]:
         """Mechanism of the candidate in force, or ``None`` before the first fetch.
 
         This is the dictionary from mechanism identifier to action array that
@@ -310,7 +312,7 @@ class MultiAgentEnv(ABC):
         return self.m is not None and not self._using_default_mechanism
 
     @property
-    def opt_id(self) -> OptimizerID:
+    def opt_id(self) -> Optional[OptimizerID]:
         """Identifier of the optimizer that owns this environment.
 
         ``None`` until an identifier is given at construction or assigned to the
@@ -319,12 +321,12 @@ class MultiAgentEnv(ABC):
         return self._opt_id
 
     @opt_id.setter
-    def opt_id(self, opt_id: OptimizerID) -> None:
+    def opt_id(self, opt_id: Optional[OptimizerID]) -> None:
         """Set the optimizer identifier stamped on every context this env publishes."""
         self._opt_id = opt_id
 
     @override(gym.Env)
-    def reset(self, mdp: MDPState) -> None:
+    def reset(self, mdp: MDPState) -> MDPState:
         """Start an episode: log its identity, fetch the candidate, observe.
 
         When the environment has a logger, it is emptied first and receives the

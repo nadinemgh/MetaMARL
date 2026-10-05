@@ -29,6 +29,7 @@ from typing import Any, Optional, SupportsFloat
 import gymnasium as gym
 import ray
 from gymnasium.core import ActType, ObsType, WrapperObsType
+from ray.actor import ActorHandle
 
 from core.agents.base import Agent, AgentConfig
 from core.annotations import override
@@ -55,7 +56,7 @@ class RegulatorEnv(gym.Env):
 
     Parameters
     ----------
-    world : World
+    world : ActorHandle[World]
         Handle of the ``World`` Ray actor through which candidates are
         published to the inner environments.
     optimizer : Optimizer
@@ -75,7 +76,7 @@ class RegulatorEnv(gym.Env):
     reporter_cfg : ReporterConfig, optional
         Builds the env-level ``Reporter``, labelled with the class name;
         ``None`` disables reporting (default ``None``).
-    queries : tuple of Query, optional
+    queries : tuple[Query, ...], optional
         Queries added to the reporter when there is one (default ``None``).
     schema : type[MetricSchema], optional
         Metric schema from which the env logger is built, and handed to the
@@ -90,7 +91,7 @@ class RegulatorEnv(gym.Env):
 
     Attributes
     ----------
-    world : World
+    world : ActorHandle[World]
         The ``World`` handle.
     horizon : int or None
         Number of outer steps of an episode.
@@ -145,14 +146,15 @@ class RegulatorEnv(gym.Env):
     def __init__(
         self,
         *,
-        world: World,
+        world: ActorHandle[World],
         optimizer: Optimizer,
-        horizon: int,
+        horizon: Optional[int],
         agents_cfgs: dict[AgentID, AgentConfig],
-        seeds: list[int],  # agent policy seeds required for mechanism publishing
+        # Agent policy seeds required for mechanism publishing.
+        seeds: Optional[list[int]],
         reporter_cfg: Optional[ReporterConfig] = None,
-        queries: Optional[tuple[Query]] = None,
-        schema: Optional[MetricSchema] = None,
+        queries: Optional[tuple[Query, ...]] = None,
+        schema: Optional[type[MetricSchema]] = None,
         opt_id: Optional[OptimizerID] = None,
         **kwargs: Any,
     ):
@@ -183,7 +185,7 @@ class RegulatorEnv(gym.Env):
             self.reporter.add_query(*(queries or ()))
 
     @property
-    def opt_id(self) -> OptimizerID:
+    def opt_id(self) -> Optional[OptimizerID]:
         """Identifier of the optimizer that owns this environment.
 
         ``None`` until an identifier is given at construction or assigned to the
@@ -192,7 +194,7 @@ class RegulatorEnv(gym.Env):
         return self._opt_id
 
     @opt_id.setter
-    def opt_id(self, opt_id: OptimizerID) -> None:
+    def opt_id(self, opt_id: Optional[OptimizerID]) -> None:
         """Set the optimizer identifier stamped on every context this env publishes."""
         self._opt_id = opt_id
 
@@ -308,7 +310,7 @@ class RegulatorEnv(gym.Env):
 
         return obs, reward, terminated, truncated, info
 
-    def action(self, action: ActType) -> ActType:
+    def action(self, action: ActType) -> Optional[ActType]:
         """Hook for transforming the optimizer's action; does nothing here.
 
         The base implementation returns ``None``. ``step`` does not call it,
@@ -321,7 +323,7 @@ class RegulatorEnv(gym.Env):
 
         Returns
         -------
-        ActType
+        ActType or None
             ``None`` in the base class.
         """
 
@@ -342,7 +344,7 @@ class RegulatorEnv(gym.Env):
             ``None`` in the base class; a benchmark may return a constant.
         """
 
-    def reward(self, reward: Optional[SupportsFloat] = None, **kwargs: Any) -> Any:
+    def reward(self, reward: Any = None, **kwargs: Any) -> Any:
         """Compute the step's reward from the inner training results.
 
         ``step`` calls this method with the value returned by
