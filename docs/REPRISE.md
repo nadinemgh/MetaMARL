@@ -65,7 +65,7 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] **with more than one training seed, evaluation crashed** ("fewer units than requested: requested=24, completed=48"): the evaluation runners inherited the training runners' environment count, which `debugging` multiplies by the number of seeds. `build_optimizer` now gives each evaluation runner one environment per mechanism, and the message says "fewer" or "more" as the case is, on Rémy's decision (`03330ef`). Measured with two seeds on the shrunk config: the run completes and all 80 sampled training and evaluation resets carry the candidate for both seeds;
   - [x] **runs are not reproducible**: investigation finished on 10-04; three sources found and measured (see "Findings for Nadine"), each removed by a scratch prototype, with bit-identical fitness over repeated runs once all are removed;
   - [x] **reproducibility fixed** on Rémy's decision, one commit per source, each with its test: the environment's metric logger is reset at every episode (`439249a`); `disable_env_checking` reaches RLlib (`be8d83e`); `core.config.cli` and `debug.py` restart themselves with `PYTHONHASHSEED=0` when the variable is unset (`2dd94c9`); evaluation waits for APPO's learner thread to apply every queued update (`ac83a64`). Measured from a shell without `PYTHONHASHSEED`, so every run went through the restart: five runs of the shrunk config with 10 inner iterations and three full-size runs (10 fishermen, horizon 100, 2 generations) each gave bit-identical fitness vectors, equal to those of the scratch prototypes. The test suite has 59 tests, all passing;
-  - [x] `debug.py` now parses `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` (`wandb` or `csv`), defaults being the former hard-coded values; measured: the smoke configuration of its docstring with `--reporter csv` exits 0. **Correction of 10-04 (phase 2):** this line used to say that the run "writes the CSV files under `results/`". That was wrong: the run creates the directories under `results/` and no file, because the optimizers never receive their reporter (see "Reports are never written" in the findings);
+  - [x] `debug.py` now parses `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter` (`wandb` or `csv`), defaults being the former hard-coded values; measured: the smoke configuration of its docstring with `--reporter csv` exits 0. **Correction of 10-04 (phase 2):** this line used to say that the run "writes the CSV files under `results/`". That was wrong: the run creates the directories under `results/` and no file, because the optimizers never received their reporter. The reporting fix that closed phase 2 (`7e6bd39` to `0477d20`) corrected that, and the run now writes 16 CSV files (see "Reports were never written" in the findings);
   - [x] **observations were cumulative**: the observation a fisherman received at step t was the sum of every observation since the reset (measured: first entry 0.766, 1.511, 2.261, then 14.569 at step 20, while the normalised stock went from 0.766 to 0.683). `MDPState.obs` is now a `FlowTrajectory`, like the rewards, on Rémy's decision (`0bb367c`, 3 tests). Re-measured on a shrunk run: the 2280 observations handed to RLlib equal the state they encode;
   - [x] `Subsidy` ported to `Mechanism.apply` with 12 tests (`d317b9f`): the regulator's action is the subsidy rate normalised by `MAX_SUBSIDY`, and the residual `rate * e - cost * e**2` is added to each targeted fisherman's reward;
   - [x] `ThresholdPenalty` ported with 12 tests (`20f878e`): a fixed rule with an empty action space, which subtracts the logistic penalty from every targeted fisherman's reward;
@@ -73,7 +73,7 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] a mechanism can now contribute to the observations: `Mechanism.observe` returns nothing by default, and the environment adds the leaders' contributions where it already adds the followers' observations, at reset and at the end of each step, on Rémy's decision (`5c2c52f`, 5 tests);
   - [x] `SocialInfluence` ported with 14 tests (`dbe2338`): it implements `observe` and writes each peer's delivered action of the step just finished into reserved entries of the observation. Measured on a shrunk fishery whose regulator holds all five mechanisms: over 4160 observations, entries 3 and 4 of each fisherman equal its peer's last delivered harvest and restoration exactly, and they stay zero while no candidate is published;
   - [x] end-of-phase check on `dbe2338`: `ruff check --no-fix` and `ruff format --check` pass on the whole tree, the suite has 105 tests, all passing, `core.config.cli check` accepts the fishery configuration, two runs of the smoke configuration of `debug.py` give bit-identical fitness vectors, and the three tutorials that executed at baseline still execute.
-- [ ] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/`. The coverage target is reached (99 %); the phase stays open only for the decisions on the defects it found.
+- [x] Phase 2 — tests ported from `feature/integration-trial` and written for the new code; coverage target above 90 % on `core/` (complete on 10-04, at 99 %):
   - [x] honest baseline: most directories of `core/` are namespace packages, so coverage silently left out every file that no test imported and reported 63 % on 52 of 59 files. With `include_namespace_packages = true` in `pyproject.toml` (`3db1e46`) the true starting point was 57 % (3691 statements, 1597 missed) for the 105 tests of phase 1;
   - [x] triage of the August suite against the tree after phase 1: of 54 files, 11 pass unchanged, 2 are skipped entirely, 1 runs no test and 40 fail in whole or in part, 17 of them at import;
   - [x] the work was split by layer between eight subagents sharing one brief (test files only, no change under `core/` or `examples/`, a defect is demonstrated by a strict `xfail` test and never fixed or hidden). Claude re-ran every layer, re-measured its coverage, linted it and read the code behind every reported defect before committing;
@@ -86,7 +86,9 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] mechanisms: 154 tests and 3 recorded defects, `core/mechanism` at 100 %, quota included (36 % before) (`7dccabd`);
   - [x] the two composition checks of phase 1 are now repeatable tests in `tests/integration/test_fishery_regulator_composition.py`: they step the real shrunk fishery with the real mechanisms behind a scripted World, without Ray, in about one second. The debug script is run as a child process with the CSV reporter and a 180 s limit in `test_debug_script_csv_smoke.py`;
   - [x] end-of-phase measurement on `7dccabd` with the default command (`WANDB_MODE=offline uv run python -m pytest`): 1341 passed, 24 xfailed, no failure, 27 s; `core/` at 99 % (3691 statements, 13 missed, all in the three files named above); `ruff check . --no-fix` and `ruff format --check .` pass on the whole tree;
-  - [ ] the 24 strict `xfail` tests record 14 distinct defects, none fixed (see "Defects recorded by the phase 2 tests"). The fix of the first one, the lost reporter, is proposed and waits on Rémy; the others are recommended for Nadine's notes.
+  - [x] the 24 strict `xfail` tests recorded 14 distinct defects. On Rémy's decision the three that stopped reports from being written were fixed, together with the problems that the fix uncovered, in seven commits, each with its test: every query is rendered on its own and a failing query is logged instead of aborting the optimizer (`7e6bd39`); the ES query on the quota names the parameter the regulator searches and the subsidy query is removed (`34ae6f6`); the learner batch size is declared as a float (`92d93d9`); learner statistics that RLlib did not report on an iteration are logged as NaN, so every series keeps one value per iteration (`6e512e9`); both `build_optimizer` methods hand the reporter under the keyword `reporting` (`19125d3`); a configuration without reporter runs without reporting (`d3b1dc5`); a society configuration without training seeds is rejected with an error naming the missing call (`0477d20`). Seven `xfail` markers were removed with the code they described;
+  - [x] reporting fix measured on 10-04: the smoke configuration of `debug.py` with `--reporter csv` exits 0 and writes 16 CSV files (7 for the ES, 9 for the inner optimizer), no query fails, and its fitness vectors are bit-identical to those of the run before the fix, which wrote none. A run of 23 inner iterations also exits 0 with 16 files; its policy-loss series is NaN on iterations 0 to 19, holds -0.904 at iteration 20 (the 21st, where APPO reports) and is NaN again on 21 and 22. The 11 `Mean of empty slice` warnings of that run all come from RLlib's EMA statistics (`ray/rllib/utils/metrics/stats/ema.py:124`), as in phase 1, and the run before the fix shows the same count on the smoke configuration;
+  - [x] end-of-phase measurement on `0477d20`: 1363 passed, 17 xfailed, no failure, 28 s; `ruff check --no-fix .` and `ruff format --check .` pass on the whole tree. The 17 remaining strict `xfail` tests record 11 defects, left unchanged on Rémy's decision and handed to Nadine.
 - [ ] Phase 3 — docstrings and type hints on every public symbol of `core/` and `examples/bilevel_fishery`.
 - [ ] Phase 4 — README, QUICKSTART, AGENTS, ARCHITECTURE and notes for Nadine rewritten against the tree.
 - [ ] Phase 5 — the five notebooks execute and are exercised by the test suite.
@@ -179,57 +181,17 @@ assistant text.
 | 10-04 | The string-hash seed is the constant 0 when `PYTHONHASHSEED` is unset; an explicit value is respected | Rémy, on Claude's recommendation |
 | 10-04 | Fix cumulative observations at the source (`FlowTrajectory` for `MDPState.obs`), as was done for the rewards | Rémy ("go" to the brief that recommended it), on Claude's recommendation |
 | 10-04 | Add an optional `observe` method to `Mechanism`, called by the environment for the leaders' mechanisms, and port `SocialInfluence` onto it | Rémy ("go" to the brief that recommended it), on Claude's recommendation |
+| 10-04 | Rémy's "go" approved both the observation fix and the `observe` method (confirmed explicitly) | Rémy |
+| 10-04 | Quota `allowed_frac`: leave the code unchanged and record it for Nadine | Rémy, on Claude's recommendation |
+| 10-04 | Fix the lost reporter now: keyword at both `build_optimizer` call sites, stale ES queries, per-query error isolation, `None` reporter check, empty seed list error; one commit each with its test | Rémy, on Claude's recommendation |
+| 10-04 | Learner statistics missing on an iteration are logged as NaN, so every series keeps one value per iteration | Rémy, on Claude's recommendation |
+| 10-04 | The other recorded defects are left unchanged and handed to Nadine in the phase 4 notes, each with its test (eleven defects after the reporting fix, which also covered the `None` reporter and the empty seed list) | Rémy, on Claude's recommendation |
+| 10-04 | Remove the ES query "Restoration subsidy vs fixed quota", whose parameter the fishery regulator does not search, and record it for Nadine | Rémy, on Claude's recommendation |
+| 10-04 | Declare the learner batch size as a float, since RLlib reports a mean | Rémy, on Claude's recommendation |
 
 ## Waiting on
 
-Nothing blocks phase 3. Four points are with Rémy and have no answer yet; the first two
-date from the port session of 10-04, the last two from phase 2.
-
-- [ ] Confirm that his "go" approved both the observation fix and the `observe` method.
-- [ ] Quota `allowed_frac`: leave it and record it for Nadine (recommended), or remove
-  the write.
-- [ ] Reports are never written: fix now (recommended), or record for Nadine.
-- [ ] The other thirteen recorded defects: record them for Nadine with their tests
-  (recommended), or fix some of them now.
-
-The first is a confirmation. Rémy answered "go" to a brief that listed the port of
-`Subsidy` and `ThresholdPenalty` and two recommendations, the observation fix and the
-`observe` method. Claude read that answer as approving both recommendations and recorded
-them as such in the decisions log; Rémy has not confirmed that reading in so many words.
-
-The second is a choice. The quota mechanism writes the allowed fraction into the shared
-state at every step, and that value accumulates instead of being replaced (see "Findings
-for Nadine"). Nothing reads it today. Claude recommends leaving the code unchanged and
-recording it for Nadine, because the correct fix depends on what she meant that entry to
-be; the alternative is to remove the write, which is a one-line change.
-
-The third is a fix proposal, put to Rémy during phase 2. No report file is produced
-today, whatever the reporter (see "Reports are never written" below). Claude recommends
-fixing it now, each step in its own commit with its test. The keyword fix cannot go
-alone, because it turns a silent run into a crashing one, so three things go with it.
-The reporter is passed under the keyword the optimizers read (`reporting=`) in the two
-`build_optimizer` methods. The two stale ES queries of
-`examples/bilevel_fishery/queries.py` are pointed at the parameter names the ES logs
-today. A query that fails is logged with its traceback and the other queries are still
-rendered, so that a reporting error can no longer abort a training run at its last
-line. That leaves one question that is a choice of method and is put to Rémy
-separately: what the four learner queries should show when APPO reports its statistics
-only on some iterations. Claude recommends padding the missing iterations with NaN at
-the place where the learner statistics are logged, so that the series keeps one value
-per iteration and the plots show gaps where there is no measurement. The four queries
-on metrics that nothing writes are left as they are and recorded for Nadine. Two small
-companions were proposed with the first brief: the `None` check on the reporter
-configuration that the docstrings describe, and a clear error instead of the
-`ZeroDivisionError` on an empty seed list. The strict `xfail` tests that record these
-defects turn into failures as soon as the code is fixed, so each fix removes its marker
-in the same commit.
-
-The fourth is the handling of the other recorded defects. Reading their call sites,
-none of them changes what the fishery example computes as it is configured today, and
-several touch structures Nadine chose (the
-World's cursors, the configuration snapshot, the ES "fixed" mode). Claude recommends
-leaving the code unchanged and handing them over in the phase 4 notes, each with the
-name of the test that demonstrates it.
+Nothing. Phase 2 is closed and phase 3 depends on no decision.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -379,7 +341,7 @@ period are not comparable with later ones. The fix makes `obs` a `FlowTrajectory
 `27fbd29` did for the rewards; the same probe then showed 2280 observations equal to the
 state they encode.
 
-**The quota's `allowed_frac` state entry accumulates (measured on 10-04, not fixed).**
+**The quota's `allowed_frac` state entry accumulates (measured on 10-04, left unchanged on Rémy's decision).**
 `QuotaMechanism.apply` returns `state={"allowed_frac": allowed_frac}`. State entries are
 stocks, so the returned value is added to the previous one instead of replacing it: the
 probe read 1.0, 1.9999, 2.9999 and 3.9998 over four steps. Nothing in `core/` or in the
@@ -439,52 +401,52 @@ them against the ported configuration classes. The last section of `TODO.md` als
 carries two comments moved from the earlier `subsidy.py`, whose line numbers no longer
 match the file.
 
-**Reports are never written (measured on 10-04 in phase 2, not fixed; fix proposed to
-Rémy).** `OptimizerConfig.build_optimizer` (`core/optimizers/config.py:275`) and
-`RayOptimizerConfig.build_optimizer` (`core/adaptors/ray/optimizer_config.py:787`) hand
-the reporter to the optimizer as `reporter=...`, while `Optimizer.__init__` names that
-argument `reporting`. The keyword falls into `**kwargs`, `self.reporting` stays `None`,
-and `report_metrics` returns at once. Only `BilevelOptimizer` keeps its reporter. A run
-of `debug.py --reporter csv` therefore exits 0, creates the directories under `results/`
-and writes no file; the same holds for W&B and TensorBoard, since the loss happens before
-the reporter is chosen. Three strict `xfail` tests record the keyword mismatch
-(`tests/adaptors/test_optimizer_config_build.py`,
-`tests/optimizers/test_base_optimizer_config.py` and the CSV smoke test in
-`tests/integration`).
+**Reports were never written (measured on 10-04 in phase 2, fixed the same day on
+Rémy's decision).** `OptimizerConfig.build_optimizer` and
+`RayOptimizerConfig.build_optimizer` handed the reporter to the optimizer as
+`reporter=...`, while `Optimizer.__init__` names that argument `reporting`. The keyword
+fell into `**kwargs`, `self.reporting` stayed `None`, and `report_metrics` returned at
+once. Only `BilevelOptimizer` kept its reporter. A run of `debug.py --reporter csv`
+therefore exited 0, created the directories under `results/` and wrote no file; the same
+held for W&B and TensorBoard, since the loss happened before the reporter was chosen.
+Both call sites now pass `reporting=` (`19125d3`).
 
-The mismatch hides three further problems, measured with a scratch prototype that made
-`Optimizer.__init__` accept the keyword. Fixing the keyword alone turns a run that
-writes nothing into a run that crashes, because `Reporter.report` resolves the queries
-one after the other and the first error aborts the optimizer that called it.
+Fixing the keyword alone would have turned a run that wrote nothing into a run that
+crashed, because `Reporter.report` resolved the queries one after the other and the
+first error aborted the optimizer that called it. `Reporter.report` now renders each
+query on its own and logs the traceback of a query that fails, naming it, while the
+others are still rendered (`7e6bd39`). Three further problems sat behind the keyword.
 
-The first problem is two stale ES queries. `Candidate fitness vs fixed quota` and
-`Restoration subsidy vs fixed quota` ask for the parameters `fixed_quota` and
-`restoration_subsidy`, which the ES no longer logs. The smoke configuration (2
-generations of 2 iterations) crashes at the end of the first generation with
-`KeyError: Unknown metric path`.
+The first was two stale ES queries, which asked for the parameters `fixed_quota` and
+`restoration_subsidy` while the ES logs the regulator's parameters under their mechanism
+ids. "Candidate fitness vs fixed quota" now reads the parameter `quota`; its title and
+its axis label still say "fixed quota", which Nadine may want to reword. "Restoration
+subsidy vs fixed quota" was removed on Rémy's decision, because the fishery regulator
+searches no subsidy parameter; Nadine should restore it if she adds a subsidy to the
+regulator (`34ae6f6`). A test builds the ES from the fishery YAML and resolves every ES
+query, so a renamed mechanism now fails in the suite instead of at the end of a run.
 
-The second problem is the four learner queries of the inner optimizer (total loss, value
-loss, policy loss and policy entropy). APPO reports its learner statistics only once
-every 20 gradient updates, and an iteration without statistics adds nothing to the
-series. As long as no statistic exists the queries are empty and skipped. As soon as one
-exists the series is shorter than the iteration axis: a run of 22 iterations stopped at
-the end of the first inner training with `ValueError: Query series must have equal
-length: x=('iter',) (22), y=(... 'value_loss'), group=(...) (1)`, after writing 5 files.
-The default of both entry points is 50 iterations per generation, so the full-size run
-is on the wrong side of that threshold. How a sparse series should be reported (padded
-with NaN, given its own axis, or skipped) is a choice about Nadine's reporting design.
+The second was the four learner queries of the inner optimizer. APPO reports its learner
+statistics only once every 20 gradient updates, and an iteration without statistics
+added nothing to the series, so a run of 22 iterations stopped with "Query series must
+have equal length". On Rémy's decision, every module declared in the RLlib
+configuration now gets a NaN for each statistic that RLlib did not report on an
+iteration, so each series keeps one value per iteration (`6e512e9`). The batch size of
+those statistics is a mean, which RLlib reports as a fraction, and is now declared as a
+float instead of an integer (`92d93d9`).
 
-The third problem is four queries that can never produce anything. They ask for
+The third is four queries that can never produce anything, left unchanged. They ask for
 `quota_penalty` and `intrinsic_utility`, which the metric schema declares and which no
 code in `core/` or in the fishery example writes any more. They resolve to zero values
 and the reporter skips them without a word.
 
-With each query rendered on its own, so that a failure does not hide the others, the
-smoke configuration resolves 19 of its 21 queries and writes 11 CSV files (6 for the ES,
-5 for the inner optimizer), and its fitness vectors are bit-identical to those of the
-run without the prototype. The eight queries that resolve without writing a file are
-the four learner queries, empty at 2 iterations, and the four queries on unwritten
-metrics.
+Two defects recorded by the phase 2 tests were fixed with the keyword, because the
+keyword fix made them reachable from every entry point. A configuration without a
+reporter, documented as "no reporting", made the society optimizer and both environments
+call `build` on `None`; they now build no reporter, and the episode callback reports only
+when the environment has one (`d3b1dc5`). A society configuration with an empty list of
+training seeds reached a division by zero; `build_optimizer` now rejects it with an
+error that names the `.debugging(seed=...)` call (`0477d20`).
 
 **The logged harvest is not the harvest (measured on 10-04 in phase 2, not changed).**
 A scratch probe stepped the real `FisheryRegulatedEnv` without noise or restoration, two
@@ -519,18 +481,14 @@ matters.
 these choices and lists the three order questions in its docstring. Rémy's decision of
 10-04 not to change the ES objective stands; these are modelling questions for Nadine.
 
-**Defects recorded by the phase 2 tests (none fixed).** Each of the following is
-demonstrated by one or more strict `xfail` tests, whose reason string names the defect;
-`uv run python -m pytest -rx` lists them. Claude read the code behind each one.
+**Defects recorded by the phase 2 tests (left unchanged on Rémy's decision).** Phase 2
+recorded 14 defects in 24 strict `xfail` tests. Three of them (the reporter keyword, the
+`None` reporter and the empty seed list) were fixed with the reporting fix described
+above, and their seven markers were removed. Each of the 11 defects below is
+demonstrated by one or more of the 17 remaining strict `xfail` tests, whose reason
+string names the defect; `uv run python -m pytest -rx` lists them. Claude read the code
+behind each one.
 
-- The reporter keyword mismatch above (3 tests).
-- A missing reporter configuration is documented as "no reporting" but is not handled:
-  `RayOptimizerConfig.build_optimizer`, `MultiAgentEnv.__init__` and
-  `RegulatorEnv.__init__` call `reporter_cfg.build` on `None` (3 tests).
-- An empty list of training seeds reaches `num_envs % len(seeds)` in
-  `_apply_agents_to_rllib` and raises `ZeroDivisionError`
-  (`core/adaptors/ray/optimizer_config.py:512`); line 660 of the same file guards the
-  same case correctly (1 test).
 - The configuration snapshot handed to the Ray optimizer is not frozen, because
   `RayOptimizerConfig.freeze` is a deferred RLlib mutator and `copy(copy_frozen=True)`
   never applies it (1 test).
@@ -568,8 +526,7 @@ the loop. `RegulatorEnv.step` ends the episode one step early for a horizon of t
 more. The `Max` and `Min` metrics depend on the order of their inputs when one is NaN,
 and the numeric metrics reject `np.float32` and `np.int64` values. `WandbConfig`
 swallows unknown keyword arguments. Three `or` chains in `core/adaptors/ray/utils.py`
-(lines 62, 241 and 381) treat a value of 0.0 as missing. A fractional
-`module_train_batch_size_mean` raises a pydantic error. Calling `debugging` twice
+(lines 63, 242 and 411) treat a value of 0.0 as missing. Calling `debugging` twice
 compounds its scaling, and it must be called after `env_runners`. `PolicyActor.reset`
 does not stop the previous algorithm. `RayOptimizer.train` returns `logger.peek()`
 although it is annotated `-> None`, and `core/envs/regulator.py:164` uses that return
@@ -594,40 +551,34 @@ tracked.
 
 ## Next step
 
-Phase 2 has reached its target. The suite has 1341 passing tests and 24 strict `xfail`
-tests, `core/` is covered at 99 %, and the whole tree passes the lint and format checks.
-The nine commits of the phase (`3db1e46` to `7dccabd`) are local; the branch has never
-been pushed. No file under `core/` or `examples/` was modified during the phase.
+Phase 2 is closed. The suite has 1363 passing tests and 17 strict `xfail` tests, `core/`
+is covered at 99 % as measured at the end of the test work, and the whole tree passes the
+lint and format checks. The phase holds seventeen commits (`3db1e46` to `7dccabd` for the
+tests, `d412fd0` for this file, `7e6bd39` to `0477d20` for the reporting fix), all
+local; the branch has never been pushed. The close criterion is met: `debug.py
+--reporter csv` writes its 16 CSV files on the smoke configuration and on a run of 23
+training iterations.
 
-Two things come next, and they are independent.
-
-The first depends on Rémy's answers to the four points of "Waiting on". If he approves
-the reporting fix, it is done before anything else, in the order given there: each step
-starts by turning its `xfail` test into a plain failing test, and the phase closes when
-`debug.py --reporter csv` leaves its CSV files behind on the smoke configuration and on
-a run of at least 22 training iterations. The scratch prototype that served for the
-measurements patched `Optimizer.__init__` to accept `reporter=`; the real fix renames
-the keyword at the two call sites instead.
-
-The second is phase 3, which waits on nothing: a docstring and type hints on every
-public symbol of `core/` and `examples/bilevel_fishery`. The baseline measured 71 % of
-public symbols documented (304 of 429) and 92 % of public callables fully annotated,
-with the gap in `core/agents`, `core/mechanism`, `core/envs` and the CSV and TensorBoard
+Phase 3 comes next and waits on nothing: a docstring and type hints on every public
+symbol of `core/` and `examples/bilevel_fishery`. The baseline measured 71 % of public
+symbols documented (304 of 429) and 92 % of public callables fully annotated, with the
+gap in `core/agents`, `core/mechanism`, `core/envs` and the CSV and TensorBoard
 reporters; the first action is to measure both figures again on the present tree, since
-phases 0 and 1 changed them. The docstrings follow the NumPy style with shapes, units,
-a "When to use" note, a runnable example and the source papers. Each one must describe
-what the code does today, which the phase 2 tests now pin: where a docstring promises
-behaviour that an `xfail` test shows missing (a `None` reporter, a `None` schema,
-convergence settings that stop the loop), the docstring states the present behaviour
-and the defect stays in the notes for Nadine. The work splits by layer exactly as phase
-2 did, so the writing goes to subagents with one shared brief and the main session
-verifies each layer by running the suite, the lint and a docstring coverage count.
+phases 0 to 2 changed them. The docstrings follow the NumPy style with shapes, units, a
+"When to use" note, a runnable example and the source papers. Each one must describe what
+the code does today, which the phase 2 tests now pin: where a docstring promises
+behaviour that an `xfail` test shows missing (a `None` schema, convergence settings that
+stop the loop), the docstring states the present behaviour and the defect stays in the
+notes for Nadine. The work splits by layer exactly as phase 2 did, so the writing goes to
+subagents with one shared brief and the main session verifies each layer by running the
+suite, the lint and a docstring coverage count.
 
 The scratch files of phase 2 (the shared brief, the triage logs, the reporting and
-dynamics probes) lived in a session directory and are not kept. Everything they
-measured is recorded above.
+dynamics probes, the run logs of the reporting fix and the worktree at `d412fd0` used
+for the before-and-after comparison) lived in a session directory and are not kept.
+Everything they measured is recorded above.
 
-**Suite conseillée :** modèle opus, effort high — phase 3 is careful reading and writing against behaviour that the tests now pin, spread over subagents; it needs accuracy more than the bug-hunting depth phase 2 required. If Rémy approves the reporting fix, do it first in the same session at the same setting.
+**Suite conseillée :** modèle opus, effort high — phase 3 is careful reading and writing against behaviour that the tests now pin, spread over subagents; it needs accuracy more than the bug-hunting depth of phase 2. Start it in a fresh session after `/clear`.
 
 ## Probable bugs found while reading (not fixed yet)
 
@@ -635,8 +586,8 @@ The lint agents listed these while reading the code during phase 0. Status after
 2: the ES return keys, the bounds check, the undefined `generation`, the capacity read
 before assignment, the `None` guard of `Optimizer.__init__`, the misspelled `complie`
 keyword, the unbound `opt_id` and `agents`, and the two missing `f` prefixes were fixed
-in phase 1. The reporter built without a `None` check is now recorded by an `xfail`
-test, and the values returned from methods annotated `-> None` are listed in the open
+in phase 1. The reporter built without a `None` check was fixed at the end of phase
+2 (`d3b1dc5`), and the values returned from methods annotated `-> None` are listed in the open
 questions for Nadine. The two unported examples and the stale docstring of
 `examples/bilevel_fishery/__init__.py` are unchanged. The paragraph below is kept as it
 was written.
