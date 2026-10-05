@@ -81,8 +81,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
         Split of the inner metrics the fitness is computed from.
     fitness_tail_steps : int
         Number of trailing steps of each episode the fitness is computed on.
-    trajectories : dict[int, list[dict[str, Any]]]
-        Reset to ``{}`` at every call of :meth:`reward` and never filled.
     last_metrics : list[dict[str, float]]
         One summary dictionary per scored candidate from the latest call of
         :meth:`reward`, in the order the candidates were visited.
@@ -150,7 +148,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         # Denormalized threshold for visualization
         self.raw_sustainability_threshold = self.sustainability_threshold * self.K
-        self.trajectories: dict[int, list[dict[str, Any]]] = {}
         self.last_metrics: list[dict[str, float]] = []
         target_status = ecology_cfg.get("aggregation_status", "eval")
         self.aggregation_status = MechanismStatus(target_status)
@@ -228,8 +225,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
         per_mech_metrics: list[dict[str, float]] = []
 
         metrics_by_mechanism: dict[int, list[dict[str, Any]]] = defaultdict(list)
-
-        self.trajectories = {}
 
         for mechanism_id, mechanism_metrics in metrics.rollout.by_mechanism.items():
             idx = int(mechanism_id)
