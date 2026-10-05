@@ -167,3 +167,14 @@ def test_a_new_episode_starts_from_a_clean_logger(regulated, toy):
     peeked = regulated.logger.peek()
     assert peeked.iter == [1]
     assert peeked.reward_mean == pytest.approx([0.3])
+
+
+@pytest.mark.unit
+def test_environment_without_a_schema_steps_without_logging(toy, identity_ray_get):
+    env = toy.make_env(toy.ScriptedWorld(), schema=None, horizon=2)
+
+    states = run_episode(env, toy, [0.2, 0.2])
+
+    assert env.logger is None
+    assert states[-1].t == 2
+    assert states[-1].rewards["f0"] == pytest.approx([0.2, 0.2])

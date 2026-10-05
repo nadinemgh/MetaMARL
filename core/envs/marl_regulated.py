@@ -18,11 +18,11 @@ Each ``step`` lets every agent apply its mechanisms and earn its reward,
 applies the transition, flags the time limit, logs the step and rebuilds the
 observations, to which the leaders' mechanisms add their own contribution.
 
-Metrics are optional in the constructor, but ``reset`` and ``step`` push to the
-logger without checking for it: with a ``schema`` the env owns a
-``MetricLogger`` (episode identity at ``reset``; ``iter`` and the reward series
-at every step), and with a ``reporter_cfg`` a ``Reporter`` renders the
-configured ``queries`` against it (see ``core.callbacks``).
+Metrics are optional: with a ``schema`` the env owns a ``MetricLogger``
+(episode identity at ``reset``; ``iter`` and the reward series at every step),
+and with a ``reporter_cfg`` a ``Reporter`` renders the configured ``queries``
+against it (see ``core.callbacks``). Without a ``schema`` there is no logger and
+``reset`` and ``step`` log nothing.
 """
 
 import logging
@@ -105,8 +105,7 @@ class MultiAgentEnv(ABC):
     schema : type[MetricSchema], optional
         Metric schema from which the logger is built and which is handed to the
         reporter. With ``None`` there is no logger, and ``reset`` and ``step``
-        then fail with ``AttributeError`` because they push to it (default
-        ``None``).
+        log nothing (default ``None``).
     **kwargs
         Accepted and ignored. RLlib's environment context (worker index,
         observation and action spaces, and so on) reaches the constructor
@@ -338,11 +337,11 @@ class MultiAgentEnv(ABC):
     def reset(self, mdp: MDPState) -> None:
         """Start an episode: log its identity, fetch the candidate, observe.
 
-        The logger is emptied first and receives the ``mechanism_id``,
-        ``seed`` and ``policy_seed`` of the episode, so its content covers one
-        episode only. RLlib's environment check resets and steps every new
-        environment once outside any episode; the empty logger keeps that step
-        out of the first real episode.
+        When the environment has a logger, it is emptied first and receives the
+        ``mechanism_id``, ``seed`` and ``policy_seed`` of the episode, so its
+        content covers one episode only. RLlib's environment check resets and
+        steps every new environment once outside any episode; the empty logger
+        keeps that step out of the first real episode.
 
         The candidate is then fetched from the ``World`` (blocking), for this
         env's ``mechanism_id``, ``policy_seed`` and ``mode``, at every reset.
@@ -371,20 +370,16 @@ class MultiAgentEnv(ABC):
         ------
         RuntimeError
             If ``mechanism_id`` is ``None``.
-        AttributeError
-            If the environment has no logger (built with ``schema=None``). The
-            same error is raised when the fetch from the ``World`` fails: the
-            handler meant to re-raise it as a ``RuntimeError`` naming the
-            mechanism calls ``self._debug_remote``, which no class defines.
         """
         # The logger holds one episode. RLlib's environment check resets and
         # steps every new environment once with an unseeded random action,
         # outside any episode; without this reset that step would be reduced
         # into the first real episode and reach the regulator's fitness.
-        self.logger.reset()
-        self.logger.push(key=("mechanism_id",), value=self.mechanism_id)
-        self.logger.push(key=("seed",), value=self.seed)
-        self.logger.push(key=("policy_seed",), value=self.policy_seed)
+        if self.logger is not None:
+            self.logger.reset()
+            self.logger.push(key=("mechanism_id",), value=self.mechanism_id)
+            self.logger.push(key=("seed",), value=self.seed)
+            self.logger.push(key=("policy_seed",), value=self.policy_seed)
 
         if self.mechanism_id is None:
             raise RuntimeError(
@@ -494,12 +489,12 @@ class MultiAgentEnv(ABC):
         1. lets every agent, leaders first, apply its mechanisms
            (``Agent.action``) and add its reward (``Agent.reward``);
         2. applies the transition hook and sets the termination flags;
-        3. pushes the new step index to ``iter`` and the mean over the
-           followers of the reward the followers received at this step to the
-           reward fields of the logger (``reward_total``, ``reward_mean``,
-           ``reward_min``, ``reward_max`` and ``reward_terminal``). Leaders do
-           not count in that mean, and rewards are per-step values, never
-           running sums;
+        3. when there is a logger, pushes the new step index to ``iter`` and the
+           mean over the followers of the reward the followers received at this
+           step to the reward fields of the logger (``reward_total``,
+           ``reward_mean``, ``reward_min``, ``reward_max`` and
+           ``reward_terminal``). Leaders do not count in that mean, and rewards
+           are per-step values, never running sums;
         4. rebuilds the observations on the new step from the followers'
            ``observation`` and the leaders' ``mechanism_observations``, so the
            contribution of the leaders' mechanisms reaches the policies at the
@@ -525,23 +520,25 @@ class MultiAgentEnv(ABC):
             mdp = mdp.add(agent.reward(mdp))
         mdp = self.transition(mdp)
         mdp = self.termination(mdp)
-        self.logger.push(key=("iter",), value=mdp.t)
 
-        # Mean over followers of the rewards RLlib receives for this step (the
-        # RLlib adapter reads the same ``rewards[aid][t - 1]``). Every reward
-        # field of the schema reduces this one per-step series.
-        step_reward = float(
-            np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
-        )
+        if self.logger is not None:
+            self.logger.push(key=("iter",), value=mdp.t)
 
-        for key in (
-            "reward_total",
-            "reward_mean",
-            "reward_min",
-            "reward_max",
-            "reward_terminal",
-        ):
-            self.logger.push(key=(key,), value=step_reward)
+            # Mean over followers of the rewards RLlib receives for this step
+            # (the RLlib adapter reads the same ``rewards[aid][t - 1]``). Every
+            # reward field of the schema reduces this one per-step series.
+            step_reward = float(
+                np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
+            )
+
+            for key in (
+                "reward_total",
+                "reward_mean",
+                "reward_min",
+                "reward_max",
+                "reward_terminal",
+            ):
+                self.logger.push(key=(key,), value=step_reward)
 
         # The leaders' mechanisms see the state after the transition, so their
         # contribution lands on the observation the policies receive next.

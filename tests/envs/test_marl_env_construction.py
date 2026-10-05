@@ -115,14 +115,6 @@ def test_environment_can_be_built_without_leaders(toy):
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    raises=AttributeError,
-    reason=(
-        "the docstring says schema=None disables logging, but reset and step "
-        + "call self.logger.reset/push without a None check"
-    ),
-)
 def test_environment_without_a_schema_can_reset(toy, identity_ray_get):
     env = toy.make_env(toy.ScriptedWorld(), schema=None)
 
