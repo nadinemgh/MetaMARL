@@ -103,10 +103,6 @@ class TestDefault:
     def test_no_default_gives_none(self):
         assert Recorder()._u is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="`default if default else None` evaluates the truth of an array",
-    )
     def test_a_vector_default_is_kept(self):
         default = np.array([0.2, 0.3], dtype=np.float32)
 
@@ -114,10 +110,6 @@ class TestDefault:
 
         np.testing.assert_array_equal(mechanism._u, default)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="`default if default else None` drops a default that is all zeros",
-    )
     def test_a_default_equal_to_zero_is_kept(self):
         default = np.array([0.0], dtype=np.float32)
 

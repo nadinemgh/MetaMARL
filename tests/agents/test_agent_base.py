@@ -274,14 +274,6 @@ def test_every_build_creates_independent_agents():
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    raises=ValueError,
-    reason=(
-        "Mechanism.__init__ tests the truth value of `default`, which is "
-        + "ambiguous for an array with several entries"
-    ),
-)
 def test_a_mechanism_can_be_built_with_a_default_of_several_entries():
     default = np.asarray([0.5, 0.2], dtype=np.float32)
     config = AgentConfig(
@@ -293,3 +285,4 @@ def test_a_mechanism_can_be_built_with_a_default_of_several_entries():
     agent = config.build()
 
     assert isinstance(agent.mechanisms["m"], Adder)
+    np.testing.assert_array_equal(agent.mechanisms["m"]._u, default)

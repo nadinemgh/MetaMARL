@@ -265,10 +265,8 @@ class Mechanism(ABC):
         Names under which the mechanism reads the environment state, for
         example ``{"resource_level": "fish"}``. Default ``None``.
     default : numpy.ndarray or None
-        Default action, kept as the private attribute ``_u``. A value whose
-        truth value is false is stored as ``None``, and an array of several
-        elements raises a ``ValueError`` because its truth value is ambiguous.
-        Default ``None``.
+        Default action, kept unchanged as the private attribute ``_u``, whatever
+        its size or value. Default ``None``.
 
     Attributes
     ----------
@@ -320,7 +318,7 @@ class Mechanism(ABC):
         self.mechanism_id = id
         self.acts_on = acts_on
         self.obs_map = obs_map
-        self._u = default if default else None
+        self._u = default
 
     def __call__(self, mdp: MDPState, action: ActType) -> MDPState:
         """Decode ``action``, record it in ``mdp`` and return the residual.
