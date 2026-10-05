@@ -34,6 +34,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _same_point(
+    first: tuple[int, PrimitiveType], second: tuple[int, PrimitiveType]
+) -> bool:
+    """Return whether two ``(step, value)`` points are equal, NaN included."""
+
+    (step_a, value_a), (step_b, value_b) = first, second
+    # ``x != x`` is true only for NaN, which never equals itself.
+    both_nan = value_a != value_a and value_b != value_b
+
+    return step_a == step_b and (value_a == value_b or both_nan)
+
+
 class TensorBoardConfig(ReporterConfig):
     """Configuration of a :class:`TensorBoardReporter`.
 
@@ -109,8 +121,12 @@ class TensorBoardReporter(Reporter):
     series is written under the same tag plus ``/std``. The colour path of a
     query is ignored with an info message.
 
-    Each report call writes every point of every series again, so the event
-    file accumulates repeated steps. The ``SummaryWriter`` is created on the
+    A report receives the whole history of each series, so the reporter keeps
+    the points it has written for each tag and writes only the new ones: a
+    history that grows between two reports adds its new points, an unchanged one
+    adds nothing, and a history that was cleared (it no longer starts with the
+    points written before) is written again from its first point. The record
+    survives :meth:`close`. The ``SummaryWriter`` is created on the
     first non-empty report and released by :meth:`close`; if the
     ``tensorboard`` package is missing, that first report raises
     ``ImportError`` (which :meth:`~core.reporting.base.Reporter.report` logs).
@@ -146,6 +162,8 @@ class TensorBoardReporter(Reporter):
     def __init__(self, *, log_dir: Path) -> None:
         self._log_dir = Path(log_dir)
         self._writer: SummaryWriter | None = None
+        # Points already written, per tag, as (step, value) pairs.
+        self._written: dict[str, list[tuple[int, PrimitiveType]]] = {}
 
     @property
     def log_dir(self) -> Path:
@@ -208,6 +226,40 @@ class TensorBoardReporter(Reporter):
 
         return step
 
+    def _write_new_points(
+        self,
+        writer: SummaryWriter,
+        tag: str,
+        x_values: list[PrimitiveType],
+        y_values: list[PrimitiveType],
+        query: Query,
+    ) -> None:
+        """Write the points of one series that the event files do not hold yet.
+
+        A report receives the whole history again, so the points written by the
+        previous report open the new series. When the new series starts with
+        exactly those points, only the rest is written; otherwise the history
+        was cleared since (the optimizers reduce it between rounds, the
+        environments between episodes) and the series is written from its first
+        point. All steps are converted before any point is written, so a
+        non-integer x leaves the files untouched.
+        """
+
+        points = [
+            (self._step(x_value, query), y_value)
+            for x_value, y_value in zip(x_values, y_values, strict=True)
+        ]
+        written = self._written.get(tag, [])
+
+        continues = len(written) <= len(points) and all(
+            _same_point(old, new) for old, new in zip(written, points)
+        )
+
+        for step, value in points[len(written) if continues else 0 :]:
+            writer.add_scalar(tag=tag, scalar_value=value, global_step=step)
+
+        self._written[tag] = points
+
     def _report(
         self,
         query: Query,
@@ -253,22 +305,12 @@ class TensorBoardReporter(Reporter):
                 label = self._series_label(path, group, label=path_label)
                 tag = f"{title}/{sanitize_key(label)}"
 
-                for x_value, y_value in zip(x_values, y_values, strict=True):
-                    writer.add_scalar(
-                        tag=tag,
-                        scalar_value=y_value,
-                        global_step=self._step(x_value, query),
-                    )
+                self._write_new_points(writer, tag, x_values, y_values, query)
 
                 if group in resolved_errors:
-                    for x_value, error_value in zip(
-                        x_values, resolved_errors[group], strict=True
-                    ):
-                        writer.add_scalar(
-                            tag=f"{tag}/std",
-                            scalar_value=error_value,
-                            global_step=self._step(x_value, query),
-                        )
+                    self._write_new_points(
+                        writer, f"{tag}/std", x_values, resolved_errors[group], query
+                    )
 
         writer.flush()
 

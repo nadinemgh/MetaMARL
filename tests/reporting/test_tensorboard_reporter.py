@@ -234,6 +234,131 @@ class TestScalarsWithAFakeWriter:
         assert reporter._writer is None and not (tmp_path / "tb").exists()
 
 
+class TestEachPointIsWrittenOnce:
+    """A report receives the whole history again; only new points are written."""
+
+    @pytest.fixture
+    def history(self, reporting_metrics):
+        def make(loss):
+            return reporting_metrics.model_copy(
+                update={"iter": list(range(len(loss))), "loss": loss}
+            )
+
+        return make
+
+    def test_an_unchanged_history_writes_nothing_the_second_time(
+        self, fake_reporter, history
+    ):
+        reporter, writer = fake_reporter
+        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
+        metrics = history([3.0, 2.0, 1.0])
+
+        reporter.report(metrics)
+        reporter.report(metrics)
+
+        assert writer.scalars == [
+            ("L/loss", 3.0, 0),
+            ("L/loss", 2.0, 1),
+            ("L/loss", 1.0, 2),
+        ]
+
+    def test_a_growing_history_writes_only_the_new_points(self, fake_reporter, history):
+        reporter, writer = fake_reporter
+        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
+
+        reporter.report(history([3.0, 2.0]))
+        reporter.report(history([3.0, 2.0, 1.0]))
+        reporter.report(history([3.0, 2.0, 1.0, 0.5]))
+
+        assert writer.scalars == [
+            ("L/loss", 3.0, 0),
+            ("L/loss", 2.0, 1),
+            ("L/loss", 1.0, 2),
+            ("L/loss", 0.5, 3),
+        ]
+
+    def test_a_cleared_history_is_written_again_from_its_start(
+        self, fake_reporter, history
+    ):
+        reporter, writer = fake_reporter
+        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
+
+        reporter.report(history([3.0, 2.0]))
+        reporter.report(history([7.0, 6.0]))  # same length, new values
+        reporter.report(history([5.0]))  # shorter
+
+        assert writer.scalars == [
+            ("L/loss", 3.0, 0),
+            ("L/loss", 2.0, 1),
+            ("L/loss", 7.0, 0),
+            ("L/loss", 6.0, 1),
+            ("L/loss", 5.0, 0),
+        ]
+
+    def test_nan_points_are_not_rewritten(self, fake_reporter, history):
+        reporter, writer = fake_reporter
+        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
+        metrics = history([float("nan"), 1.0])
+
+        reporter.report(metrics)
+        reporter.report(metrics)
+
+        assert len(writer.scalars) == 2
+
+    def test_each_group_and_the_std_series_are_tracked_separately(
+        self, fake_reporter, reporting_metrics
+    ):
+        reporter, writer = fake_reporter
+        reporter.add_query(
+            Query(
+                title="Mean",
+                x=("iter",),
+                y=("by_mech", MEAN, "fitness"),
+                error="std",
+                error_path=("by_mech",),
+            ),
+            Query(title="Fit", x=("iter",), y=("by_mech", SERIES, "fitness")),
+        )
+
+        reporter.report(reporting_metrics)
+        written = len(writer.scalars)
+        reporter.report(reporting_metrics)
+
+        assert written == 3 + 3 + 3 + 3 and len(writer.scalars) == written
+
+    def test_the_state_survives_close(self, fake_reporter, history):
+        reporter, writer = fake_reporter
+        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
+        metrics = history([3.0, 2.0])
+
+        reporter.report(metrics)
+        reporter.close()
+        reporter._writer = writer  # stands for the writer created by the next report
+        reporter.report(metrics)
+
+        assert len(writer.scalars) == 2
+
+    def test_a_rejected_x_writes_no_partial_series(self, fake_reporter):
+        reporter, writer = fake_reporter
+        query = Query(title="t", x=("x",), y=("y",))
+
+        with pytest.raises(TypeError, match="integer-valued"):
+            reporter._report(query, {(): [0, 0.5]}, [{(): [1.0, 2.0]}], [{}], None)
+
+        assert writer.scalars == []
+
+    def test_event_files_hold_each_step_once(self, tmp_path, history):
+        reporter = TensorBoardReporter(log_dir=tmp_path / "tb")
+        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
+
+        reporter.report(history([3.0, 2.0]))
+        reporter.report(history([3.0, 2.0, 1.0]))
+        reporter.report(history([3.0, 2.0, 1.0]))
+        reporter.close()
+
+        assert read_scalars(tmp_path / "tb")["L/loss"] == [(0, 3.0), (1, 2.0), (2, 1.0)]
+
+
 class TestStep:
     QUERY = Query(title="t", x=("iter",), y=("loss",))
 
