@@ -124,7 +124,7 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] notebook test under the `notebook` marker and its CI job (`6aaee13`);
   - [x] `docs/MERGE_NOTES.md`: a section on the tutorials, a paragraph on the three behaviour changes and one on the MEAN order fix, plus the renamed quota entry, the removed ES attribute and the new ES errors; every quoted hash checked.
   - [x] measured after `5ec6b4d` with the default command (`WANDB_MODE=offline uv run python -m pytest`): 1893 passed, 1 skipped doctest, no failure, 207 s; `core/` at 99 % (5 of 3656 statements missed, all defensive guards that predate this phase); `ruff check --no-fix .` and `ruff format --check .` pass on the whole tree (188 files).
-- [ ] Phase 6 — validation audit by measurement, then push.
+- [x] Phase 6 — validation audit by measurement, then push (closed on 10-05).
   - [x] slot doubt re-measured on 10-05 on `4c0929f` (scripts and logs in the session scratchpad, not kept). The doubt holds, with a different cause than the one noted on 10-04. While the quota does not bind, the fitness of a slot depends only on its index: in the shrunk configuration (`--outer-iters 4 --train-iters 2 --num-agents 2 --horizon 20`) generations 0, 2 and 3 give the same four values `[2.597966, 2.599000, 2.597888, 2.606036]` for candidates between 0.36 and 0.57, and in the full configuration (defaults, 4 generations, 4 min 03 s) slot 0 gives 2.522731 for 0.505, 0.496 and 0.500. The quota starts to bind near 0.56, where the minimum stock of the full run lies (0.56 to 0.58 of capacity); above it the signal is real, since the mean climbed to 0.72 and the fitness from 2.52–2.56 to 2.60–2.61. The slot spread at a non-binding candidate is about 0.036 in the full configuration, the same order as the mechanism effect, and the ES standardises fitness before the update, so the spread drives full-size steps. The four training environments share the seed and the RNG state, so the environment is not the source. Two sources are: the pi and vf output layers, which APPO under RLlib 2.53 builds without the seeded initializer (`PPOCatalog` ignores `head_fcnet_*_initializer`), so each slot draws different head weights from torch's global stream, contradicting the docstring of `_seeded_xavier_uniform`; and the exploration draws during training, which differ per slot. With equal weights and `lr=0` the four fitness values are exactly equal (2.602504); with equal weights and learning the full-configuration spread falls only from 0.036 to 0.029, so the exploration draws dominate. Both sources replay identically every generation, so they never average out;
   - [x] seeded output layers and common random numbers for the exploration draws, test-first, in one commit because both live in `core/adaptors/ray/common_random.py` (`4602e42`). The work found two more defects, fixed in the same commit: the seeded initializer kept its layer counter across builds, so a rebuilt or pickled module did not reproduce its first build, and an unseeded run (`_sNone`) crashed the key piece. An integration test (`tests/integration/test_slot_common_random_numbers.py`) pins that the four slots return identical fitness at a negligible ES spread; it fails on `140c962` with the values of the morning measurement;
   - [x] keyed draws made faster, measured inside the env runner of the full configuration with and without keys: the first version doubled the full four-generation run (8 min 16 s), because every small torch call in the runner goes through a device-mode override and the version rebuilt the distribution row by row under `torch.manual_seed`. The current version draws one keyed standard-normal vector per row for diagonal-Gaussian actions and derives each key once per (seed, agent); it reproduces the first version's draws bit for bit (full four-generation run: 4 min 32 s and 4 min 11 s, against 4 min 22 s for `140c962` on the same machine the same evening, within the run-to-run spread; the first version of `140c962`'s baseline was invalid because Python loaded the main directory's code ahead of the worktree, so the baseline was rerun from inside the worktree);
@@ -132,7 +132,7 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] fresh-water timed at full size (500 farms, horizon 150, `--outer-iters 1` with the default 200 training iterations). On `0aeab19` one training iteration took 24 min 12 s and the policy reset before it 16 min 30 s, so one generation would have taken about 80 hours. The profile at 50 and 100 farms (8.4 s and 27.3 s per iteration) put the time in `Trajectory.add`, which copied every trajectory tree at each of the one-residual-per-agent compositions of a step, making an episode quadratic in the number of agents and in its length. On Rémy's decision the fix went in (`61bba5b`): `add` shares the branches and lists no delta writes, `Mechanism.__call__` writes the decoded action through the new `Trajectory.write`, which copies what it modifies, and `logical_or_dict` copies a flag dictionary in C when no residual sets a flag. One iteration now takes 1.0 s at 50 farms, 2.0 s at 100 and 12.8 s at 500, the reset 1 s; the fitness at 50 and 100 farms and the first iteration at 500 farms are identical to `0aeab19`. A full generation at 500 farms (`debug.py --outer-iters 1 --reporter csv`, the default 200 training iterations) took 41 min 47 s on `dbe3463`, with a flat rate of 12.0 to 12.7 s per iteration averaged over blocks of 40, a peak resident memory of 2.8 GB and a best fitness of 1.2164;
   - [x] lint defect found on the way and fixed on Rémy's decision (`dbe3463`): the git-ignored run directory `wandb/` made isort take `wandb` for first-party code in the working copy, so the lint passed locally and failed in a clean checkout such as CI. `ruff.toml` now declares `wandb` third-party, and `ruff check --no-fix .` and `ruff format --check .` pass in the working copy and in a clean worktree;
   - [x] commit trailers: twelve commits, not six, name Sonnet 5.5. The subagents that made them were told by their attribution reminder to sign that way, and that reminder follows the model actually running, so the trailers are probably accurate. Rémy decided to keep them: no history rewrite, so no hash to remap;
-  - [ ] push with Rémy's go-ahead.
+  - [x] pushed on Rémy's go-ahead on 10-05: `origin/feature/social-influence-testing-v2` was created at `229fe53`, the head of the branch at the time, and `git ls-remote` confirmed it.
 
 ## Baseline measured on `96294f6` (2026-10-04)
 
@@ -372,13 +372,14 @@ IMPALA's deque queue, which it does not cover.
 
 ## Next step
 
-Phase 6 has measured everything it planned: the slot doubt and its fixes, the
-full-size fresh-water timing and its fix, and the lint in a clean checkout. The trailers
-are kept, so no hash changes. What remains is the push of
-`feature/social-influence-testing-v2` to `origin`, with Rémy's go-ahead.
+The pass is complete: the seven phases are closed and the branch is on `origin`.
+The work left is with Nadine, as listed under "To do together" in `docs/MERGE_NOTES.md`:
+a run of the fresh-water example on the real Raven model, and the comparison with `dev`
+whose boxes stay open in `TODO.md`.
 
-**Suite conseillée :** modèle sonnet, effort low — only the push remains, with
-Rémy's go-ahead, then a last check that `origin` holds the branch head.
+**Suite conseillée :** modèle opus, effort high — the next work is the Raven run and
+the comparison with `dev` alongside Nadine, which needs measurement and judgment; start
+it in a fresh session after `/clear`.
 
 ## Known traps
 
