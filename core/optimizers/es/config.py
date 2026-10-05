@@ -20,7 +20,7 @@ class ESConfig(OptimizerConfig):
     optimizer takes its dimension from the flattened action space of the
     mechanisms of the regulator agent given to ``agents``, and
     ``BilevelConfig`` sets the population size from the inner optimizer's batch
-    capacity. The ``dimension`` attribute below is never read.
+    capacity.
 
     Parameters
     ----------
@@ -31,8 +31,6 @@ class ESConfig(OptimizerConfig):
 
     Attributes
     ----------
-    dimension : int or None
-        Placeholder, ``None``; not used by ``ESOptimizer``.
     sigma : float
         Initial standard deviation of the search distribution in logit space
         (default 0.15, dimensionless).
@@ -78,7 +76,6 @@ class ESConfig(OptimizerConfig):
 
         # Add default or from default
         # ES training hyperparameters
-        self.dimension: int = None
         self.sigma: float = 0.15
         self.mean_lr: float = 0.1
         self.sigma_lr: float = 0.05
@@ -101,7 +98,6 @@ class ESConfig(OptimizerConfig):
         sigma_decay: Optional[float] = None,
         min_sigma: Optional[float] = None,
         max_sigma: Optional[float] = None,
-        generation: Optional[int] = None,
         break_symmetry: Optional[bool] = None,
         convergence_eps: Optional[float] = None,
         convergence_patience: Optional[int] = None,
@@ -129,8 +125,6 @@ class ESConfig(OptimizerConfig):
         min_sigma, max_sigma : float, optional
             Bounds of sigma: a floor keeps exploring, a ceiling avoids
             destabilizing jumps.
-        generation : int, optional
-            Stored as ``self.generation``; nothing reads it.
         break_symmetry : bool, optional
             Replace one mirrored sample by an independent one so the population
             is not strictly antithetic (allows odd population sizes).
@@ -170,9 +164,6 @@ class ESConfig(OptimizerConfig):
 
         if max_sigma is not None:
             self.max_sigma = max_sigma
-
-        if generation is not None:
-            self.generation = generation
 
         if break_symmetry is not None:
             self.break_symmetry = break_symmetry

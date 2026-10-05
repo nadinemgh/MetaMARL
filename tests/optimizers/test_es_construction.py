@@ -64,11 +64,6 @@ class TestESConfig:
         assert (cfg.convergence_eps, cfg.convergence_patience) == (1e-3, 3)
         assert cfg.initial_mean == [0.1, 0.9]
 
-    def test_the_generation_is_stored_though_nothing_reads_it(self):
-        cfg = ESConfig().training(generation=4)
-
-        assert cfg.generation == 4
-
     def test_unset_arguments_keep_their_current_value(self):
         cfg = ESConfig().training(sigma=0.3, episodes=5)
 
