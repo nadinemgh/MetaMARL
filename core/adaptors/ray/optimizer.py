@@ -74,10 +74,6 @@ class RayOptimizer(Optimizer):
         IDs of the learner modules declared in ``rllib_cfg.policies``; each
         gets one learner entry per training iteration, with NaN statistics
         on the iterations where RLlib reports none.
-    _inner_iter : int
-        Set to ``0`` by ``reset``. It does not exist before the first
-        ``reset`` and ``train`` never updates it: the iteration index of a
-        training pass is the loop counter of ``train``.
     _es_round : int
         Number of ``reset`` calls so far, i.e. the outer (ES) generation.
     _training_rewards, _training_losses : list of float
@@ -308,15 +304,13 @@ class RayOptimizer(Optimizer):
         The policy actor rebuilds its algorithm and loads the weights captured
         when it was created, so every outer generation starts from the same
         parameters. The per-iteration return and loss lists and the metric
-        logger are emptied, the inner iteration counter is set to ``0`` and
-        the outer round counter is incremented.
+        logger are emptied and the outer round counter is incremented.
         """
 
         logger.info("[PPO] Resetting policy weights")
 
         self._training_rewards = []
         self._training_losses = []
-        self._inner_iter = 0
         self._es_round += 1
 
         ray.get(self.policy_actor.reset.remote())

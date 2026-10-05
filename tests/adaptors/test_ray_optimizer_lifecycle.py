@@ -318,7 +318,6 @@ def test_reset_clears_the_tracking_and_the_logger_and_counts_the_round(actors):
 
     assert opt.policy_actor.calls[-1] == "reset"
     assert opt._es_round == 1
-    assert opt._inner_iter == 0
     assert opt._training_rewards == [] and opt._training_losses == []
     reduced = opt.logger.reduce()
     assert reduced.iter is None
