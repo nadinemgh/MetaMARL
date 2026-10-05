@@ -225,6 +225,16 @@ def test_a_horizon_of_one_terminates_after_the_first_step(toy, inner):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("horizon", [2, 3, 5])
+def test_a_horizon_of_n_gives_n_steps(toy, inner, horizon):
+    env = make_env(toy, inner, horizon=horizon)
+
+    terminated = [env.step([{"fee": 0.1}])[2] for _ in range(horizon)]
+
+    assert terminated == [False] * (horizon - 1) + [True]
+
+
+@pytest.mark.unit
 def test_default_transforms_return_nothing(toy, inner):
     env = make_env(toy, inner, env_cls=RegulatorEnv)
 

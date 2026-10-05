@@ -270,8 +270,9 @@ class RegulatorEnv(gym.Env):
             per candidate.
         terminated : bool
             ``True`` when ``horizon`` is not ``None`` and the step counter,
-            already incremented, plus one has reached ``horizon``. With a
-            ``horizon`` of 5, the fourth step is the first to report ``True``.
+            already incremented, has reached ``horizon``: an episode of
+            ``horizon`` steps ends on the ``horizon``-th step. With a
+            ``horizon`` of 5, the fifth step is the first to report ``True``.
         truncated : bool
             Always ``False``.
         info : dict
@@ -313,7 +314,7 @@ class RegulatorEnv(gym.Env):
             self.logger.push(key=("iter",), value=self._t)
 
         truncated = False
-        terminated = self.horizon is not None and (self._t + 1) >= self.horizon
+        terminated = self.horizon is not None and self._t >= self.horizon
 
         return obs, reward, terminated, truncated, info
 
