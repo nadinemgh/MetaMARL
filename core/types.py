@@ -78,8 +78,10 @@ Identifier of an environment episode.
 
 In the metric schemas it keys the episodes of one seed. After
 ``tag_episode_with_env_idx`` it reads
-``env=<i>|m=<mechanism>|ps=<policy_seed>|ss=<seed>|raw=<id>``, and the episode
-metrics are filed under the part before ``|raw=``.
+``env=<i>|m=<mechanism>|ps=<policy_seed>|ss=<seed>|raw=<id>``. The episode
+metrics are filed under the part before ``|raw=`` followed by ``|n=<k>``, the
+position of the episode among those its sub-environment ended in the
+iteration.
 """
 
 

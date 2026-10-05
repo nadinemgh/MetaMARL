@@ -213,9 +213,11 @@ class SeedRolloutSchema(MetricSchema):
     Attributes
     ----------
     by_episode : dict of str to EpisodeRolloutSchema
-        Episode statistics keyed by the tagged episode ID
-        ``env=<idx>|m=<mechanism>|ps=<policy_seed>|ss=<env_seed>|raw=<id>``.
-        Empty by default.
+        Episode statistics keyed by
+        ``env=<idx>|m=<mechanism>|ps=<policy_seed>|ss=<env_seed>|n=<k>``, the
+        tagged episode ID without its ``|raw=`` suffix followed by the position
+        of the episode among those its sub-environment ended in the iteration
+        (see ``build_rollout``). Empty by default.
 
     When to use: as the innermost level of ``RolloutSchema.by_mechanism``;
     read it to compare the episodes that one policy seed produced.
@@ -223,8 +225,8 @@ class SeedRolloutSchema(MetricSchema):
     Examples
     --------
     >>> episode = EpisodeRolloutSchema(mechanism_id=0, seed=1, reward_mean=2.0)
-    >>> rollout = SeedRolloutSchema(by_episode={"env=0|m=0|ps=1|ss=1|raw=a": episode})
-    >>> rollout.by_episode["env=0|m=0|ps=1|ss=1|raw=a"].reward_mean
+    >>> rollout = SeedRolloutSchema(by_episode={"env=0|m=0|ps=1|ss=1|n=0": episode})
+    >>> rollout.by_episode["env=0|m=0|ps=1|ss=1|n=0"].reward_mean
     2.0
     """
 

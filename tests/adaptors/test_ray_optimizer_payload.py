@@ -39,9 +39,9 @@ def result_dict(*, return_mean=1.5, steps=80, evaluation=None):
             "num_env_steps_sampled": steps,
             "num_env_steps_sampled_lifetime": 2 * steps,
             "by_episode": {
-                "e1": episode(0, 100, 1.0),
-                "e2": episode(1, 100, 3.0),
-                "e3": episode(1, 200, 4.0),
+                "e1": [episode(0, 100, 1.0)],
+                "e2": [episode(1, 100, 3.0)],
+                "e3": [episode(1, 200, 4.0)],
             },
         },
         "timers": {"training_iteration": 1.0},
@@ -128,7 +128,7 @@ def test_payloads_accumulate_in_the_logger_and_reduce_to_the_last_iteration():
     assert peeked.iter == [1, 2]
     assert peeked.train.rollout.aggregate.reward_mean == [1.5, 2.5]
     assert peeked.train.rollout.by_mechanism["1"].by_seed["200"].by_episode[
-        "e3"
+        "e3|n=0"
     ].reward_mean == [4.0, 4.0]
 
     reduced = logger.reduce()

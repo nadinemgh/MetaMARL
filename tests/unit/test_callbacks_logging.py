@@ -87,7 +87,8 @@ def test_episode_end_hook_reports_then_reduces():
 
     (call,) = logged
     assert call["key"] == ("by_episode", "env=0|m=1|ps=2|ss=3")
-    assert call["reduce"] == "item"
+    # A list per key, so several episodes of one sub-environment survive.
+    assert call["reduce"] == "item_series"
     assert call["value"].value == pytest.approx(3.0)
     assert call["value"].iter == 1
 

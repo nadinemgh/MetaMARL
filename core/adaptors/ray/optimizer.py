@@ -219,8 +219,9 @@ class RayOptimizer(Optimizer):
         RaySchema
             The metrics accumulated since the last ``reset`` or ``stop``,
             peeked (not reduced): every leaf is a list with one entry per
-            logged sample. The regulator environment reads it as the inner
-            optimizer's metrics.
+            logged sample, and ``None`` marks a gap, a push in which an
+            episode key or another dynamic id had no value. The regulator
+            environment reads it as the inner optimizer's metrics.
         """
 
         for episode in range(self.episodes):

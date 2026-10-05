@@ -452,11 +452,16 @@ def build_performance(results: ResultDict) -> PerformanceSchema:
 def build_rollout(results: ResultDict) -> RolloutSchema:
     """Group the ``env_runners/by_episode`` entries by mechanism and seed.
 
-    The ``by_episode`` values are the ``EpisodeRolloutSchema`` objects stored
-    by ``log_and_report_episode_metrics``; each is filed under
-    ``by_mechanism[<mechanism_id>].by_seed[<seed>].by_episode[<episode_id>]``,
-    alongside the aggregate from ``build_episode_aggregate``. The mechanism ID
-    and the seed are converted to strings.
+    Each ``by_episode`` entry is the list of ``EpisodeRolloutSchema`` objects
+    that ``log_and_report_episode_metrics`` appended under one episode prefix
+    during the iteration (empty when that sub-environment ended no episode).
+    RLlib's ``MetricsLogger.compile`` (Ray 2.53) unwraps a list of one item,
+    so a lone ``EpisodeRolloutSchema`` stands for a list holding it. The
+    episode at position ``n`` of the list for prefix ``<prefix>`` is filed
+    under ``by_mechanism[<mechanism_id>].by_seed[<seed>]
+    .by_episode["<prefix>|n=<n>"]``, alongside the aggregate from
+    ``build_episode_aggregate``. The mechanism ID and the seed are converted to
+    strings.
 
     Parameters
     ----------
@@ -470,17 +475,32 @@ def build_rollout(results: ResultDict) -> RolloutSchema:
         The aggregate statistics and the per-mechanism, per-seed,
         per-episode breakdown (empty when the result has no ``by_episode``).
 
+    Raises
+    ------
+    TypeError
+        If a ``by_episode`` entry is neither a list nor an
+        ``EpisodeRolloutSchema``.
+
     When to use: to turn an RLlib result into the structure from which the
     regulator computes one fitness per candidate mechanism.
 
     Examples
     --------
-    >>> episode = EpisodeRolloutSchema(mechanism_id=0, seed=11, reward_mean=2.0)
-    >>> result = {"env_runners": {"by_episode": {"env=0|m=0|ps=11|ss=11": episode}}}
+    >>> first = EpisodeRolloutSchema(mechanism_id=0, seed=11, reward_mean=2.0)
+    >>> second = EpisodeRolloutSchema(mechanism_id=0, seed=11, reward_mean=4.0)
+    >>> prefix = "env=0|m=0|ps=11|ss=11"
+    >>> result = {"env_runners": {"by_episode": {prefix: [first, second]}}}
     >>> rollout = build_rollout(result)
     >>> by_episode = rollout.by_mechanism["0"].by_seed["11"].by_episode
-    >>> by_episode["env=0|m=0|ps=11|ss=11"].reward_mean
-    2.0
+    >>> {key: episode.reward_mean for key, episode in by_episode.items()}
+    {'env=0|m=0|ps=11|ss=11|n=0': 2.0, 'env=0|m=0|ps=11|ss=11|n=1': 4.0}
+
+    A prefix that ended a single episode arrives unwrapped:
+
+    >>> result = {"env_runners": {"by_episode": {prefix: first}}}
+    >>> by_episode = build_rollout(result).by_mechanism["0"].by_seed["11"].by_episode
+    >>> list(by_episode)
+    ['env=0|m=0|ps=11|ss=11|n=0']
     """
 
     env = results.get("env_runners", {}) or {}
@@ -488,12 +508,21 @@ def build_rollout(results: ResultDict) -> RolloutSchema:
 
     by_mechanism: dict[MechanismID, MechanismRolloutSchema] = {}
 
-    for episode_id, episode in episodes.items():
-        mechanism_id = str(episode.mechanism_id)
-        seed = str(episode.seed)
-        mechanism = by_mechanism.setdefault(mechanism_id, MechanismRolloutSchema())
-        seed_rollout = mechanism.by_seed.setdefault(seed, SeedRolloutSchema())
-        seed_rollout.by_episode[episode_id] = episode
+    for prefix, prefix_episodes in episodes.items():
+        if isinstance(prefix_episodes, EpisodeRolloutSchema):
+            prefix_episodes = [prefix_episodes]
+        elif not isinstance(prefix_episodes, list):
+            raise TypeError(
+                f"by_episode entry {prefix!r} is a {type(prefix_episodes).__name__}, "
+                + "expected a list of EpisodeRolloutSchema."
+            )
+
+        for index, episode in enumerate(prefix_episodes):
+            mechanism_id = str(episode.mechanism_id)
+            seed = str(episode.seed)
+            mechanism = by_mechanism.setdefault(mechanism_id, MechanismRolloutSchema())
+            seed_rollout = mechanism.by_seed.setdefault(seed, SeedRolloutSchema())
+            seed_rollout.by_episode[f"{prefix}|n={index}"] = episode
 
     return RolloutSchema(
         aggregate=build_episode_aggregate(results), by_mechanism=by_mechanism

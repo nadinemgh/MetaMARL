@@ -151,11 +151,15 @@ def log_and_report_episode_metrics(
     Intended for the ``on_episode_end`` hook. The sub-environment's
     ``MetricLogger`` is peeked and sent to the env-level reporter (when the
     environment has one), then
-    reduced and stored in RLlib's ``MetricsLogger`` under
-    ``("by_episode", <episode_id>)`` with ``reduce="item"``, where
+    reduced and appended to RLlib's ``MetricsLogger`` under
+    ``("by_episode", <episode_id>)`` with ``reduce="item_series"``, where
     ``<episode_id>`` is the structured prefix written by
     ``tag_episode_with_env_idx`` (the ``|raw=...`` suffix is stripped).
-    ``build_rollout`` later regroups these entries by mechanism and seed.
+    Several episodes of the same sub-environment can end within one training
+    iteration (always with PPO, which samples until its batch is full), so the
+    entry is a list that keeps every one of them; RLlib empties it at the end
+    of each iteration. ``build_rollout`` later regroups these episodes by
+    mechanism and seed.
 
     Parameters
     ----------
@@ -208,7 +212,7 @@ def log_and_report_episode_metrics(
     ...     env_index=0,
     ...     metrics_logger=RecordingMetricsLogger(),
     ... )
-    ('by_episode', 'env=0|m=1|ps=2|ss=3') 3.0 item
+    ('by_episode', 'env=0|m=1|ps=2|ss=3') 3.0 item_series
     """
 
     sub_env: gym.Env = env_runner.env.envs[env_index].unwrapped
@@ -222,7 +226,7 @@ def log_and_report_episode_metrics(
     episode_id = episode.id_.partition("|raw=")[0]
 
     metrics_logger.log_value(
-        key=("by_episode", episode_id), value=reduced, reduce="item"
+        key=("by_episode", episode_id), value=reduced, reduce="item_series"
     )
 
 

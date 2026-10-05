@@ -194,10 +194,9 @@ def test_build_rollout_groups_episodes_by_mechanism_then_seed():
         "env_runners": {
             "episode_return_mean": 2.5,
             "by_episode": {
-                "env=0|m=0|ps=11|ss=11": e00,
-                "env=1|m=0|ps=22|ss=22": e01,
-                "env=2|m=1|ps=11|ss=11": e10,
-                "env=0|m=0|ps=11|ss=11#2": e00b,
+                "env=0|m=0|ps=11|ss=11": [e00, e00b],
+                "env=1|m=0|ps=22|ss=22": [e01],
+                "env=2|m=1|ps=11|ss=11": [e10],
             },
         }
     }
@@ -208,16 +207,111 @@ def test_build_rollout_groups_episodes_by_mechanism_then_seed():
     assert set(rollout.by_mechanism) == {"0", "1"}
     mech0 = rollout.by_mechanism["0"]
     assert set(mech0.by_seed) == {"11", "22"}
+    # Every episode of a sub-environment is kept, numbered in logging order.
     assert mech0.by_seed["11"].by_episode == {
-        "env=0|m=0|ps=11|ss=11": e00,
-        "env=0|m=0|ps=11|ss=11#2": e00b,
+        "env=0|m=0|ps=11|ss=11|n=0": e00,
+        "env=0|m=0|ps=11|ss=11|n=1": e00b,
     }
-    assert mech0.by_seed["22"].by_episode == {"env=1|m=0|ps=22|ss=22": e01}
+    assert mech0.by_seed["22"].by_episode == {"env=1|m=0|ps=22|ss=22|n=0": e01}
     assert rollout.by_mechanism["1"].by_seed["11"].by_episode == {
-        "env=2|m=1|ps=11|ss=11": e10
+        "env=2|m=1|ps=11|ss=11|n=0": e10
     }
     # The episode objects are filed as-is, not copied.
-    assert mech0.by_seed["11"].by_episode["env=0|m=0|ps=11|ss=11"] is e00
+    assert mech0.by_seed["11"].by_episode["env=0|m=0|ps=11|ss=11|n=0"] is e00
+
+
+@pytest.mark.unit
+def test_build_rollout_reads_a_lone_episode_as_a_list_of_one():
+    # RLlib's MetricsLogger.compile unwraps a list holding a single item.
+    episode = _episode(0, 11, 1.0)
+    result = {"env_runners": {"by_episode": {"env=0|m=0|ps=11|ss=11": episode}}}
+
+    by_episode = build_rollout(result).by_mechanism["0"].by_seed["11"].by_episode
+
+    assert by_episode == {"env=0|m=0|ps=11|ss=11|n=0": episode}
+
+
+@pytest.mark.unit
+def test_build_rollout_skips_a_prefix_that_ended_no_episode():
+    result = {
+        "env_runners": {
+            "by_episode": {
+                "env=0|m=0|ps=11|ss=11": [],
+                "env=1|m=0|ps=11|ss=11": [_episode(0, 11)],
+            }
+        }
+    }
+
+    by_episode = build_rollout(result).by_mechanism["0"].by_seed["11"].by_episode
+
+    assert list(by_episode) == ["env=1|m=0|ps=11|ss=11|n=0"]
+
+
+@pytest.mark.unit
+def test_build_rollout_rejects_an_entry_that_is_not_an_episode_list():
+    result = {"env_runners": {"by_episode": {"env=0|m=0|ps=11|ss=11": 1.0}}}
+
+    with pytest.raises(TypeError, match="expected a list of EpisodeRolloutSchema"):
+        build_rollout(result)
+
+
+@pytest.mark.unit
+def test_build_rollout_keeps_every_episode_logged_through_rllib():
+    """Episodes logged by the callback survive RLlib's own aggregation.
+
+    The episode callback logs into real RLlib ``MetricsLogger`` objects: two
+    env runners end episodes of the same sub-environment prefix (three in all,
+    as when PPO samples several times per iteration) and a third ends a single
+    episode under its own prefix. The root logger aggregates and compiles them
+    as ``Algorithm.train`` does, which unwraps the single episode.
+    """
+    from types import SimpleNamespace
+
+    from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
+
+    from core.callbacks import log_and_report_episode_metrics
+    from core.metrics.logger import MetricLogger
+
+    def run_episodes(prefix: str, rewards: list[float]) -> dict:
+        sub_env = SimpleNamespace(
+            logger=MetricLogger.from_schema(EpisodeRolloutSchema), reporter=None
+        )
+        env_runner = SimpleNamespace(
+            env=SimpleNamespace(envs=[SimpleNamespace(unwrapped=sub_env)])
+        )
+        runner_logger = MetricsLogger()
+        for index, reward in enumerate(rewards):
+            sub_env.logger.push_data(_episode(0, 11, reward))
+            log_and_report_episode_metrics(
+                episode=SimpleNamespace(id_=f"{prefix}|raw={index}"),
+                env_runner=env_runner,
+                env=None,
+                env_index=0,
+                metrics_logger=runner_logger,
+            )
+        return runner_logger.reduce()
+
+    shared, lone = "env=0|m=0|ps=11|ss=11", "env=1|m=0|ps=11|ss=11"
+    root = MetricsLogger(root=True)
+    root.aggregate(
+        [
+            run_episodes(shared, [1.0, 2.0]),
+            run_episodes(shared, [3.0]),
+            run_episodes(lone, [4.0]),
+        ],
+        key="env_runners",
+    )
+
+    by_episode = (
+        build_rollout(root.compile()).by_mechanism["0"].by_seed["11"].by_episode
+    )
+
+    assert {key: episode.reward_mean for key, episode in by_episode.items()} == {
+        f"{shared}|n=0": 1.0,
+        f"{shared}|n=1": 2.0,
+        f"{shared}|n=2": 3.0,
+        f"{lone}|n=0": 4.0,
+    }
 
 
 @pytest.mark.unit
@@ -235,7 +329,7 @@ def test_build_rollout_without_episodes_is_empty(result):
 def test_build_rollout_stringifies_missing_identity_as_none_key():
     # Episodes without ``mechanism_id`` / ``seed`` are not rejected; they land
     # under the literal "None" keys.
-    result = {"env_runners": {"by_episode": {"ep": _episode(None, None)}}}
+    result = {"env_runners": {"by_episode": {"ep": [_episode(None, None)]}}}
     rollout = build_rollout(result)
     assert list(rollout.by_mechanism) == ["None"]
     assert list(rollout.by_mechanism["None"].by_seed) == ["None"]
