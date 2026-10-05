@@ -154,8 +154,8 @@ def get_policy_loss_if_present(result: dict) -> float:
     RLlib's IMPALA/APPO learner reduces its stats only once every 20 gradient
     updates (``IMPALALearner.update`` in Ray 2.53), and the module entries of
     the iterations in between hold NaN. Those iterations return NaN and the
-    training log prints ``policy_loss=NA``. The classic layout is not filtered
-    for non-finite values.
+    training log prints ``policy_loss=NA``. The classic layout is filtered the
+    same way, so a NaN loss of one policy does not poison the mean.
 
     Parameters
     ----------
@@ -202,7 +202,7 @@ def get_policy_loss_if_present(result: dict) -> float:
     if isinstance(learner_info, dict):
         for _, policy_stats in learner_info.items():
             ls = (policy_stats or {}).get("learner_stats") or {}
-            v = to_float(ls.get("policy_loss"))
+            v = finite(ls.get("policy_loss"))
 
             if v is not None:
                 losses.append(v)

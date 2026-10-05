@@ -218,6 +218,28 @@ def test_policy_loss_classic_layout_averages_across_policies():
 
 
 @pytest.mark.unit
+def test_policy_loss_classic_layout_skips_non_finite_losses():
+    result = {
+        "info": {
+            "learner": {
+                "p0": {"learner_stats": {"policy_loss": float("nan")}},
+                "p1": {"learner_stats": {"policy_loss": float("inf")}},
+                "p2": {"learner_stats": {"policy_loss": 0.5}},
+            }
+        }
+    }
+    assert get_policy_loss_if_present(result) == 0.5
+
+
+@pytest.mark.unit
+def test_policy_loss_classic_layout_with_only_non_finite_losses_is_nan():
+    result = {
+        "info": {"learner": {"p0": {"learner_stats": {"policy_loss": float("nan")}}}}
+    }
+    assert math.isnan(get_policy_loss_if_present(result))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "result",
     [
