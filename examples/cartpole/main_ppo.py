@@ -3,14 +3,6 @@
 Run ``uv run python -m examples.cartpole.main_ppo`` for the full
 configuration (100 generations of 100 PPO iterations on horizon 1000). It
 accepts the options of :mod:`examples.cartpole.debug` except ``--algo``.
-
-Known limitation of the framework, not of this example: PPO's training step
-receives one metrics dictionary per finished episode (241 of them for a batch of
-4000 steps of 20-step episodes, measured), while
-``core.callbacks.log_and_report_episode_metrics`` logs every episode as an
-``item`` under the same key (the identifier loses its unique ``raw`` suffix).
-RLlib's ``ItemStats.merge`` accepts a single incoming value, so the first PPO
-iteration raises an ``AssertionError``. The APPO entry point is not affected.
 """
 
 import sys
