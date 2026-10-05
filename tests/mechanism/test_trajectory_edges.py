@@ -89,6 +89,50 @@ class TestTime:
         with pytest.raises(ValueError, match="Cannot skip from trajectory length 1"):
             Trajectory({"a": 1.0}).update(3, {"a": 2.0})
 
+    def test_add_rejects_skipping_a_step(self):
+        with pytest.raises(ValueError, match="Cannot skip from trajectory length 1"):
+            Trajectory({"a": 1.0}).add(3, [Trajectory({"a": 2.0})])
+
+    def test_add_rejects_skipping_a_step_for_a_new_key_too(self):
+        with pytest.raises(ValueError, match="Cannot skip from trajectory length 2"):
+            Trajectory({"a": [1.0, 2.0]}).add(4, [Trajectory({"b": 2.0})])
+
+    def test_add_rejects_a_negative_step(self):
+        with pytest.raises(ValueError, match="non-negative"):
+            Trajectory({"a": 1.0}).add(-1, [Trajectory({"a": 2.0})])
+
+    def test_add_at_the_length_opens_a_new_step(self):
+        added = Trajectory({"a": [1.0, 2.0]}).add(2, [Trajectory({"a": 5.0})])
+
+        assert added["a"] == [1.0, 2.0, 7.0]
+
+    def test_add_rejects_the_same_skip_as_update_does(self):
+        trajectory = Trajectory({"a": [1.0, 2.0]})
+
+        with pytest.raises(ValueError) as from_update:
+            trajectory.update(5, {"a": 1.0})
+        with pytest.raises(ValueError) as from_add:
+            trajectory.add(5, [Trajectory({"a": 1.0})])
+
+        assert str(from_add.value) == str(from_update.value)
+
+    def test_adding_nothing_is_allowed_at_any_step(self):
+        # A step at which no agent has a reward adds an empty residual; it
+        # writes nothing, so it skips nothing.
+        trajectory = FlowTrajectory({"a": [1.0]})
+
+        assert trajectory.add(7, [FlowTrajectory()])["a"] == [1.0]
+        assert trajectory.add(7, [])["a"] == [1.0]
+
+    def test_mdp_add_rejects_a_clock_that_ran_ahead_of_the_trajectories(self):
+        # ``advance`` moved the clock twice without writing the rewards: the
+        # reward of the step in between would silently be zero.
+        mdp = MDPState(state={"fish": 1.0}, rewards={"a": 1.0})
+        mdp = mdp.advance(state={"fish": 1.0}).advance(state={"fish": 1.0})
+
+        with pytest.raises(ValueError, match="Cannot skip from trajectory length 1"):
+            mdp.add(MDPState(rewards={"a": 1.0}))
+
     def test_update_at_the_last_step_overwrites_it(self):
         updated = Trajectory({"a": [1.0, 2.0]}).update(1, {"a": 5.0})
 

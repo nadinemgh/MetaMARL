@@ -151,6 +151,12 @@ class MDPState:
         -------
         MDPState
             New state of the same class as ``self``.
+
+        Raises
+        ------
+        ValueError
+            If a residual holds a value for a trajectory that has not reached
+            step ``t - 1``: a step cannot be skipped, as in :meth:`update`.
         """
         if isinstance(ds, MDPState):
             ds = [ds]

@@ -222,10 +222,17 @@ class Trajectory(Generic[T]):
         up to ``t`` with its fill value, then summed. The sum is not done in
         place, so arrays shared with this trajectory are not modified.
 
+        As in :meth:`update`, a step cannot be skipped: ``t`` is at most the
+        current :attr:`length`, which is the step ``add`` opens when it is
+        equal. A leaf may lag behind the rest of the tree, a whole tree may not
+        lag behind ``t``. The check applies only when a delta holds a value to
+        add, so adding nothing is always allowed.
+
         Parameters
         ----------
         t : int
-            Timestep at which the deltas are added, non-negative.
+            Timestep at which the deltas are added, between ``0`` and
+            :attr:`length` included.
         deltas : list of Trajectory
             Residual trajectories; only the last entry of each leaf is used.
 
@@ -236,10 +243,23 @@ class Trajectory(Generic[T]):
 
         Raises
         ------
+        ValueError
+            If a delta holds a value and ``t`` is negative, or larger than the
+            current length (a step cannot be skipped).
         TypeError
             If a path is a leaf in one tree and a branch in the other.
         """
         result = self.copy()
+
+        if any(delta.length for delta in deltas):
+            if t < 0:
+                raise ValueError("t must be non-negative")
+
+            if t > result.length:
+                raise ValueError(
+                    f"Cannot skip from trajectory length {result.length} "
+                    + f"to timestep {t}"
+                )
 
         for delta in deltas:
             self._add_at_t(result.data, delta.data, t)

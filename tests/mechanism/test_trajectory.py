@@ -41,8 +41,12 @@ def test_reward_deltas_at_the_same_step_are_summed():
 
 @pytest.mark.unit
 def test_unwritten_reward_steps_are_zero():
-    mdp = _at(MDPState(rewards={"a": 2.0}), 3).add(MDPState(rewards={"a": 1.0}))
-    assert mdp.rewards["a"] == [2.0, 0, 0, 1.0]
+    # "b" was not written at the two latest steps of the tree, and starts from
+    # zero when it is written again.
+    rewards = {"a": [2.0, 3.0, 4.0], "b": 1.0}
+    mdp = _at(MDPState(rewards=rewards), 2).add(MDPState(rewards={"b": 5.0}))
+    assert mdp.rewards["b"] == [1.0, 0, 5.0]
+    assert mdp.rewards["a"] == [2.0, 3.0, 4.0]
 
     advanced = MDPState(rewards={"a": 2.0}).advance(rewards={})
     assert advanced.rewards["a"] == [2.0, 0]
