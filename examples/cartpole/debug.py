@@ -329,7 +329,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 # The fitness reads the inner training episodes.
                 env_config={"aggregation_status": "train"},
             )
-            .debugging(seed=42, num_seeds=1)
+            .debugging(seed=42)
             .reporting(queries=ES_QUERIES)
         )
         .society(_inner_config(args))

@@ -401,7 +401,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                     }
                 },
             )
-            .debugging(seed=42, num_seeds=1)
+            .debugging(seed=42)
             .reporting(queries=ES_QUERIES)
         )
         .society(_inner_config(args))

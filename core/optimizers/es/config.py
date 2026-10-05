@@ -177,3 +177,50 @@ class ESConfig(OptimizerConfig):
             self.initial_mean = initial_mean
 
         return self
+
+    @override(OptimizerConfig)
+    def debugging(
+        self, *, seed: Optional[int] = None, num_seeds: Optional[int] = None
+    ) -> Self:
+        """Seed the ES random generator. The outer level has no training seeds.
+
+        The regulator publishes one candidate context per training seed of the
+        inner level, and ``BilevelConfig`` hands those seeds to the regulator
+        environment, so a seed count set here could never take effect. It is
+        rejected instead of being ignored; set it on the society configuration.
+
+        Parameters
+        ----------
+        seed : int or None, optional
+            Seed of the generator that draws the ES noise, stored in
+            ``base_seed``. ``None`` keeps the current value.
+        num_seeds : None, optional
+            Accepted only as ``None``; any other value raises.
+
+        Returns
+        -------
+        ESConfig
+            ``self``, for chaining.
+
+        Raises
+        ------
+        TypeError
+            If ``num_seeds`` is given.
+
+        Examples
+        --------
+        >>> ESConfig().debugging(seed=42).base_seed
+        42
+        """
+        if num_seeds is not None:
+            message = (
+                "ESConfig.debugging takes no num_seeds: the regulator uses the"
+                + " training seeds of the inner level, so set num_seeds on the"
+                + " society configuration."
+            )
+            raise TypeError(message)
+
+        if seed is not None:
+            self.base_seed = seed
+
+        return self

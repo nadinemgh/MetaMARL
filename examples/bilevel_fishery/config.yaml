@@ -89,7 +89,6 @@ experiment:
 
             - debugging:
                 seed: 42
-                num_seeds: 1
 
             - reporting:
                 queries:

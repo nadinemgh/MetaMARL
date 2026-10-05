@@ -110,9 +110,9 @@ class OptimizerConfig(_Config, ABC):
     original stays editable:
 
     >>> from core.optimizers.es.config import ESConfig
-    >>> cfg = ESConfig().debugging(seed=0, num_seeds=2).training(episodes=5)
-    >>> cfg.seeds
-    [2968811710, 3677149159]
+    >>> cfg = ESConfig().debugging(seed=0).training(episodes=5)
+    >>> (cfg.base_seed, cfg.episodes)
+    (0, 5)
     >>> snapshot = cfg.copy(copy_frozen=True)
     >>> snapshot.episodes = 9  # doctest: +ELLIPSIS
     Traceback (most recent call last):
