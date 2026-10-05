@@ -108,14 +108,6 @@ def test_environment_can_be_built_without_a_reporter(toy):
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    raises=AttributeError,
-    reason=(
-        "leaders_cfg_dict is Optional and defaults to None, but __init__ calls "
-        + "leaders_cfg_dict.items() on it"
-    ),
-)
 def test_environment_can_be_built_without_leaders(toy):
     env = toy.make_env(toy.ScriptedWorld(), leaders_cfg_dict=None)
 

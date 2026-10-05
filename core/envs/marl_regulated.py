@@ -80,9 +80,9 @@ class MultiAgentEnv(ABC):
     agents_cfg_dict : dict[AgentID, AgentConfig]
         Configurations of the followers, keyed by agent identifier. Required.
     leaders_cfg_dict : dict[AgentID, AgentConfig], optional
-        Configurations of the leaders. The default ``None`` is not supported:
-        the constructor iterates over the dictionary, so pass an empty
-        dictionary to build an environment without leaders.
+        Configurations of the leaders. The default ``None`` builds an
+        environment without leaders, like an empty dictionary (default
+        ``None``).
     mechanism_id : str
         Identifier of the candidate mechanism this env instance trains against
         (the Ray optimizer configuration passes the integer index of the
@@ -256,8 +256,9 @@ class MultiAgentEnv(ABC):
 
         # Bilevel Multi-agent environment
         self.followers = {aid: cfg.build() for aid, cfg in agents_cfg_dict.items()}
+        leaders_cfg_dict = leaders_cfg_dict or {}
         self.leaders = {aid: cfg.build() for aid, cfg in leaders_cfg_dict.items()}
-        self.lids = set(leaders_cfg_dict.keys())
+        self.lids = set(self.leaders)
         self.agents = {**self.leaders, **self.followers}
 
         # Logger
