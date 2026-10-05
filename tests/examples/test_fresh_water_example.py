@@ -955,7 +955,8 @@ def test_episodes_after_a_reset_start_on_a_new_planting_day(build_env):
 
 @pytest.mark.unit
 def test_the_raven_lake_runs_inside_the_environment(build_env, tmp_path):
-    model, command = write_stand_in_raven(tmp_path)
+    # No rain, so the farm must irrigate and the stage must fall below 420.
+    model, command = write_stand_in_raven(tmp_path, rain_mm_day=0.0)
     env = build_env(
         rules=LOOSE,
         farms=1,
@@ -974,6 +975,7 @@ def test_the_raven_lake_runs_inside_the_environment(build_env, tmp_path):
     _, delivered = expected_reward(
         float(actions[farm_ids(1)[0]][IRRIGATE_ID][0]), day, LOOSE
     )
+    assert delivered > 0.0
     # The stand-in stage is 420 minus the withdrawal in m3/s.
     assert env._reading.stage_m == pytest.approx(420.0 - delivered / SECONDS_PER_DAY)
     reduced = env.logger.reduce()

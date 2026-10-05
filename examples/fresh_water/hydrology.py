@@ -905,14 +905,14 @@ for index in range((last - first).days + 1):
         withdrawn -= values[index]
     stages.append("%s, %r" % (day, 420.0 - withdrawn))
     hydrographs.append(
-        "%s, %r, %r, 2.0, 9.0" % (day, 5.0 + 0.01 * index, 3.0 + 0.01 * index)
+        "%s, %r, %r, {rain!r}, 9.0" % (day, 5.0 + 0.01 * index, 3.0 + 0.01 * index)
     )
 (out / "ohms_canshield_ReservoirStages.csv").write_text("\\n".join(stages) + "\\n")
 (out / "ohms_canshield_Hydrographs.csv").write_text("\\n".join(hydrographs) + "\\n")
 """
 
 
-def write_stand_in_raven(directory: Path) -> tuple[Path, str]:
+def write_stand_in_raven(directory: Path, rain_mm_day: float = 2.0) -> tuple[Path, str]:
     """Write a tiny model directory and an executable that mimics Raven.
 
     The stand-in reads the withdrawal series from ``input/Extraction.rvt`` and
@@ -921,15 +921,19 @@ def write_stand_in_raven(directory: Path) -> tuple[Path, str]:
     date, as Raven does. The stage of day ``k`` (counted from 1980-01-01) is
     ``420`` minus the sum of the withdrawals up to that day (cubic metres per
     second); the hydrograph has an inflow of ``5 + 0.01 k``, a release of
-    ``3 + 0.01 k``, a rain of 2 and a ``West_Montrose`` gauge of 9. The rows
-    that change from one day to the next let a test tell which day a reading
-    comes from. Every execution appends the name of its run directory to
+    ``3 + 0.01 k``, a rain of ``rain_mm_day`` and a ``West_Montrose`` gauge of
+    9. The rows that change from one day to the next let a test tell which day a
+    reading comes from. Every execution appends the name of its run directory to
     ``calls.log``, beside the executable, so that a test can count the runs.
 
     Parameters
     ----------
     directory : pathlib.Path
         Existing directory to write into.
+    rain_mm_day : float, optional
+        Daily rain the stand-in reports, in mm/day (default 2.0). A rain above
+        the crop's daily use leaves nothing to irrigate, so a test that needs a
+        withdrawal passes 0.
 
     Returns
     -------
@@ -958,6 +962,8 @@ def write_stand_in_raven(directory: Path) -> tuple[Path, str]:
         + "\t1980-01-01 00:00:00\t1\t1\n\t0.0\n:EndObservationData\n"
     )
     command = directory / "stand_in_raven"
-    command.write_text(_STAND_IN_SCRIPT.format(python=sys.executable))
+    command.write_text(
+        _STAND_IN_SCRIPT.format(python=sys.executable, rain=float(rain_mm_day))
+    )
     command.chmod(command.stat().st_mode | stat.S_IXUSR)
     return model, str(command)
