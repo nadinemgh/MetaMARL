@@ -46,9 +46,10 @@ delivered total is ``C(t)``. The transition computes ``B(t + 1)`` from the
 equation above, with the production and the noise evaluated on ``B(t)``. Every
 step pushes the series of ``FisheryMetricSchema`` (stock, growth, requested and
 delivered catches, reference points) into the environment's metric logger, when
-it was built with a schema. The observation of each fisher is the vector ``[stock / K, 0, usage / K, 0, 0]``,
-where the usage is the catch ``C`` of the previous step; the entries left at
-zero are filled by the leaders' mechanisms, for example social influence.
+it was built with a schema. The observation of each fisher is the vector
+``[stock / K, 0, usage / K, 0, 0]``, where the usage is the catch ``C`` of the
+previous step; the entries left at zero are filled by the leaders' mechanisms,
+for example social influence.
 
 References
 ----------
@@ -608,10 +609,10 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         The step is that of :class:`core.envs.marl_regulated.MultiAgentEnv`.
         Afterwards, when the environment has a metric logger (it has none
         without a schema), the mean over the fishers of the reward they
-        received at this step is pushed to ``reward_series``, the series that the regulator
-        environment reads to average the reward over the last steps of an
-        episode (the base class only logs the episode-level reductions of the
-        same value).
+        received at this step is pushed to ``reward_series``, the series that
+        the regulator environment reads to average the reward over the last
+        steps of an episode (the base class only logs the episode-level
+        reductions of the same value).
 
         Parameters
         ----------
