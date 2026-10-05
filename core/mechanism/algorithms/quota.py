@@ -26,7 +26,7 @@ import numpy as np
 from core.annotations import override
 from core.mechanism.base import ActType, MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
-from core.utils import sigmoid, smooth_positive_zero_at_origin
+from core.utils import ACTION_TEMPERATURE, sigmoid, smooth_positive_zero_at_origin
 
 EPS = 1e-8
 
@@ -200,15 +200,16 @@ class QuotaMechanism(Mechanism):
                 continue
 
             requested = np.asarray(a[target_mechanism][mdp.t], dtype=np.float32)
-            temperature = 4.0
             z = float(requested.reshape(-1)[0])
-            requested_frac = sigmoid(z / temperature)
+            requested_frac = sigmoid(z / ACTION_TEMPERATURE)
 
             excess = smooth_positive_zero_at_origin(
                 requested_frac - allowed_frac, self.usage_transition_width
             )
             delivered_frac = float(np.clip(requested_frac - excess, 1e-6, 1.0 - 1e-6))
-            delivered_z = temperature * np.log(delivered_frac / (1.0 - delivered_frac))
+            delivered_z = ACTION_TEMPERATURE * np.log(
+                delivered_frac / (1.0 - delivered_frac)
+            )
             delivered = requested.copy().reshape(-1)
             delivered[0] = delivered_z
             delivered = delivered.reshape(requested.shape)

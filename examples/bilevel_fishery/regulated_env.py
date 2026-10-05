@@ -76,7 +76,7 @@ from core.envs.hooks import reset, transition
 from core.envs.marl_regulated import MultiAgentEnv
 from core.mechanism.base import MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
-from core.utils import sigmoid
+from core.utils import ACTION_TEMPERATURE, sigmoid
 
 logger = logging.getLogger(__name__)
 
@@ -258,8 +258,7 @@ class Fishing(Mechanism):
         """
 
         z = np.asarray(action, dtype=np.float32).reshape(-1)
-        temperature = 4.0
-        return sigmoid(float(z[0]) / temperature)
+        return sigmoid(float(z[0]) / ACTION_TEMPERATURE)
 
     def apply(self, mdp: MDPState, harvest_frac: ActType) -> MDPState:
         """Record the catch this fisher requests from the current stock.
@@ -342,8 +341,7 @@ class Restore(Mechanism):
         """
 
         z = np.asarray(action, dtype=np.float32).reshape(-1)
-        temperature = 4.0
-        return sigmoid(float(z[0]) / temperature)
+        return sigmoid(float(z[0]) / ACTION_TEMPERATURE)
 
     def apply(self, mdp: MDPState, restoration_frac: ActType) -> MDPState:
         """Record the biomass this fisher restores at the current step.

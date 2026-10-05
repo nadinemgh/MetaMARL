@@ -23,20 +23,10 @@ import numpy as np
 from core.annotations import override
 from core.mechanism.base import ActType, MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
-from core.utils import sigmoid
+from core.utils import ACTION_TEMPERATURE, sigmoid
 
 MAX_SUBSIDY = 0.5
 """Subsidy rate, in reward units per unit of effort, of a regulator action of 1."""
-
-ACTION_TEMPERATURE = 4.0
-"""Temperature of the map from a raw policy output ``z`` to an effort in ``(0, 1)``.
-
-The regulator acts before the targeted agents, so the effort it reads has not
-been decoded yet. This value must equal the one the targeted mechanism uses in
-its own ``decode`` (``Fishing`` and ``Restore`` in the fishery, and
-``QuotaMechanism.apply``), otherwise the subsidised effort is not the delivered
-one.
-"""
 
 
 class SubsidyMechanism(Mechanism):
