@@ -30,13 +30,11 @@ import logging
 from abc import ABC
 from typing import Any, ClassVar, Optional
 
-import gymnasium as gym
 import numpy as np
 import ray
 from ray.actor import ActorHandle
 
 from core.agents.base import AgentConfig
-from core.annotations import override
 from core.mechanism.base import MDPState, StateType
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
@@ -343,7 +341,6 @@ class MultiAgentEnv(ABC):
         """Set the optimizer identifier stamped on every context this env publishes."""
         self._opt_id = opt_id
 
-    @override(gym.Env)
     def reset(self, mdp: MDPState) -> MDPState:
         """Start an episode: log its identity, fetch the candidate, observe.
 

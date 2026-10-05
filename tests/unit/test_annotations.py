@@ -98,3 +98,37 @@ def test_inner_descriptor_would_enforce_subclass_if_it_were_bound():
 
     with pytest.raises(TypeError, match="must be a subclass of _Parent"):
         override_check(run, _Parent).__set_name__(Unrelated, "run")
+
+
+@pytest.mark.unit
+def test_every_override_names_a_direct_base_of_its_class():
+    """``@override(Base)`` must name a base the class actually derives from.
+
+    The decorator only checks that ``Base`` has an attribute of the same name,
+    so ``@override(gym.Env)`` on a class that does not derive from ``gym.Env``
+    passes silently and misleads the reader about where the method comes from.
+    """
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    mismatches = []
+    for path in sorted(
+        [*root.joinpath("core").rglob("*.py"), *root.joinpath("examples").rglob("*.py")]
+    ):
+        tree = ast.parse(path.read_text())
+        for cls in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
+            bases = {ast.unparse(base) for base in cls.bases}
+            for method in cls.body:
+                if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for decorator in method.decorator_list:
+                    if (
+                        isinstance(decorator, ast.Call)
+                        and ast.unparse(decorator.func) == "override"
+                        and ast.unparse(decorator.args[0]) not in bases
+                    ):
+                        where = f"{path.relative_to(root)}:{method.lineno}"
+                        mismatches.append(f"{where} {cls.name}.{method.name}")
+
+    assert mismatches == []
