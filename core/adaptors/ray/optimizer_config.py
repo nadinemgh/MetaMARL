@@ -28,6 +28,7 @@ creator with ``ray.tune`` and returns a ``RayOptimizer``; the ``Algorithm``
 itself is only built later, inside the ``PolicyActor``.
 """
 
+import functools
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
@@ -194,8 +195,9 @@ class RayOptimizerConfig(OptimizerConfig):
         stored in ``self._cfg_ops[fn.__name__]`` and ``self`` is returned so
         that builders chain. Defined inside the class body without
         ``@staticmethod``; it works as a decorator at class-definition time
-        but is also exposed as an (unusable) instance method. The wrapper does
-        not copy the docstring of ``fn``.
+        but is also exposed as an (unusable) instance method. The wrapper
+        takes over the name, docstring and ``__wrapped__`` link of ``fn``
+        (``functools.wraps``), so the builders keep their own documentation.
 
         Parameters
         ----------
@@ -210,6 +212,7 @@ class RayOptimizerConfig(OptimizerConfig):
             ``self``.
         """
 
+        @functools.wraps(fn)
         def wrapper(self: Self, *args: P.args, **kwargs: P.kwargs) -> Self:
             """Record the call and return ``self`` for chaining."""
 

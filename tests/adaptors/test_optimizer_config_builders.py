@@ -120,6 +120,20 @@ def test_a_builder_records_a_deferred_call_that_replays_on_the_rllib_config(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("builder, _rllib_method, _op_key", PASSTHROUGH_BUILDERS)
+def test_a_recording_builder_keeps_its_own_name_and_documentation(
+    builder, _rllib_method, _op_key
+):
+    method = getattr(RayOptimizerConfig, builder)
+
+    assert method.__name__ == builder
+    assert method.__doc__ is not None and method.__doc__.startswith(
+        ("Record a deferred", "Deferred")
+    )
+    assert getattr(PPOptimizerConfig(), builder).__doc__ == method.__doc__
+
+
+@pytest.mark.unit
 def test_a_builder_called_twice_keeps_only_its_last_call():
     cfg = PPOptimizerConfig().resources(num_gpus=0).resources(num_gpus=1)
 
