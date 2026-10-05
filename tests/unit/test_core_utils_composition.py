@@ -1,11 +1,9 @@
 """Unit tests for the composition helpers of ``core.utils``.
 
 ``intersect`` narrows gymnasium spaces (boxes and dictionaries of boxes) when
-mechanisms are composed, ``logical_or_dict`` merges termination flags, and
-``add`` sums additive quantities, recursing into dictionaries. ``None`` always
-means "this component contributes nothing". The scalar and smooth helpers of
-the same module are covered in ``test_core_utils.py``. ``add`` has no caller in
-``core`` today (``MDPState.add`` uses ``Trajectory.add``), but it is public.
+mechanisms are composed and ``logical_or_dict`` merges termination flags.
+``None`` always means "this component contributes nothing". The scalar and
+smooth helpers of the same module are covered in ``test_core_utils.py``.
 """
 
 from __future__ import annotations
@@ -14,7 +12,7 @@ import numpy as np
 import pytest
 from gymnasium import spaces
 
-from core.utils import add, intersect, logical_or_dict
+from core.utils import intersect, logical_or_dict
 
 
 def box(low, high, dtype=np.float32):
@@ -135,49 +133,6 @@ def test_intersect_rejects_mixed_space_types(base, delta, message):
 def test_intersect_rejects_unsupported_space_types():
     with pytest.raises(TypeError, match="Cannot intersect spaces of type Discrete"):
         intersect(spaces.Discrete(3), [spaces.Discrete(3)])
-
-
-# --------------------------------------------------------------------------- #
-# add
-# --------------------------------------------------------------------------- #
-
-
-@pytest.mark.unit
-def test_add_without_deltas_returns_the_base():
-    assert add(5.0, []) == 5.0
-    assert add(5.0, [None]) == 5.0
-    assert add(None, []) is None
-
-
-@pytest.mark.unit
-def test_add_sums_scalars_and_arrays():
-    assert add(1.0, [2.0, None, 3.5]) == 6.5
-    np.testing.assert_array_equal(
-        add(np.array([1.0, 2.0]), [np.array([10.0, 20.0])]), [11.0, 22.0]
-    )
-
-
-@pytest.mark.unit
-def test_add_without_base_sums_the_deltas():
-    assert add(None, [4.0]) == 4.0
-    assert add(None, [1.0, 2.0, 3.0]) == 6.0
-
-
-@pytest.mark.unit
-def test_add_merges_dictionaries_key_by_key():
-    base = {"a": 1.0, "b": 2.0}
-
-    result = add(base, [{"a": 10.0, "c": 5.0}, {"a": 100.0}])
-
-    assert result == {"a": 111.0, "b": 2.0, "c": 5.0}
-    assert base == {"a": 1.0, "b": 2.0}
-
-
-@pytest.mark.unit
-def test_add_recurses_into_nested_dictionaries():
-    result = add({"x": {"y": 1.0}}, [{"x": {"y": 2.0, "z": 3.0}}])
-
-    assert result == {"x": {"y": 3.0, "z": 3.0}}
 
 
 # --------------------------------------------------------------------------- #

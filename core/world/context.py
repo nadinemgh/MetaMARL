@@ -6,7 +6,7 @@ bilevel loop. The outer (regulator) optimizer publishes one
 environments fetch the candidate that matches their index and seed, and the
 regulator appends a ``done`` ``MechanismContext`` carrying the aggregated
 fitness of each candidate. ``EnvStepContext`` is the schema for one
-environment transition; the ``World`` can store and filter such records, but no
+environment transition; the ``World`` can store such records, but no
 environment of the current fishery pipeline publishes them. ``MechanismStatus``
 records where a published mechanism stands in the publish, train, evaluate
 cycle. This module holds only the data definitions; the registry that stores
@@ -136,10 +136,9 @@ class MechanismContext(ContextSchema):
         matching ``mechanism_id`` and fetch their candidate by this index.
     env_id : str or None
         Identifier of the environment that produced the context. Publication
-        from the regulator leaves it ``None``. ``World.set_new_context`` and
-        ``World.update_context`` reject a ``None`` value; ``append_context``,
-        the path used by ``RegulatorEnv.step`` and by the regulators of the
-        examples, does not.
+        from the regulator leaves it ``None``. ``World.update_context`` rejects
+        a ``None`` value; ``append_context``, the path used by
+        ``RegulatorEnv.step`` and by the regulators of the examples, does not.
     seed : int or None
         Policy (training) seed this copy of the candidate is meant for. The
         regulator publishes one copy per training seed so that each seeded
@@ -191,11 +190,10 @@ class EnvStepContext(ContextSchema):
 
     An environment that records its transitions in the ``World`` appends one of
     these per ``reset`` (with ``reward=0.0`` and ``action=None``) and per
-    ``step``. The ``World`` can store such records and filter them with
-    ``get_env_step_contexts``, ``get_latest_env_step_contexts`` and
-    ``get_new_env_step_contexts``. No environment of the current fishery
-    pipeline publishes them: the regulator derives fitness from the inner
-    optimizer's metrics instead. All fields are required.
+    ``step``. The ``World`` can store such records through ``append_context``.
+    No environment of the current fishery pipeline publishes them: the
+    regulator derives fitness from the inner optimizer's metrics instead. All
+    fields are required.
 
     Attributes
     ----------
@@ -281,9 +279,8 @@ class Context:
         ``str``, but the World also accepts ``None``, in which case the context
         is stored without an optimizer entry.
     step : int
-        Step counter of the producing environment, dimensionless. A value of
-        ``0`` marks the first transition of an episode for
-        ``World.get_latest_env_step_contexts``.
+        Step counter of the producing environment, dimensionless; ``0`` marks
+        the first transition of an episode.
     env : str
         Name of the producing environment; the regulator uses its class name.
     payload : ContextSchema

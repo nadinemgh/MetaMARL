@@ -8,7 +8,7 @@ configurations. Smooth, differentiable stand-ins for ``max``, ``min`` and
 clipping are used when shaping mechanism rewards and agent utilities
 (``sigmoid``, ``smooth_positive``, ``smooth_min``, ``smooth_cap_01``,
 ``smooth_positive_zero_at_origin``). Composition helpers (``intersect``,
-``add``, ``logical_or_dict``) combine the partial descriptions that several
+``logical_or_dict``) combine the partial descriptions that several
 mechanisms contribute to one ``MDPState``.
 """
 
@@ -557,75 +557,6 @@ def intersect(
         return spaces.Box(low=low, high=high, dtype=x.dtype)
 
     raise TypeError(f"Cannot intersect spaces of type {type(x).__name__}")
-
-
-def add(x: Any, dxs: list[Any]) -> Any:
-    """Sum an additive quantity with residual contributions.
-
-    ``None`` means "no contribution": it is dropped from ``dxs``, and a missing
-    base is replaced by the first remaining delta. Dictionaries are added key
-    by key, recursively, and keys present in only one operand are kept; any
-    other values are combined with ``+``, so scalars and NumPy arrays both
-    work. Dictionary inputs are copied, not modified.
-
-    Parameters
-    ----------
-    x : Any
-        Base value: a number, an array, a (nested) dict of such values, or
-        ``None``.
-    dxs : list of Any
-        Contributions of the same kind as ``x``; ``None`` entries are ignored.
-
-    Returns
-    -------
-    Any
-        ``x`` when there is nothing to add, the single delta when ``x`` is
-        ``None`` and one delta remains, otherwise the sum, with the same
-        structure as the inputs.
-
-    When to use: to accumulate residual values contributed by several
-    components onto a base, for instance per-agent rewards held in nested
-    dicts. No component of ``core`` calls it today.
-
-    Examples
-    --------
-    >>> add(1.0, [2.0, None, 3.5])
-    6.5
-    >>> add({"a": 1.0, "b": 2.0}, [{"a": 10.0, "c": 5.0}]) == {
-    ...     "a": 11.0, "b": 2.0, "c": 5.0
-    ... }
-    True
-    """
-
-    dxs = [dx for dx in dxs if dx is not None]
-
-    if not dxs:
-        return x
-
-    if x is None:
-        if len(dxs) == 1:
-            return dxs[0]
-
-        x = dxs[0]
-        dxs = dxs[1:]
-
-    if isinstance(x, dict):
-        result = dict(x)
-        keys = set().union(result, *(dx.keys() for dx in dxs if isinstance(dx, dict)))
-
-        for key in keys:
-            base = result.get(key)
-            deltas = [dx[key] for dx in dxs if isinstance(dx, dict) and key in dx]
-            result[key] = add(base, deltas)
-
-        return result
-
-    value = x
-
-    for dx in dxs:
-        value = value + dx
-
-    return value
 
 
 def logical_or_dict(

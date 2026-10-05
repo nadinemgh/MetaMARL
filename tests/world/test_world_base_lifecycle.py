@@ -12,7 +12,7 @@ fetched for evaluation. The tests pin down the transition table of
 The asymmetry between the two is intentional: since commit ``b330a82`` the
 environment keeps the last candidate it fetched, so ``None`` means "keep what
 you have". The legacy accessors ``get_mechanism`` and ``try_get_mechanism`` and
-the two flush methods are covered here too. The ``World`` is the plain class
+``flush`` are covered here too. The ``World`` is the plain class
 behind the Ray actor, so no Ray runtime is involved.
 """
 
@@ -231,20 +231,3 @@ def test_flushed_evaluation_entries_are_no_longer_fetchable(
     world.flush(status=MechanismStatus.eval)
 
     assert world.get_mechanism_by_id(0, 0, MechanismStatus.eval) is None
-
-
-@pytest.mark.unit
-def test_flush_ctx_removes_contexts_but_not_other_registries(
-    world, make_context, make_mechanism, make_other
-):
-    mech_id = world.append_context(make_context(make_mechanism(index=0)))
-    other_id = world.append_context(make_context(make_other()))
-
-    world.flush_ctx([])
-    assert world.get_ctx_ids() == {mech_id, other_id}
-
-    world.flush_ctx([mech_id, "unknown-id"])
-
-    assert world.get_ctx_ids() == {other_id}
-    assert mech_id in world.get_mechanism_registry()
-    assert mech_id in world.get_opt_ctx_ids("opt")
