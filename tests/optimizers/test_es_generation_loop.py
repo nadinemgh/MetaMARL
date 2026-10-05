@@ -7,8 +7,7 @@ without Ray. The summary keys and the stop rules are already covered by
 what it keeps from the answer and how it fails.
 
 A regulator that holds only mechanisms with an empty action space puts the
-optimizer in fixed mode; that path is exercised by the strict ``xfail`` at the
-end of the file.
+optimizer in fixed mode; that path is exercised at the end of the file.
 """
 
 import logging
@@ -334,17 +333,12 @@ class TestConvergenceHook:
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason="_to_logger_payload reads env.m_space, which no environment defines",
-)
 def test_fixed_mode_generation_completes(es_factory, scripted_env):
     """A regulator with only empty-action mechanisms is a documented regime.
 
     The module docstring describes a fixed mode in which the mechanism is
-    "simply evaluated and reported"; ``batch_capacity`` and ``_update_parameters``
-    support it, but the payload of the generation dereferences a stale
-    ``env.m_space`` and raises ``AttributeError``.
+    evaluated and reported; the payload of the generation must carry the
+    fitness values and no parameter entries.
     """
     opt = es_factory({"penalty": unit_box(0)}, population=2)
     opt.env = scripted_env(lambda actions: np.array([1.0, 2.0]))
@@ -353,3 +347,10 @@ def test_fixed_mode_generation_completes(es_factory, scripted_env):
 
     assert result["episodes"] == 1
     assert result["best_fitness"] == 2.0
+
+    payload = opt.logger.peek()
+    assert payload.fitness_mean == [1.5]
+    assert payload.fitness_best == [2.0]
+    assert payload.search_mean == {}
+    assert payload.by_mechanism["1"].fitness == [2.0]
+    assert payload.by_mechanism["1"].by_parameter == {}

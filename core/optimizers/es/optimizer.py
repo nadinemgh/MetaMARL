@@ -19,10 +19,8 @@ Three regimes share the same ``train()``:
   ``sigma`` expands after an accepted candidate and contracts after a rejected
   one;
 - fixed mode (``dimension == 0``): no parameters, the fixed mechanism is
-  meant to be evaluated and reported. The update of the optimizer supports it,
-  but a generation does not complete today: the metric payload of a fixed-mode
-  generation reads ``env.m_space``, which the regulator environments do not
-  define, so ``train`` raises ``AttributeError``.
+  evaluated and reported. Every generation evaluates the same empty candidates;
+  the logged payload has no parameter entries, only the fitness values.
 """
 
 from __future__ import annotations
@@ -714,20 +712,13 @@ class ESOptimizer(Optimizer):
     ) -> ESSchema:
         """Convert one completed ES generation to its metric schema."""
 
-        if self.fixed_mode:
-            mechanism = self.env.m_space.default()
-            parameter_names = mechanism.param_names()
-            default_vector = np.asarray(mechanism.to_vector(), dtype=np.float32)
-            logged_population = np.repeat(
-                default_vector[None, :], repeats=population.shape[0], axis=0
-            )
-            logged_mean = default_vector
-            logged_best = default_vector
-        else:
-            parameter_names = self.parameter_names
-            logged_population = population
-            logged_mean = mean
-            logged_best = self.best_candidate
+        # In fixed mode the dimension is 0: the parameter names, the mean and
+        # the candidates are empty, so the payload only carries the fitness
+        # values of the evaluated batch.
+        parameter_names = self.parameter_names
+        logged_population = population
+        logged_mean = mean
+        logged_best = self.best_candidate
 
         best_idx = int(np.argmax(fitness))
 
