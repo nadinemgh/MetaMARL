@@ -1,26 +1,18 @@
-"""Multi-agent environment regulated by a published mechanism.
+"""RLlib adapter of the framework's multi-agent environment.
 
-``MultiAgentRegulatedEnv`` is the RLlib-facing environment of the inner
-optimization level. It combines :class:`core.envs.regulated.RegulatedEnv`
-(mechanism lifecycle and regulated reward) with RLlib's ``MultiAgentEnv``. A
-concrete benchmark implements the abstract pieces of the step:
-``transition_kernel`` (``S_{t+1} = T(S_t, A_t)``), ``intrinsic_utility``
-(``u_i = U(a_i, S_t)``), ``violation_signal`` and ``penalty`` (the regulated
-reward ``u_i - lambda(M) * v_i``), ``_observation`` (``o_i = O_i(S_t)``) and
-``_is_truncated``. The base class owns the step lifecycle: it computes the
-intrinsic utilities, shapes and aggregates the rewards, advances the state,
-appends the mechanism vector ``theta`` to every observation and publishes an
-``EnvStepContext`` to the ``World``.
+``RLlibMultiAgentEnvAdapter`` is the only environment class RLlib sees in the
+inner optimization level. It wraps a ``core.envs.marl_regulated.MultiAgentEnv``,
+which works on an ``MDPState`` trajectory and owns the mechanism lifecycle, and
+translates it into RLlib's ``MultiAgentEnv`` contract: ``reset`` returns
+``(obs, infos)`` and ``step`` returns ``(obs, rewards, terminateds, truncateds,
+infos)``, all keyed by agent ID. ``RayOptimizerConfig.build_optimizer`` creates
+one adapter around each sub-environment that RLlib asks for.
 
-The mechanism in force is fetched from the ``World`` at ``reset`` by
-``mechanism_id``. Until one is published the environment returns zero rewards
-and does not advance its dynamics, so RLlib's environment checks can run
-before training starts.
-
-Metrics are optional: with a ``schema`` the env owns a ``MetricLogger`` fed by
-``_log`` (episode identity at ``reset``, rewards and ``iter`` at every step),
-and with a ``reporter_cfg`` a ``Reporter`` renders the configured ``queries``
-against it (see ``core.callbacks``).
+The adapter does not compute rewards, advance the dynamics or talk to the
+``World`` itself; it only builds the ``MDPState`` handed to the wrapped
+environment and reads the answers back. Only the followers are RLlib agents:
+the leaders of the wrapped environment never appear in the spaces or in the
+returned dictionaries.
 """
 
 import logging
@@ -42,10 +34,90 @@ logger = logging.getLogger(__name__)
 
 
 class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
+    """RLlib ``MultiAgentEnv`` that drives a framework ``MultiAgentEnv``.
+
+    The wrapped environment keeps the episode state in an ``MDPState``; the
+    adapter creates a fresh one at every ``reset``, hands it to
+    ``env.reset`` and ``env.step`` and converts the returned trajectories to
+    the per-agent dictionaries RLlib expects. The agent IDs are the keys of
+    ``env.followers``, in declaration order. The observation and action spaces
+    are ``gymnasium.spaces.Dict`` objects keyed by agent ID; the action space
+    of an agent is itself a ``Dict`` keyed by mechanism ID, so an agent
+    submits one action per mechanism it controls. The identity of the wrapped
+    environment (mechanism, seeds, mode), its metric logger and its reporter
+    are exposed as attributes so that RLlib callbacks can read them.
+
+    Parameters
+    ----------
+    env : MultiAgentEnv
+        Framework environment to wrap. It must provide ``followers`` (agent ID
+        to agent configuration with ``observation_space`` and ``mechanisms``),
+        ``mechanism_id``, ``seed``, ``policy_seed``, ``mode``, ``logger`` and
+        ``reporter``, and the ``reset(mdp)`` and ``step(mdp)`` methods.
+    **kwargs : Any
+        Forwarded to ``ray.rllib.MultiAgentEnv.__init__``.
+
+    Attributes
+    ----------
+    env : MultiAgentEnv
+        The wrapped environment.
+    agents, possible_agents : list of str
+        Follower IDs, ``"<agent_type>:<i>"`` in the layout built by
+        ``RayOptimizerConfig``. Both lists are equal copies.
+    observation_spaces : gymnasium.spaces.Dict
+        Observation space of every follower.
+    action_spaces : gymnasium.spaces.Dict
+        For every follower, a ``Dict`` of the action space of each mechanism.
+    mechanism_id, seed, policy_seed, mode
+        Copied from the wrapped environment: the mechanism candidate the
+        environment trains against, its random seed, the seed of the policy it
+        trains and the lifecycle status (``"train"`` or ``"eval"``).
+    logger, reporter
+        The wrapped environment's ``MetricLogger`` and ``Reporter`` (either may
+        be ``None``).
+
+    When to use: you rarely build it directly. ``RayOptimizerConfig`` wraps
+    every environment it creates in this class so that RLlib can sample from a
+    framework environment. Build it by hand to run an environment episode
+    outside of RLlib, for instance in a test.
+
+    Examples
+    --------
+    Wrap a minimal stand-in environment with one follower that controls one
+    mechanism (the stand-in only needs the attributes the adapter reads at
+    construction):
+
+    >>> from types import SimpleNamespace
+    >>> import numpy as np
+    >>> from gymnasium import spaces
+    >>> obs = spaces.Box(0.0, 1.0, shape=(2,), dtype=np.float32)
+    >>> quota = spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32)
+    >>> follower = SimpleNamespace(
+    ...     observation_space=obs,
+    ...     mechanisms={"quota": SimpleNamespace(action_space=quota)},
+    ... )
+    >>> env = SimpleNamespace(
+    ...     mechanism_id="0",
+    ...     seed=11,
+    ...     policy_seed=22,
+    ...     mode="train",
+    ...     followers={"fisher:0": follower},
+    ...     logger=None,
+    ...     reporter=None,
+    ... )
+    >>> adapter = RLlibMultiAgentEnvAdapter(env)
+    >>> adapter.agents
+    ['fisher:0']
+    >>> adapter.action_spaces["fisher:0"]["quota"]
+    Box(0.0, 1.0, (1,), float32)
+    >>> adapter.policy_seed
+    22
+    """
+
     _env: MultiAgentEnv
     _mdp: MDPState
 
-    def __init__(self, env: MultiAgentEnv, **kwargs):
+    def __init__(self, env: MultiAgentEnv, **kwargs: Any):
         super().__init__(**kwargs)
         self.env = env
 
@@ -79,6 +151,30 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     def reset(
         self, *, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None
     ) -> tuple[MultiAgentDict, MultiAgentDict]:
+        """Start a new episode and return the first observation of each agent.
+
+        A fresh ``MDPState`` carrying the follower IDs and the observation and
+        action spaces is passed to ``env.reset``; the previous episode is
+        discarded. ``seed`` and ``options`` are accepted for compatibility with
+        the Gymnasium signature and ignored: the wrapped environment is seeded
+        once at construction and keeps its random generator across episodes.
+
+        Parameters
+        ----------
+        seed : int or None, optional
+            Ignored.
+        options : dict or None, optional
+            Ignored.
+
+        Returns
+        -------
+        obs : dict of str to numpy.ndarray
+            Observation of every follower at time 0, shaped like the agent's
+            observation space.
+        infos : dict
+            Always empty.
+        """
+
         # NOTE:
         # `seed` and `options` are environment-bound configuration.
         # The environment is seeded once at construction and owns a persistent RNG
@@ -101,6 +197,36 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     ) -> tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
+        """Apply one action per agent and advance the environment by one step.
+
+        The actions are written into the current ``MDPState`` and the wrapped
+        environment steps once. The returned rewards are those earned during
+        the step that just finished (the entry at time ``t - 1`` of the new
+        state), while the observations belong to the new time step ``t``.
+        ``reset`` must have been called first.
+
+        Parameters
+        ----------
+        action_dict : dict of str to dict
+            For every follower, a dict mapping mechanism ID to the action of
+            that mechanism, shaped like the matching entry of
+            ``action_spaces``.
+
+        Returns
+        -------
+        obs : dict of str to numpy.ndarray
+            Observation of every follower at the new time step.
+        rewards : dict of str to float
+            Reward of every follower for the step just taken (reward units of
+            the benchmark).
+        terminateds : dict of str to bool
+            Per-agent termination flags plus the ``"__all__"`` key.
+        truncateds : dict of str to bool
+            Per-agent truncation flags plus the ``"__all__"`` key.
+        infos : dict
+            Always empty.
+        """
+
         self._mdp.update(actions=action_dict)
         m: MDPState = self.env.step(self._mdp)
         aids = self.possible_agents

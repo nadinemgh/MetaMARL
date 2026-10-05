@@ -95,14 +95,28 @@ def wait_for_learner_thread(
     TimeoutError
         If the thread has not drained the buffer within ``timeout_s``.
 
-    When to use
-    -----------
-    Right before reading an APPO learner's weights for evaluation, once
-    ``Algorithm.train`` has returned and no further batch will be queued.
+    When to use: right before reading an APPO learner's weights for
+    evaluation, once ``Algorithm.train`` has returned and no further batch
+    will be queued. ``PolicyActor.evaluate`` does it for every evaluation pass.
 
     Examples
     --------
+    Learners outside the IMPALA family update synchronously, so the call
+    returns at once:
+
+    >>> from types import SimpleNamespace
+    >>> wait_for_learner_thread(SimpleNamespace())
+
+    On a built APPO algorithm the function runs on each learner actor:
+
     >>> algo.learner_group.foreach_learner(wait_for_learner_thread)  # doctest: +SKIP
+
+    References
+    ----------
+    .. [1] Espeholt, L., Soyer, H., Munos, R., et al. (2018). IMPALA:
+       Scalable Distributed Deep-RL with Importance Weighted Actor-Learner
+       Architectures. arXiv:1802.01561. The decoupled actor-learner
+       architecture that RLlib's IMPALA and APPO learners follow.
     """
 
     if not isinstance(learner, IMPALALearner):
@@ -149,6 +163,29 @@ def wait_for_consumer(
         If ``thread`` is not alive.
     TimeoutError
         If ``thread`` has not found the buffer empty within ``timeout_s``.
+
+    When to use: when you hold the learner thread and its buffer directly, as
+    in a test; ``wait_for_learner_thread`` finds both on a real learner. The
+    first call switches the class of ``buffer`` to ``_ObservedCircularBuffer``
+    in place and keeps it for later calls.
+
+    Examples
+    --------
+    An idle consumer is blocked in ``sample`` on an empty buffer, so the wait
+    returns as soon as the observation is in place:
+
+    >>> import threading
+    >>> buffer = CircularBuffer(num_batches=2, iterations_per_batch=1)
+    >>> consumer = threading.Thread(target=buffer.sample, daemon=True)
+    >>> consumer.start()
+    >>> wait_for_consumer(consumer, buffer, timeout_s=10.0)
+    >>> class Batch:
+    ...     def env_steps(self):
+    ...         return 1
+    >>> _ = buffer.add(Batch())  # lets the consumer finish
+    >>> consumer.join(timeout=10.0)
+    >>> consumer.is_alive()
+    False
     """
 
     if not isinstance(buffer, CircularBuffer):

@@ -3,7 +3,9 @@
 ``RayRuntimeConfig`` gathers the knobs that must be set before Ray and torch
 start (device visibility, thread counts, log verbosity) and ``RayRuntime``
 applies them once per process. The bilevel optimizer calls
-``RayRuntime.ensure_initialized`` before building any actor.
+``RayRuntime.ensure_initialized`` before building any actor. Applying a
+configuration changes process-wide state (environment variables, torch's
+default device, logger levels and the Ray runtime).
 """
 
 import logging
@@ -22,33 +24,54 @@ DeviceType = Literal["cpu", "cuda", "mps"]
 class RayRuntimeConfig:
     """Settings applied to the process before ``ray.init``.
 
+    The dataclass only stores the settings. ``initialize`` exports them as
+    environment variables, sets torch's default device and starts Ray; it is
+    normally reached through ``RayRuntime.ensure_initialized``.
+
     Attributes
     ----------
     device : {"cpu", "cuda", "mps"}
         Torch default device, also used to hide or expose accelerators
-        through environment variables (see ``_apply_env_vars``).
+        through environment variables (see ``_apply_env_vars``). Default
+        ``"cpu"``.
     num_cpus : int or None
-        If set, forwarded to ``ray.init(num_cpus=...)``.
+        If set, forwarded to ``ray.init(num_cpus=...)``. Default ``None``.
     num_gpus : int or None
         If set, exported as ``RLLIB_NUM_GPUS`` and forwarded to
-        ``ray.init(num_gpus=...)``.
+        ``ray.init(num_gpus=...)``. Default ``None``.
     omp_threads : int
         Exported as ``OMP_NUM_THREADS`` to stop torch from oversubscribing
         cores when many env runners share the machine. Default ``1``.
     disable_mps : bool
-        When ``device="cpu"``, also export ``RAY_USE_MPS=0``.
+        When ``device="cpu"``, also export ``RAY_USE_MPS=0``. Default ``True``.
     disable_cuda : bool
         When ``device="cuda"``, hide the GPUs with ``CUDA_VISIBLE_DEVICES=""``.
         The default ``True`` therefore disables CUDA even when it is
         requested; set it to ``False`` to actually use a GPU.
     logging_level : str
-        Passed to ``ray.init(logging_level=...)``.
+        Passed to ``ray.init(logging_level=...)``. Default ``"ERROR"``.
     runtime_env : dict or None
-        Passed to ``ray.init(runtime_env=...)``.
+        Passed to ``ray.init(runtime_env=...)``. Default ``None``.
     init_kwargs : dict
-        Extra keyword arguments forwarded verbatim to ``ray.init``.
+        Extra keyword arguments forwarded verbatim to ``ray.init``. Default
+        an empty dict.
     ray_debug : bool
-        Export ``RAY_DEBUG=1`` so remote breakpoints are honoured.
+        Export ``RAY_DEBUG=1`` so remote breakpoints are honoured. Default
+        ``True``.
+
+    When to use: build one to choose the compute device and the thread and
+    log settings of a run before any optimizer is created, then hand it to
+    ``RayRuntime.ensure_initialized`` (the bilevel optimizer does this for you).
+
+    Examples
+    --------
+    Building a configuration has no side effect; only ``initialize`` does:
+
+    >>> cfg = RayRuntimeConfig(device="cpu", num_cpus=4, omp_threads=1)
+    >>> cfg.device, cfg.num_cpus, cfg.logging_level
+    ('cpu', 4, 'ERROR')
+    >>> cfg.init_kwargs
+    {}
     """
 
     device: DeviceType = "cpu"
@@ -152,7 +175,22 @@ class RayRuntimeConfig:
 
 
 class RayRuntime:
-    """Idempotent entry point for starting Ray once per process."""
+    """Idempotent entry point for starting Ray once per process.
+
+    The class is a namespace for the classmethod ``ensure_initialized``; it is
+    never instantiated. Whether Ray is already running is decided by
+    ``ray.is_initialized()``, not by the class attribute ``_initialized``,
+    which is set after a start and never read.
+
+    When to use: call ``RayRuntime.ensure_initialized(cfg)`` once before
+    creating any ``PolicyActor``; repeated calls are harmless.
+
+    Examples
+    --------
+    Starting Ray needs a runtime, so the call is not executed here:
+
+    >>> RayRuntime.ensure_initialized(RayRuntimeConfig())  # doctest: +SKIP
+    """
 
     _initialized = False
 

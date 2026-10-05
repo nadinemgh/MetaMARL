@@ -32,11 +32,44 @@ class PolicyActor:
     ``_init_weights`` so that ``reset`` can restore the same starting point
     at each outer iteration.
 
+    The class is decorated with ``@ray.remote(num_cpus=1)``: callers create it
+    with ``PolicyActor.remote(algo_config)`` and invoke its methods with
+    ``actor.<method>.remote(...)``, collecting results with ``ray.get``.
+
     Parameters
     ----------
     algo_config : AlgorithmConfig
         Fully resolved RLlib configuration (environment registered, RLModule
         specs and policy mapping applied). Kept so that ``reset`` can rebuild.
+
+    Attributes
+    ----------
+    algo_config : AlgorithmConfig
+        The configuration the actor was created with.
+    algo : Algorithm
+        The live RLlib algorithm; replaced by ``reset``.
+
+    When to use: you do not create it directly. ``RayOptimizer`` spawns one per
+    inner optimizer and forwards ``train``, ``evaluate``, ``reset`` and ``stop``
+    to it, so the algorithm and its workers live outside the driver process.
+
+    Examples
+    --------
+    The plain Python class behind the decorator can be exercised without a Ray
+    runtime when the configuration is a stand-in whose ``build_algo`` returns a
+    fake algorithm:
+
+    >>> from types import SimpleNamespace
+    >>> algo = SimpleNamespace(
+    ...     get_weights=lambda: {"w": 1},
+    ...     train=lambda: {"training_iteration": 1},
+    ... )
+    >>> config = SimpleNamespace(build_algo=lambda: algo)
+    >>> actor = PolicyActor.__ray_metadata__.modified_class(config)
+    >>> actor.train()
+    {'training_iteration': 1}
+    >>> actor._init_weights
+    {'w': 1}
     """
 
     def __init__(self, algo_config: AlgorithmConfig):
@@ -71,6 +104,12 @@ class PolicyActor:
         -------
         ResultDict
             RLlib evaluation results.
+
+        Raises
+        ------
+        Exception
+            Whatever ``wait_for_learner_thread`` raised on a learner (for
+            example ``TimeoutError``), re-raised before evaluating.
 
         Notes
         -----

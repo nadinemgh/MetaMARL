@@ -1,16 +1,18 @@
 """Inner-loop optimizer backed by an RLlib ``Algorithm`` running in Ray.
 
-``RayOptimizer`` is the ``Optimizer`` node the regulator drives: ``run`` is one
-RLlib training iteration, ``evaluate`` one fixed-duration evaluation pass and
-``reset`` a rebuild of the policy from its initial weights. The algorithm itself
-lives in a ``PolicyActor``; this class only forwards calls and keeps light
-bookkeeping (inner iteration counter, per-iteration return and loss) for logs.
+``RayOptimizer`` is the ``Optimizer`` node the regulator drives: ``train`` runs
+the configured number of RLlib training iterations followed by one evaluation
+pass, ``evaluate`` is one fixed-duration evaluation pass, ``reset`` rebuilds the
+policy from its initial weights and ``stop`` stops the algorithm. The algorithm
+itself lives in a ``PolicyActor``; this class forwards calls to it, converts
+each RLlib result into the typed ``RaySchema`` held by its ``MetricLogger`` and
+keeps light bookkeeping (per-iteration return and loss) for logs.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import ray
@@ -43,35 +45,84 @@ if TYPE_CHECKING:
 class RayOptimizer(Optimizer):
     """Optimizer wrapping an RLlib algorithm through a ``PolicyActor``.
 
+    The inner level of the bilevel framework: for the mechanisms published by
+    the regulator it trains a society of seeded policies with RLlib, evaluates
+    them, and exposes the resulting metrics as a ``RaySchema``. The RLlib
+    ``Algorithm`` is never held by the driver; a ``PolicyActor`` spawned at
+    construction owns it and every call is forwarded with ``.remote()``.
+
     Parameters
     ----------
     config : RayOptimizerConfig
         Frozen configuration whose ``rllib_cfg`` is fully resolved (this is
         what ``RayOptimizerConfig.build_optimizer`` passes). A ``PolicyActor``
         is spawned from it immediately.
+    **kwargs : Any
+        Forwarded to ``Optimizer.__init__`` (``world`` and ``reporting``).
 
     Attributes
     ----------
     policy_actor : ActorHandle[PolicyActor]
         Remote owner of the ``Algorithm``.
+    logger : MetricLogger
+        Logger built from ``RaySchema``; every training and evaluation result
+        is pushed into it.
     eval_episodes : int
         ``evaluation_duration // evaluation_config["rollout_fragment_length"]``,
-        an estimate of episodes per evaluation. Raises ``ValueError`` at
-        construction when ``evaluation`` was never called or its
-        ``evaluation_config`` has no ``rollout_fragment_length``.
+        an estimate of episodes per evaluation (episodes).
     _module_ids : tuple of str
         IDs of the learner modules declared in ``rllib_cfg.policies``; each
         gets one learner entry per training iteration, with NaN statistics
         on the iterations where RLlib reports none.
     _inner_iter : int
-        Training iterations since the last ``reset``.
+        Set to ``0`` by ``reset``. It does not exist before the first
+        ``reset`` and ``train`` never updates it: the iteration index of a
+        training pass is the loop counter of ``train``.
     _es_round : int
         Number of ``reset`` calls so far, i.e. the outer (ES) generation.
     _training_rewards, _training_losses : list of float
-        Per-iteration mean return and policy loss since the last ``reset``.
+        Per-iteration mean return (reward units) and policy loss since the
+        last ``reset``.
+
+    Raises
+    ------
+    ValueError
+        At construction, when ``evaluation`` was never called or its
+        ``evaluation_config`` has no ``rollout_fragment_length``.
+
+    When to use: you do not instantiate it by hand. Declare the inner level
+    with a ``RayOptimizerConfig`` subclass (``APPOptimizerConfig`` or
+    ``PPOptimizerConfig``) and let ``build_optimizer`` create the optimizer.
+
+    Examples
+    --------
+    The optimizer needs a Ray actor, which a test double replaces here; the
+    configuration is a stand-in carrying the attributes the optimizer reads:
+
+    >>> from types import SimpleNamespace
+    >>> from unittest.mock import patch
+    >>> rllib_cfg = SimpleNamespace(
+    ...     evaluation_config={"rollout_fragment_length": 5},
+    ...     evaluation_duration=10,
+    ...     num_envs_per_env_runner=6,
+    ...     policies={"fisher_m0_s1": None},
+    ... )
+    >>> config = SimpleNamespace(
+    ...     episodes=1, env=None, rllib_cfg=rllib_cfg, seeds=[1, 2]
+    ... )
+    >>> with patch("core.adaptors.ray.policy_actor.PolicyActor"):
+    ...     optimizer = RayOptimizer(config=config)
+    >>> optimizer.eval_episodes, optimizer.batch_capacity
+    (2, 3)
+
+    References
+    ----------
+    .. [1] Liang, E., Liaw, R., Moritz, P., et al. (2018). RLlib: Abstractions
+       for Distributed Reinforcement Learning. ICML 2018. arXiv:1712.09381.
+       The library whose ``Algorithm`` this class drives.
     """
 
-    def __init__(self, config: RayOptimizerConfig, **kwargs):
+    def __init__(self, config: RayOptimizerConfig, **kwargs: Any):
         super().__init__(config=config, **kwargs)
 
         self.logger = MetricLogger.from_schema(RaySchema)
@@ -116,7 +167,7 @@ class RayOptimizer(Optimizer):
         Returns
         -------
         int
-            Mechanisms per env runner.
+            Mechanisms per env runner (a count of mechanism candidates).
 
         Raises
         ------
@@ -134,6 +185,13 @@ class RayOptimizer(Optimizer):
     def _to_logger_payload(
         self, result: ResultDict, is_eval: bool = False
     ) -> RaySchema:
+        """Convert an RLlib result into a ``RaySchema`` ready to be logged.
+
+        An evaluation result gives a schema with only the ``eval`` branch. A
+        training result gives the ``train`` branch and, when the result nests
+        an ``evaluation`` dict, the ``eval`` branch built from it.
+        """
+
         if is_eval:
             evaluation = EvalSchema(
                 rollout=build_rollout(result), performance=build_performance(result)
@@ -159,14 +217,26 @@ class RayOptimizer(Optimizer):
 
     @override(Optimizer)
     def train(self) -> None:
-        """Run one RLlib training iteration on the policy actor.
+        """Run the configured training iterations, then one evaluation pass.
 
-        Increments the inner iteration counter, extracts the mean episode
-        return, the env step counters and (when present) the policy loss from
-        the result, appends them to the tracking lists and logs one summary
-        line. RLlib's own lifetime ``training_iteration`` is logged for
-        reference only; the per-generation counter is ``_inner_iter``.
-        Reporting to W&B is currently disabled (commented out).
+        For each of the ``episodes`` inner iterations it calls
+        ``PolicyActor.train``, logs the iteration index (starting at 0) and
+        the typed result into the metric logger, appends the mean episode
+        return and the policy loss (NaN when RLlib reported none) to the
+        tracking lists and logs one summary line. RLlib's own lifetime
+        ``training_iteration`` appears in that line for reference only. After
+        the last iteration it calls ``evaluate`` and renders the configured
+        queries through the optimizer-level reporter, if one was set.
+        ``episodes`` must have been set with ``RayOptimizerConfig.training``.
+
+        Returns
+        -------
+        RaySchema
+            The metrics accumulated since the last ``reset`` or ``stop``,
+            peeked (not reduced): every leaf is a list with one entry per
+            logged sample. The regulator environment reads it as the inner
+            optimizer's metrics. (The declared return annotation is ``None``,
+            as in ``Optimizer.train``.)
         """
 
         for episode in range(self.episodes):
@@ -214,9 +284,11 @@ class RayOptimizer(Optimizer):
     def evaluate(self) -> None:
         """Run one evaluation pass on the policy actor and log start/end.
 
-        The evaluation results themselves are not returned; the environments
-        publish their ``EnvStepContext`` records to the World, which is where
-        the regulator reads the outcome.
+        The evaluation result is converted to the ``eval`` branch of a
+        ``RaySchema`` and pushed into the metric logger, but it is not
+        returned. The evaluation environments publish their ``EnvStepContext``
+        records to the World, and the method ends by flushing the World with
+        the ``eval`` status; the regulator reads the outcome from there.
         """
         logger.info("[PPO] Evaluation started")
 
@@ -230,7 +302,14 @@ class RayOptimizer(Optimizer):
 
     @override(Optimizer)
     def reset(self) -> None:
-        """Reset policy weights to random initialization."""
+        """Restore the initial policy weights and clear the run bookkeeping.
+
+        The policy actor rebuilds its algorithm and loads the weights captured
+        when it was created, so every outer generation starts from the same
+        parameters. The per-iteration return and loss lists and the metric
+        logger are emptied, the inner iteration counter is set to ``0`` and
+        the outer round counter is incremented.
+        """
 
         logger.info("[PPO] Resetting policy weights")
 
@@ -249,9 +328,9 @@ class RayOptimizer(Optimizer):
         Returns
         -------
         RaySchema
-            The optimizer's metrics reduced over the whole run. The base
-            ``Optimizer.stop`` returns nothing; whether this one should is
-            still an open choice.
+            The optimizer's metrics reduced over the whole run: leaves are
+            scalars, and the ``train`` and ``eval`` branches keep their last
+            iteration. The base ``Optimizer.stop`` returns nothing.
         """
 
         ray.get(self.policy_actor.stop.remote())

@@ -1,4 +1,13 @@
-"""MPS-accelerated model wrapper for RLlib."""
+"""Fully connected RLlib model that runs its forward pass on Apple's MPS device.
+
+``MPSFullyConnectedNetwork`` wraps RLlib's old-API-stack
+``FullyConnectedNetwork`` so that the observations are moved to the Metal
+Performance Shaders (MPS) device for the forward pass and the logits come back
+to the CPU. ``MPS_DEVICE`` is the device resolved at import time (``None`` when
+MPS is unavailable, in which case the wrapper runs on the CPU). The inner
+optimizer of the bilevel framework uses RLModules on the new API stack and does
+not use this model; it is kept for the old-stack examples (``examples/cartpole``).
+"""
 
 import torch
 from gymnasium.spaces import Space
@@ -11,7 +20,57 @@ MPS_DEVICE = torch.device("mps") if torch.backends.mps.is_available() else None
 
 
 class MPSFullyConnectedNetwork(TorchModelV2, torch.nn.Module):
-    """FCNet wrapper that runs forward pass on MPS."""
+    """Fully connected network that evaluates its layers on the MPS device.
+
+    The base network is built by RLlib's ``FullyConnectedNetwork`` and moved to
+    ``MPS_DEVICE`` (or to the CPU when MPS is unavailable). ``forward`` copies
+    the observations to that device, runs the base network and returns the
+    logits on the CPU, since the rest of the RLlib pipeline runs there; the
+    value-branch output is cached for ``value_function``.
+
+    Parameters
+    ----------
+    obs_space : gymnasium.spaces.Space
+        Observation space of the policy.
+    action_space : gymnasium.spaces.Space
+        Action space of the policy.
+    num_outputs : int
+        Number of logits the network produces (for example the number of
+        discrete actions, or twice the action dimension for a Gaussian head).
+    model_config : ModelConfigDict
+        RLlib model configuration (``fcnet_hiddens``, ``fcnet_activation``...),
+        passed to the base network unchanged.
+    name : str
+        Model name; the base network is named ``name + "_base"``.
+
+    Attributes
+    ----------
+    device : torch.device
+        ``MPS_DEVICE`` when MPS is available, else the CPU.
+
+    When to use: with old-API-stack RLlib on an Apple Silicon machine, when the
+    network is large enough for the transfer to the GPU to pay off. For the
+    small networks of the fishery example the CPU is usually enough.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gymnasium.spaces import Box, Discrete
+    >>> from ray.rllib.models.catalog import MODEL_DEFAULTS
+    >>> model_config = {**MODEL_DEFAULTS, "fcnet_hiddens": [8]}
+    >>> model = MPSFullyConnectedNetwork(
+    ...     Box(-1.0, 1.0, shape=(4,), dtype=np.float32),
+    ...     Discrete(3),
+    ...     3,
+    ...     model_config,
+    ...     name="fc",
+    ... )
+    >>> logits, state = model({"obs": np.zeros((2, 4), dtype=np.float32)}, [], None)
+    >>> tuple(logits.shape), logits.device.type, state
+    ((2, 3), 'cpu', [])
+    >>> tuple(model.value_function().shape)
+    (2,)
+    """
 
     def __init__(
         self,
@@ -85,7 +144,7 @@ class MPSFullyConnectedNetwork(TorchModelV2, torch.nn.Module):
         Returns
         -------
         TensorType
-            Value tensor of shape ``[B]`` moved to CPU.
+            Value tensor of shape ``[B]`` (reward units) moved to CPU.
 
         Raises
         ------
