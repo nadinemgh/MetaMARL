@@ -6,7 +6,10 @@ requests a share of its crop water deficit from one reservoir. The outer level
 is an Evolution Strategies optimizer over the eight rules of the
 ``water_policy`` mechanism (a quota that tightens as the lake falls, fines for
 requests above it and a penalty on large requests when the river depends on the
-release, see :mod:`examples.fresh_water.mechanism`). The fitness of a candidate
+release, see :mod:`examples.fresh_water.mechanism`; the last two rules,
+``under_irrigation_penalty_scale`` and ``max_farm_area_m2``, are searched and
+observed but read by no dynamics, so the search spends two of its eight
+dimensions on them). The fitness of a candidate
 mixes the farms' reward with how little the withdrawals lower the lake (see
 :mod:`examples.fresh_water.regulator_env`). Every level logs a typed metric
 schema and renders the queries of :mod:`examples.fresh_water.queries` through

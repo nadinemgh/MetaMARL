@@ -11,7 +11,8 @@ quota penalty.
 
 The searched parameters of the eight-dimensional ``water_policy`` mechanism are
 named ``water_policy[0]`` to ``water_policy[7]`` by the ES optimizer; index 0 is
-the fixed quota (see :data:`examples.fresh_water.mechanism.RULE_NAMES`).
+the fixed quota (see :data:`examples.fresh_water.mechanism.RULE_NAMES`). Indices
+6 and 7 are inert: they are searched but read by no dynamics.
 
 Examples
 --------

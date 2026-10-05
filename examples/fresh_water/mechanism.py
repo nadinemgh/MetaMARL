@@ -14,11 +14,20 @@ order of ``RULE_NAMES``:
 - ``max_farm_area_m2``: ``1e5 + u (2e7 - 1e5)`` (default 500000).
 
 ``max_demand_frac`` is raised to ``min_demand_frac`` when the draw puts it
-below, so that the quota curve stays monotonic. The rules
-``under_irrigation_penalty_scale`` and ``max_farm_area_m2`` are searched but
-have no effect in the dynamics, exactly as in the first version of the example,
-which read the farm area from its own configuration and never used the
-under-irrigation penalty.
+below, so that the quota curve stays monotonic.
+
+Two of the eight rules are inert. ``under_irrigation_penalty_scale`` and
+``max_farm_area_m2`` are searched, and they reach the farms' observations as
+normalized entries 10 and 11, but no code reads them in the dynamics: the
+penalties of the policy use only the first six rules, and the farm area comes
+from the ``ecology_cfg`` of the environment, not from the rule of the same name.
+The evolution strategy therefore spends two of its eight dimensions on
+directions that the dynamics do not read, as it did before the port, where the
+first version of the example read the farm area from its own configuration and
+never used the under-irrigation penalty. They can only change the outcome
+through the observation that the farms' policy receives. They are kept, and not
+removed, so that the search space, the observation size and the results stay
+those of the first version.
 
 With ``L`` the filled fraction of the reservoir and ``q`` the fixed quota, the
 policy allows each farm the fraction of its crop water deficit
@@ -62,7 +71,11 @@ RULE_NAMES = (
     "under_irrigation_penalty_scale",
     "max_farm_area_m2",
 )
-"""Names of the eight rules, in the order of the searched vector."""
+"""Names of the eight rules, in the order of the searched vector.
+
+The last two, ``under_irrigation_penalty_scale`` and ``max_farm_area_m2``, are
+searched and observed but read by no dynamics (see the module docstring).
+"""
 
 DEFAULT_RULES = np.asarray([0.85, 0.05, 1.0, 0.05, 0.5, 2.0, 0.25, 500_000.0])
 """Rules in force when no candidate has reached the environment yet."""
@@ -77,7 +90,11 @@ IRRIGATE_ID = "irrigate"
 """Mechanism identifier of a farm's irrigation request."""
 
 RULES_SPACE = spaces.Box(low=0.0, high=1.0, shape=(len(RULE_NAMES),), dtype=np.float32)
-"""Search space of the policy: the eight normalized rules in ``[0, 1]``."""
+"""Search space of the policy: the eight normalized rules in ``[0, 1]``.
+
+Two of the eight coordinates, the last two, are inert: they are searched and
+observed but read by no dynamics (see the module docstring).
+"""
 
 _FARM_AREA_RANGE = (100_000.0, 20_000_000.0)
 
@@ -93,7 +110,9 @@ def decode_rules(u: np.ndarray | list[float]) -> np.ndarray:
     Returns
     -------
     numpy.ndarray, shape (8,)
-        The rules of ``RULE_NAMES``, as ``float64``.
+        The rules of ``RULE_NAMES``, as ``float64``. The last two,
+        ``under_irrigation_penalty_scale`` and ``max_farm_area_m2``, are decoded
+        like the others but read by no dynamics.
 
     Raises
     ------
@@ -368,7 +387,9 @@ class WaterPolicy(Mechanism):
     satisfaction is added by the environment's transition. ``observe`` fills the
     entries of the farms' observations that the farm leaves at zero: the
     allowed fraction at the current level (entry 2) and the normalized rules
-    (entries 4 to 11).
+    (entries 4 to 11; entries 10 and 11 are the inert rules
+    ``under_irrigation_penalty_scale`` and ``max_farm_area_m2``, observed but
+    read by no dynamics).
 
     The mechanism needs ``acts_on=("utilizer", "irrigate")`` (the agent type and
     the mechanism it targets).
@@ -520,7 +541,8 @@ class WaterPolicyConfig(MechanismConfig):
     Attributes
     ----------
     action_space : gymnasium.spaces.Box
-        ``RULES_SPACE``, eight coordinates in ``[0, 1]``.
+        ``RULES_SPACE``, eight coordinates in ``[0, 1]``; the last two are
+        searched but read by no dynamics.
     id : str or None
         Mechanism identifier, ``WATER_POLICY_ID``. The ES optimizer names the
         searched parameters ``water_policy[0]`` to ``water_policy[7]``, in the

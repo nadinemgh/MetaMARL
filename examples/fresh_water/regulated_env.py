@@ -43,7 +43,8 @@ allowed fraction at the current level (filled in by the policy), the total
 volume withdrawn the previous day divided by the largest volume all the farms
 can need in a day (``WaterRegulatedEnv.max_daily_need_m3_day``, so that the
 entry lies in [0, 1] like the others) and the eight normalized rules (filled in
-by the policy).
+by the policy; the last two, the under-irrigation penalty scale and the farm
+area, are read by no dynamics and only appear here).
 
 References
 ----------
@@ -564,7 +565,8 @@ class WaterRegulatedEnv(MultiAgentEnv):
         Constants of the reservoir and the farms, read with these keys:
         ``full_stage_m`` (420.41), ``max_depth_m`` (11.0), ``lake_area_m2``
         (5756935.89615) and ``max_farm_area_m2`` (1000000.0, the area of every
-        farm); and, for the surrogate lake only, the keys listed in
+        farm; it is not the searched rule of the same name, which no dynamics
+        reads); and, for the surrogate lake only, the keys listed in
         ``SURROGATE_KEYS`` (see :class:`examples.fresh_water.hydrology.
         SurrogateLake`).
     hydrology : str, optional
