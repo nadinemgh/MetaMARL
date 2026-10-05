@@ -17,7 +17,6 @@ import ray
 from examples.bilevel_fishery.contexts import FitnessContext
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
-K = 1000.0
 MSY = 100.0
 WEIGHT = 2.0
 
@@ -38,7 +37,6 @@ def make_env(**ecology) -> FisheryRegulatorEnv:
         agents_cfgs={},
         seeds=[0],
         ecology_cfg={
-            "K": K,
             "sustainability_weight": WEIGHT,
             "sustainability_threshold": 0.1,
             **ecology,
@@ -180,23 +178,6 @@ def test_no_fines_are_reported_because_no_fine_is_computed():
             sustainability_penalty=0.0,
             sustainability_weight=1.0,
             total_fines=0.5,
-        )
-
-
-@pytest.mark.unit
-def test_a_missing_capacity_is_reported_by_name():
-    world = SimpleNamespace(
-        append_context=SimpleNamespace(remote=lambda context: context)
-    )
-
-    with pytest.raises(ValueError, match="'K'"):
-        FisheryRegulatorEnv(
-            world=world,
-            optimizer=None,
-            horizon=1,
-            agents_cfgs={},
-            seeds=[0],
-            ecology_cfg={"sustainability_weight": WEIGHT},
         )
 
 
