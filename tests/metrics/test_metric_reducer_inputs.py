@@ -124,9 +124,39 @@ class TestNumericTypes:
         assert isinstance(reduced, int) and not isinstance(reduced, bool)
 
     def test_numpy_float64_is_accepted_as_a_float(self):
-        """``np.float64`` subclasses ``float``, so the type check lets it through."""
         metric = filled(MeanMetric, [np.float64(1.0), np.float64(3.0)])
         assert metric.reduce() == 2.0
+
+    @pytest.mark.parametrize("cls", NUMERIC_METRICS)
+    @pytest.mark.parametrize(
+        "scalar",
+        [np.float32(2.5), np.float16(2.5), np.int64(2), np.int32(2), np.uint8(2)],
+    )
+    def test_numpy_numeric_scalars_are_accepted(self, cls, scalar):
+        metric = cls()
+        metric.push(scalar)
+        history = metric.peek(compile=False)
+        assert history == [scalar.item()]
+        assert type(history[0]) in (int, float)  # stored as a plain Python number
+        assert metric.reduce() == scalar.item()
+
+    @pytest.mark.parametrize("cls", NUMERIC_METRICS)
+    def test_numpy_scalars_mix_with_python_numbers(self, cls):
+        metric = filled(cls, [np.float32(1.0), 2, np.int64(3), 4.0])
+        assert metric.peek(compile=False) == [1.0, 2, 3, 4.0]
+
+    @pytest.mark.parametrize("cls", NUMERIC_METRICS)
+    @pytest.mark.parametrize("flag", [True, False, np.True_, np.False_])
+    def test_booleans_stay_rejected(self, cls, flag):
+        metric = cls()
+        with pytest.raises(TypeError, match=f"{cls.__name__} only accepts"):
+            metric.push(flag)
+        assert len(metric) == 0
+
+    @pytest.mark.parametrize("cls", NUMERIC_METRICS)
+    def test_non_numeric_numpy_scalars_are_rejected(self, cls):
+        with pytest.raises(TypeError, match=f"{cls.__name__} only accepts"):
+            cls().push(np.str_("1.0"))
 
     @pytest.mark.parametrize("cls", NUMERIC_METRICS)
     def test_rejected_value_leaves_the_window_untouched(self, cls):

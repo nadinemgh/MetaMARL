@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from core.annotations import override
-from core.metrics.metric.base import PrimitiveType
+from core.metrics.metric.base import PrimitiveType, as_number
 from core.metrics.metric.series import SeriesMetric
 
 
 class MeanMetric(SeriesMetric):
     """Metric reducing to the arithmetic mean of the pushed numbers.
 
-    Only ``int`` and ``float`` are accepted (``bool`` is rejected); ``peek``
+    Only numbers are accepted (``int``, ``float`` and NumPy numeric scalars;
+    ``bool`` and ``np.bool_`` are rejected); ``peek``
     returns ``None`` while empty.
 
     When to use: the default protocol, for per-step quantities averaged over an
@@ -38,20 +39,16 @@ class MeanMetric(SeriesMetric):
         Parameters
         ----------
         value : int or float
-            The number to record.
+            The number to record; a NumPy numeric scalar is stored as the
+            equivalent Python number.
 
         Raises
         ------
         TypeError
-            If ``value`` is a ``bool`` or not an ``int`` or ``float``.
+            If ``value`` is a ``bool`` (or ``np.bool_``) or not a number.
         """
 
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise TypeError(
-                f"MeanMetric only accepts int or float, got {type(value).__name__}."
-            )
-
-        self.values.append(value)
+        self.values.append(as_number(value, "MeanMetric"))
 
     def peek(self, compile: bool = True) -> float | list[float]:
         """Return the arithmetic mean (``None`` when empty).

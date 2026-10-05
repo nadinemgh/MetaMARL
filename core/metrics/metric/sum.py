@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from core.annotations import override
-from core.metrics.metric.base import PrimitiveType
+from core.metrics.metric.base import PrimitiveType, as_number
 from core.metrics.metric.series import SeriesMetric
 
 
 class SumMetric(SeriesMetric):
     """Metric reducing to the sum of the pushed numbers.
 
-    Only ``int`` and ``float`` are accepted (``bool`` is rejected). Unlike the
-    other scalar metrics an empty sum compiles to ``0``, not ``None``.
+    Only numbers are accepted (``int``, ``float`` and NumPy numeric scalars;
+    ``bool`` and ``np.bool_`` are rejected). Unlike the other scalar metrics an
+    empty sum compiles to ``0``, not ``None``.
 
     When to use: for quantities accumulated over an iteration (total catch,
     number of episodes, environment steps).
@@ -38,20 +39,16 @@ class SumMetric(SeriesMetric):
         Parameters
         ----------
         value : int or float
-            The number to record.
+            The number to record; a NumPy numeric scalar is stored as the
+            equivalent Python number.
 
         Raises
         ------
         TypeError
-            If ``value`` is a ``bool`` or not an ``int`` or ``float``.
+            If ``value`` is a ``bool`` (or ``np.bool_``) or not a number.
         """
 
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise TypeError(
-                f"SumMetric only accepts int or float, got {type(value).__name__}."
-            )
-
-        self.values.append(value)
+        self.values.append(as_number(value, "SumMetric"))
 
     def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType]:
         """Return the sum (``0`` when empty).
