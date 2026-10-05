@@ -6,7 +6,7 @@ pass, ``evaluate`` is one fixed-duration evaluation pass, ``reset`` rebuilds the
 policy from its initial weights and ``stop`` stops the algorithm. The algorithm
 itself lives in a ``PolicyActor``; this class forwards calls to it, converts
 each RLlib result into the typed ``RaySchema`` held by its ``MetricLogger`` and
-keeps light bookkeeping (per-iteration return and loss) for logs.
+logs one summary line per training iteration.
 """
 
 from __future__ import annotations
@@ -67,18 +67,12 @@ class RayOptimizer(Optimizer):
     logger : MetricLogger
         Logger built from ``RaySchema``; every training and evaluation result
         is pushed into it.
-    eval_episodes : int
-        ``evaluation_duration // evaluation_config["rollout_fragment_length"]``,
-        an estimate of episodes per evaluation (episodes).
     _module_ids : tuple of str
         IDs of the learner modules declared in ``rllib_cfg.policies``; each
         gets one learner entry per training iteration, with NaN statistics
         on the iterations where RLlib reports none.
     _es_round : int
         Number of ``reset`` calls so far, i.e. the outer (ES) generation.
-    _training_rewards, _training_losses : list of float
-        Per-iteration mean return (reward units) and policy loss since the
-        last ``reset``.
 
     Raises
     ------
@@ -108,8 +102,8 @@ class RayOptimizer(Optimizer):
     ... )
     >>> with patch("core.adaptors.ray.policy_actor.PolicyActor"):
     ...     optimizer = RayOptimizer(config=config)
-    >>> optimizer.eval_episodes, optimizer.batch_capacity
-    (2, 3)
+    >>> optimizer.batch_capacity
+    3
 
     References
     ----------
@@ -133,8 +127,6 @@ class RayOptimizer(Optimizer):
                 + "on the society optimizer config."
             )
 
-        self.eval_episodes = config.rllib_cfg.evaluation_duration // fragment_length
-
         # Learner modules declared by ``RayOptimizerConfig._apply_agents_to_rllib``;
         # each gets one learner entry per training iteration (see
         # ``build_learner``).
@@ -144,9 +136,6 @@ class RayOptimizer(Optimizer):
 
         self.policy_actor = PolicyActor.remote(config.rllib_cfg)
 
-        # Track training metrics for plotting
-        self._training_rewards: list[float] = []
-        self._training_losses: list[float] = []
         self._es_round: int = 0
 
     @property
@@ -217,9 +206,9 @@ class RayOptimizer(Optimizer):
 
         For each of the ``episodes`` inner iterations it calls
         ``PolicyActor.train``, logs the iteration index (starting at 0) and
-        the typed result into the metric logger, appends the mean episode
-        return and the policy loss (NaN when RLlib reported none) to the
-        tracking lists and logs one summary line. RLlib's own lifetime
+        the typed result into the metric logger and logs one summary line with
+        the mean episode return and the policy loss (``NA`` when RLlib
+        reported none). RLlib's own lifetime
         ``training_iteration`` appears in that line for reference only. After
         the last iteration it calls ``evaluate`` and renders the configured
         queries through the optimizer-level reporter, if one was set.
@@ -252,12 +241,8 @@ class RayOptimizer(Optimizer):
             ep_return = get_episode_return_mean(result)
             steps_iter, steps_life = get_env_steps(result)
 
-            # Track metrics
-            self._training_rewards.append(ep_return)
-
             policy_loss = get_policy_loss_if_present(result)
 
-            self._training_losses.append(policy_loss)
             logger.info(
                 "[PPO] Training step completed | "
                 + "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
@@ -303,14 +288,12 @@ class RayOptimizer(Optimizer):
 
         The policy actor rebuilds its algorithm and loads the weights captured
         when it was created, so every outer generation starts from the same
-        parameters. The per-iteration return and loss lists and the metric
-        logger are emptied and the outer round counter is incremented.
+        parameters. The metric logger is emptied and the outer round counter is
+        incremented.
         """
 
         logger.info("[PPO] Resetting policy weights")
 
-        self._training_rewards = []
-        self._training_losses = []
         self._es_round += 1
 
         ray.get(self.policy_actor.reset.remote())

@@ -62,7 +62,6 @@ def isolated_runtime(monkeypatch):
     monkeypatch.setattr(ray, "init", lambda **kwargs: events.append(("init", kwargs)))
     monkeypatch.setattr(ray, "is_initialized", lambda: False)
     monkeypatch.setattr(ray_constants, "RAY_ENABLE_UV_RUN_RUNTIME_ENV", True)
-    monkeypatch.setattr(RayRuntime, "_initialized", False)
 
     levels = {name: logging.getLogger(name).level for name in _SILENCED_LOGGERS}
     yield events
@@ -158,7 +157,6 @@ def test_ensure_initialized_starts_ray_once_with_the_given_config(isolated_runti
     RayRuntime.ensure_initialized(cfg)
 
     assert _init_kwargs(isolated_runtime)["num_cpus"] == 5
-    assert RayRuntime._initialized is True
 
 
 @pytest.mark.unit

@@ -16,7 +16,6 @@ annotation.
 
 from __future__ import annotations
 
-import math
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -155,11 +154,9 @@ def test_init_spawns_the_actor_from_the_rllib_config(actors):
 
     opt = RayOptimizer(config=cfg)
 
-    assert opt.eval_episodes == 2
     assert actors.instances == [opt.policy_actor]
     assert opt.policy_actor.algo_config is cfg.rllib_cfg
     assert opt._es_round == 0
-    assert opt._training_rewards == [] and opt._training_losses == []
     assert opt.logger._schema is RaySchema
     assert isinstance(opt.logger.peek(), RaySchema)
 
@@ -212,8 +209,6 @@ def test_train_runs_every_inner_iteration_then_evaluates(actors, caplog):
         returned = opt.train()
 
     assert opt.policy_actor.calls == ["train", "train", "evaluate"]
-    assert opt._training_rewards == [1.0, 3.0]
-    assert opt._training_losses == [0.25, 0.25]
     assert world.flushed == [MechanismStatus.eval]
 
     lines = [
@@ -257,15 +252,13 @@ def test_train_reports_the_metrics_once_after_the_evaluation(actors):
 @pytest.mark.unit
 def test_train_logs_na_when_the_result_has_no_policy_loss(actors, caplog):
     # APPO's learner reports its stats once every 20 updates: the iterations in
-    # between carry no loss, which is tracked as NaN and printed as ``NA``.
+    # between carry no loss, which is printed as ``NA``.
     actors.train_results = [{"env_runners": {"episode_return_mean": 0.0}}]
     opt, _ = make_optimizer(episodes=2)
 
     with caplog.at_level("INFO", logger="core.adaptors.ray.optimizer"):
         opt.train()
 
-    assert len(opt._training_losses) == 2
-    assert all(math.isnan(loss) for loss in opt._training_losses)
     assert caplog.text.count("policy_loss=NA") == 2
     assert "rllib_iter_lifetime=0" in caplog.text
 
@@ -308,17 +301,16 @@ def test_evaluate_forwards_to_the_actor_logs_the_eval_branch_and_flushes(
 
 
 @pytest.mark.unit
-def test_reset_clears_the_tracking_and_the_logger_and_counts_the_round(actors):
+def test_reset_clears_the_logger_and_counts_the_round(actors):
     actors.train_results = [train_result(return_mean=2.0)]
     opt, _ = make_optimizer()
     opt.train()
-    assert opt._training_rewards == [2.0]
+    assert opt.logger.peek().train is not None
 
     opt.reset()
 
     assert opt.policy_actor.calls[-1] == "reset"
     assert opt._es_round == 1
-    assert opt._training_rewards == [] and opt._training_losses == []
     reduced = opt.logger.reduce()
     assert reduced.iter is None
     assert reduced.train.rollout.aggregate.reward_mean is None

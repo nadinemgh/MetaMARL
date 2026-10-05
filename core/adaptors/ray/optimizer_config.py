@@ -127,8 +127,6 @@ class RayOptimizerConfig(OptimizerConfig):
         Mechanism candidates per env runner (before seed multiplication).
     world_name : str or None
         Name of the World actor, stored by ``build_optimizer``.
-    eval_episodes, rollout_fragment_length : int or None
-        Reserved; not set by the current builders.
 
     Raises
     ------
@@ -182,8 +180,6 @@ class RayOptimizerConfig(OptimizerConfig):
         self.rllib_cfg: AlgorithmConfig | None = None
         self.world_name: Optional[str] = None
         self.num_mechanisms: Optional[int] = None
-        self.eval_episodes: Optional[int] = None
-        self.rollout_fragment_length: Optional[int] = None
 
     def rllib_config_mutator(
         fn: Callable[Concatenate[AlgorithmConfig, P], AlgorithmConfig],

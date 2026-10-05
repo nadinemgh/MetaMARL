@@ -179,8 +179,7 @@ class RayRuntime:
 
     The class is a namespace for the classmethod ``ensure_initialized``; it is
     never instantiated. Whether Ray is already running is decided by
-    ``ray.is_initialized()``, not by the class attribute ``_initialized``,
-    which is set after a start and never read.
+    ``ray.is_initialized()``.
 
     When to use: call ``RayRuntime.ensure_initialized(cfg)`` once before
     creating any ``PolicyActor``; repeated calls are harmless.
@@ -192,8 +191,6 @@ class RayRuntime:
     >>> RayRuntime.ensure_initialized(RayRuntimeConfig())  # doctest: +SKIP
     """
 
-    _initialized = False
-
     @classmethod
     def ensure_initialized(cls, cfg: RayRuntimeConfig) -> None:
         """Initialise Ray with ``cfg`` unless it is already running.
@@ -203,11 +200,8 @@ class RayRuntime:
         cfg : RayRuntimeConfig
             Settings to apply. Ignored when ``ray.is_initialized()`` is
             already ``True``, so a second call with a different config has no
-            effect. The ``_initialized`` flag is only set here and never
-            consulted; ``ray.is_initialized()`` is the actual guard.
+            effect.
         """
 
         if not ray.is_initialized():
             cfg.initialize()
-
-            cls._initialized = True
