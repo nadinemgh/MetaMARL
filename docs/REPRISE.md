@@ -106,15 +106,15 @@ against the tree, execute every notebook, then audit everything by measurement.
     - [x] fresh-water: ported to the present interface (`2010b10`), then changed as Rémy decided on 10-05, by one subagent whose work the lead verified in the code. The sustainability deviation compares the lake's filled level with and without withdrawal, `deviation_series` is gone and `streamflow_deviation` is renamed `level_deviation` (`ad73d49`). The delivered-water entry of the farm observation is divided by `max_daily_need_m3_day`, the number of farms times the farm area times the peak crop need of 7.26478 mm/day (maximum crop coefficient 1.15 times the July reference evapotranspiration of 6.3172 mm/day); for the 500 farms of `debug.py` that is 3 632 390 m³/day, an upper bound the entry does not reach because the two peaks never fall on the same day (`5fe4446`). The residence time is the stored volume over the outflow, in days, with the capacity `lake_area_m2 × max_depth_m` now exposed for both lake models (`2591cbf`). The Raven baseline runs once per episode up to its last day and is read daily; the readings equal those of the per-day re-run, checked against the stand-in only (`e6a3015`). The two inert rules are documented as such (`dff5828`). The Raven integration test was vacuous, because the stand-in's rain covered the whole crop need; it now runs without rain and checks a real withdrawal (`ba11d82`). Measured with `debug.py --outer-iters 3 --train-iters 2 --horizon 30 --num-agents 20 --reporter csv` and `PYTHONHASHSEED=0`, deterministic over two runs: the level deviation is 0.0014, 0.0010 and 0.0014 over the three generations where the outflow deviation was 0 (20 farms barely lower a lake of 6.3e7 m³), the fitness moves from 1.2533, 1.2020 and 1.2250 to 1.2816, 1.2319 and 1.2595 after the deviation and normalisation changes, the other changes leave it unchanged, the residence time ranges from 42 to 158 days (mean about 80) where it was about 1e-6, and in the stand-in run the baseline ran 17 times against 295 main runs. A run with the 500 farms of `debug.py` did not finish within 10 minutes;
     - [x] repository: notebooks are no longer git-ignored (`ff67552`); the doctests of every example run by default (`183caa8`); isort agrees with the formatter and `spacing` is a dev tool (`fd7ba11`); the archived in-code notes that later commits resolved say so in `TODO.md` (`6ee25c5`);
     - [x] measured: applying the mechanism defaults changed no training or evaluation episode in the reduced fishery configuration, because the 48 resets that play the default all happen while RLlib builds its runners; fitness, returns and initial weights are identical. Keeping every episode leaves the fishery fitness and returns identical, since evaluation ends one episode per environment, while the training curves now average the five episodes each environment ends per iteration instead of showing the last one; in a cart-pole APPO iteration one environment ended 12 episodes, of which the old code kept 1. On `ba11d82`, the end of the fix pass, the suite gives 1855 passed and 1 skipped in 110 s, and `ruff check --no-fix .` and `ruff format --check .` pass on the whole tree with no warning.
-- [ ] Phase 4 — README, QUICKSTART, AGENTS, ARCHITECTURE and notes for Nadine rewritten against the tree.
+- [x] Phase 4 — README, QUICKSTART, AGENTS, ARCHITECTURE and notes for Nadine rewritten against the tree (closed on 10-05).
   - [x] inventory on 10-05 by three read-only subagents, checked by the lead where it touched a decision. Only `README.md` exists on this branch; `QUICKSTART.md`, `AGENTS.md`, `docs/ARCHITECTURE.md` and `docs/MERGE_NOTES.md` exist on `feature/social-influence-testing` (August) and `feature/integration-trial`, and describe an earlier architecture, so they are rewritten from the tree rather than corrected. The README has 21 of 26 statements wrong or stale (entry points `main.py`, top-level `mechanism/`, `legacy_code/`, Python 3.13, pip and conda, RavenPy, `water_usage`). The guides' architecture is wrong on these points: fitness comes from the inner optimizer's metrics through `RegulatorEnv.reward`, not from published `EnvStepContext`s; `RegulatorEnv` holds the inner optimizer; the inner environment is `MultiAgentEnv` behind `RLlibMultiAgentEnvAdapter`; an environment without a candidate plays its leaders' defaults, not an inert step; `run` became `train`, `aggregate_rewards` became `reward`; the ES unflattens each vector into a dictionary of mechanism actions; mechanisms are `decode`/`apply`/`observe` with a `MechanismConfig`; reporting is a `Reporter` base with CSV, TensorBoard and W&B backends; only `reset` and `transition` hooks remain. Never described anywhere: the agents layer, `MDPState` and trajectories, the metrics layer, the YAML loader and `core.config.cli`, `ensure_hash_seed`, `learner_drain`, the cart-pole and fresh-water examples, the CI jobs and the conventions decided in this pass;
   - [x] the PPO crash that `examples/cartpole/main_ppo.py` documents no longer happens: `debug --algo ppo --outer-iters 1 --train-iters 2 --horizon 20 --reporter csv` exits 0 on `0a5c251` (the episode-keeping fix `ed09a16` came after the note). The note is stale, not the code;
   - [x] the findings for Nadine were checked against the 167 commits since `96294f6`: 14 fixed, 5 decided by Rémy, 8 open, 2 superseded. Stale against the tree: the removed-API list omits about fifteen deletions (`ae0e56f`, `82aaac2`, `5a8c05a`, `c0446c8`, `3206a8f`, `c180199`, `3205b73`, `34ae6f6`, `ad73d49`, `7c49367`, `53e5ddd`); the removal of the "Restoration subsidy vs fixed quota" query (`34ae6f6`) was to be recorded for Nadine and is not; `ACTION_TEMPERATURE` replaced four copies, not five; in `TODO.md` five archived notes are resolved but unmarked (`_build_agent_policy_map` by `82aaac2`, `_has_converged` by `54a70a1`, the clipping note by `53e5ddd`, the `Subsidy` notes by `d317b9f`, possibly the default-mechanism note by `472feb1`) and §4/§5 still describe the earlier constructors;
   - [x] small changes before the guides, done on 10-05 (`5a95efa`, `bd5254f`, `38680f8`, `63394e9`, `1959417`, `b5c7365`, `c23531d`, `00e40ec`): package renamed `metamarl` with the MetaMARL URLs and `include = ["core*"]` (the namespace discovery also lists `docs`, `htmlcov`, `results`, `src`, `tutorials` and `wandb` as top-level names), `legacy_code` dropped from both excludes; the `metamarl` console command with its test; the stale PPO note; the fisher reward docstring; the unused `ray_session` fixture; the `TODO.md` marks;
-  - [ ] README, QUICKSTART, AGENTS, `docs/ARCHITECTURE.md` and `docs/MERGE_NOTES.md` written from the tree, every command in them executed.
+  - [x] README, QUICKSTART, AGENTS, `docs/ARCHITECTURE.md` and `docs/MERGE_NOTES.md` written from the tree, every command in them executed.
     - [x] README rewritten and QUICKSTART written, every command executed (`eb684c8`);
     - [x] `docs/MERGE_NOTES.md` written for Nadine (`5065a9f`): its 86 quoted hashes resolve on the branch and its figures were checked against the commit messages and this file; the check found that the Ray optimizer's messages said `[PPO]` under APPO, fixed with its test (`f172c1d`). Full suite on that commit: 1861 passed, 1 skipped, `core/` at 99 %;
-    - [ ] `AGENTS.md` and `docs/ARCHITECTURE.md`, drafted by a background subagent, then checked sentence by sentence against the code by the lead.
+    - [x] `AGENTS.md` and `docs/ARCHITECTURE.md` (`d3bbbd3`): drafted by a subagent, then checked claim by claim by two independent read-only subagents (about 125 claims for the architecture guide, 12 wrong or imprecise; about 50 for AGENTS, 8 wrong), all corrected. The drafting turned up code defects, fixed with their tests: `@override(gym.Env)` on `MultiAgentEnv.reset`, whose class does not derive from `gym.Env`, with a static test over every `@override` (`a0dc6cc`); `ESConfig` silently ignoring unknown arguments (`bbd97a8`); the `Query` module example using a path no schema resolves (`d3e3b0b`). On Rémy's decision, `ESConfig.debugging` rejects `num_seeds`, which nothing read (`2ff20a1`), and the stray `# Deprecated` comment above the `to_float` import is gone (`fa3085e`). Dismissed after checking: the two `test_annotations.py` files collect without conflict, and `RayOptimizer.save` doing nothing matches the base class. Measured on `d3bbbd3`'s tree: 1857 unit tests passed, 1 skipped; 13 integration tests passed; 1871 collected; `core/` at 99 %; the smoke run gives the same fitness vectors as before.
 - [ ] Phase 5 — the five notebooks execute and are exercised by the test suite.
 - [ ] Phase 6 — validation audit by measurement, then push.
 
@@ -345,25 +345,26 @@ IMPALA's deque queue, which it does not cover.
 
 ## Next step
 
-Phase 3 is closed. Phase 4 rewrites the README, QUICKSTART, AGENTS and ARCHITECTURE
-against the tree and turns "Findings for Nadine" into her notes, in English, as prose
-that a reader outside the lab can follow. The first action is to read the four guides
-and list every statement that the tree contradicts, by delegating that reading to
-subagents; the writing and the decisions stay in the main session.
+Phase 4 is closed. Phase 5 makes the five notebooks in `tutorials/` execute against
+the present API and exercises them in the suite under the `notebook` marker, with
+the tutorial items listed in the findings. The notebooks still call removed
+interfaces (for example `reporting(schema=...)` and an `.inner(...)` builder), so the
+first action is to execute each one and list its failures, delegating that reading
+to a subagent; the fixes and decisions stay in the main session. The notes for Nadine
+then gain a paragraph on the notebook changes.
 
-Phase 5 then makes the five notebooks execute against the present API, with the tutorial
-items listed in the findings, and exercises them in the suite. Phase 6 audits by
-measurement:
+Phase 6 audits by measurement:
 - re-measure the slot-initialisation doubt above;
 - time a fresh-water run at full size;
 - just before the push, rewrite the six commit trailers that name Sonnet 5.5 and update
   every cited hash;
 - after the rewrite, remap every hash quoted in `docs/MERGE_NOTES.md`, whose preface promises
-  the pushed hashes, and add to it the phase 5 notebook changes and the slot measurement;
+  the pushed hashes, and add to it the slot measurement;
 - push with Rémy's go-ahead.
 
-**Suite conseillée :** modèle opus, effort high — phase 4 is careful writing against the
-tree, with the reading delegated; start it in a fresh session after `/clear`.
+**Suite conseillée :** modèle opus, effort high — phase 5 repairs five notebooks against
+an API that changed under them, with judgment on each teaching cell; start it in a
+fresh session after `/clear`.
 
 ## Known traps
 
