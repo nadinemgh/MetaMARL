@@ -77,8 +77,9 @@ class ESCandidateSchema(MetricSchema):
         default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
     )
 
-    # Parameter names are runtime-defined by MechanismSpace.
-    by_parameter: dict[str, ESParameterSchema] = Field(default_factory=dict)
+    # Keyed by ESOptimizer.parameter_names: the mechanism id, or "id[k]" for
+    # a mechanism with several values, known only once the optimizer is built.
+    by_parameter: dict[ParameterName, ESParameterSchema] = Field(default_factory=dict)
 
 
 class ESSchema(MetricSchema):
