@@ -308,7 +308,9 @@ class Reporter(ABC):
                 reduced: Resolved = {}
                 errors: Resolved = {}
 
-                for branch_group in groups:
+                # Iterate the first branch's groups, which SERIES built in sorted
+                # order, not the set, whose order depends on PYTHONHASHSEED.
+                for branch_group in branches[0].values:
                     series = [branch.values[branch_group] for branch in branches]
                     lengths = {len(values) for values in series}
 

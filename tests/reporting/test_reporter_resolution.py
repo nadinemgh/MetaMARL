@@ -257,6 +257,26 @@ class TestResolvePathMean:
 
         assert result == PathResolution(values={}, errors={})
 
+    def test_mean_keeps_the_sorted_order_of_the_series_groups(
+        self, backendless_reporter
+    ):
+        # Twenty-six groups: an order taken from a set of string tuples, which
+        # depends on PYTHONHASHSEED, matches the sorted one by chance with a
+        # probability of 1/26!.
+        policies = [chr(ord("a") + index) for index in range(26)]
+        metrics = {
+            "by_seed": {
+                seed: {"by_policy": {policy: {"v": [1.0]} for policy in policies}}
+                for seed in ("s1", "s2")
+            }
+        }
+
+        result = backendless_reporter._resolve_path(
+            ("by_seed", MEAN, "by_policy", SERIES, "v"), metrics
+        )
+
+        assert [group[-1][1] for group in result.values] == policies
+
     def test_mean_over_branches_with_different_series_groups(
         self, backendless_reporter, reporting_metrics
     ):
