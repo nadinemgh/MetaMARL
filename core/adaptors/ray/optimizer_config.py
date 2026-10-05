@@ -44,11 +44,11 @@ from ray.rllib.core.rl_module.default_model_config import DefaultModelConfig
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
-from ray.rllib.utils.typing import AgentID
 from ray.tune.registry import register_env
 
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.adaptors.ray.optimizer import RayOptimizer
+from core.agents.base import AgentConfig
 from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
 from core.metrics.schemas import MetricSchema
@@ -789,7 +789,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
         return init_
 
-    def _apply_agents_to_rllib(self) -> list[AgentID]:
+    def _apply_agents_to_rllib(self) -> dict[str, AgentConfig]:
         """Expand ``agents_cfgs`` into per-(mechanism, seed) RLModules.
 
         For every agent type and every ``(seed, mechanism_idx)`` pair an
@@ -1156,9 +1156,7 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.training(**kwargs)
 
     @override(OptimizerConfig)
-    def training(
-        self, *, episodes: Optional[int] = None, **kwargs: Any
-    ) -> AlgorithmConfig:
+    def training(self, *, episodes: Optional[int] = None, **kwargs: Any) -> Self:
         """Set the inner training length and record the RLlib hyperparameters.
 
         Parameters
@@ -1174,8 +1172,7 @@ class RayOptimizerConfig(OptimizerConfig):
         Returns
         -------
         RayOptimizerConfig
-            ``self`` for chaining. (The declared return annotation is
-            ``AlgorithmConfig``.)
+            ``self`` for chaining.
 
         When to use: to state how many iterations each inner training run lasts
         and which RLlib hyperparameters it uses.

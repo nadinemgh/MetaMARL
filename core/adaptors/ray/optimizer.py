@@ -12,12 +12,12 @@ logs one summary line per training iteration.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import ray
 from ray.rllib.utils.typing import ResultDict
-from ray.train._internal.checkpoint_manager import _TrainingResult
 
 from core.adaptors.ray.schema import EvalSchema, RaySchema, TrainSchema
 from core.adaptors.ray.utils import (
@@ -201,7 +201,7 @@ class RayOptimizer(Optimizer):
         return RaySchema(train=train, eval=evaluation)
 
     @override(Optimizer)
-    def train(self) -> None:
+    def train(self) -> RaySchema:
         """Run the configured training iterations, then one evaluation pass.
 
         For each of the ``episodes`` inner iterations it calls
@@ -220,8 +220,7 @@ class RayOptimizer(Optimizer):
             The metrics accumulated since the last ``reset`` or ``stop``,
             peeked (not reduced): every leaf is a list with one entry per
             logged sample. The regulator environment reads it as the inner
-            optimizer's metrics. (The declared return annotation is ``None``,
-            as in ``Optimizer.train``.)
+            optimizer's metrics.
         """
 
         for episode in range(self.episodes):
@@ -317,11 +316,7 @@ class RayOptimizer(Optimizer):
         return self.logger.reduce()
 
     @override(Optimizer)
-    def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:
-        """Checkpointing stub: does nothing and returns ``None``.
-
-        The ``_TrainingResult`` return annotation describes the intended
-        contract, not the current behaviour.
-        """
+    def save(self, checkpoint_dir: Optional[str | Path] = None) -> None:
+        """Checkpointing stub: does nothing and returns ``None``."""
 
         pass
