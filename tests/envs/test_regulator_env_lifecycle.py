@@ -116,6 +116,9 @@ def test_reset_resets_the_inner_policy_unless_asked_to_persist(toy, inner):
     env.reset(options={"persist_agents_policy": False})
     assert inner.resets == 2
 
+    env.reset(options=None)
+    assert inner.resets == 3
+
 
 @pytest.mark.unit
 def test_reset_accepts_a_seed_and_ignores_it(toy, inner):

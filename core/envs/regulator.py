@@ -205,7 +205,7 @@ class RegulatorEnv(gym.Env):
 
     @override(gym.Env)
     def reset(
-        self, *, seed: Optional[int] = None, options: Optional[dict[str, Any]] = {}
+        self, *, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None
     ) -> tuple[ObsType, dict[str, Any]]:
         """Start a new episode and reset the inner policy.
 
@@ -222,7 +222,7 @@ class RegulatorEnv(gym.Env):
             generator of the search.
         options : dict, optional
             ``{"persist_agents_policy": True}`` keeps the inner policy
-            instead of resetting it (default: an empty dictionary).
+            instead of resetting it (default ``None``, which resets it).
 
         Returns
         -------
@@ -232,7 +232,7 @@ class RegulatorEnv(gym.Env):
         # The seed is fixed at construction (``seeds``); a per-call seed is ignored.
         self._t = 0
 
-        if not options.get("persist_agents_policy", False):
+        if not (options or {}).get("persist_agents_policy", False):
             self.inner.reset()
 
         return None, {}
