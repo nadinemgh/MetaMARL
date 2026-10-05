@@ -53,7 +53,6 @@ def make_env(follower: SettableRewardAgent) -> MultiAgentEnv:
     env.horizon = None
     env.m = env.m_ctx = None
     env._using_default_mechanism = True
-    env._t = 0
     env.transition = lambda mdp: dataclasses.replace(mdp, t=mdp.t + 1)
     return env
 

@@ -210,7 +210,6 @@ class MultiAgentEnv(ABC):
     _state: StateType | None = None
     _reset: ClassVar[str | None] = None
     _transition: ClassVar[str | None] = None
-    _state_space: ClassVar[str | None] = None
 
     def __init__(
         self,
@@ -230,7 +229,6 @@ class MultiAgentEnv(ABC):
         schema: Optional[MetricSchema] = None,
         **kwargs: Any,
     ):
-        self._t = 0
         self.world = world
         self._opt_id = opt_id
 
@@ -279,12 +277,11 @@ class MultiAgentEnv(ABC):
     def __init_subclass__(cls, **kwargs):
         """Record the names of the methods marked with a hook decorator.
 
-        Each attribute of the new class that carries the ``reset``,
-        ``transition`` or ``state_space`` mark is recorded by name in
-        ``_reset``, ``_transition`` or ``_state_space``. Hooks are inherited;
-        when a class body holds several methods with the same mark, the last
-        one wins. ``core.envs.hooks`` offers no decorator for ``state_space``,
-        so that mark has to be set by hand and nothing reads the recorded name.
+        Each attribute of the new class that carries the ``reset`` or
+        ``transition`` mark is recorded by name in ``_reset`` or
+        ``_transition``, which :meth:`reset` and :meth:`transition` read to call
+        the hook. Hooks are inherited; when a class body holds several methods
+        with the same mark, the last one wins.
         """
         super().__init_subclass__(**kwargs)
         for name, func in tuple(cls.__dict__.items()):
@@ -292,8 +289,6 @@ class MultiAgentEnv(ABC):
                 cls._reset = name
             if getattr(func, "transition", False):
                 cls._transition = name  # S_{t+1} = T(S_t, A_t)
-            if getattr(func, "state_space", False):
-                cls._state_space = name
 
     @property
     def mechanism(self) -> Mechanism:
@@ -491,8 +486,7 @@ class MultiAgentEnv(ABC):
         4. rebuilds the observations on the new step from the followers'
            ``observation`` and the leaders' ``mechanism_observations``, so the
            contribution of the leaders' mechanisms reaches the policies at the
-           next step;
-        5. increments the step counter ``_t``.
+           next step.
 
         Nothing is published to the ``World`` by this method.
 
@@ -543,5 +537,4 @@ class MultiAgentEnv(ABC):
                 for residual in leader.mechanism_observations(mdp)
             ]
         )
-        self._t += 1
         return mdp

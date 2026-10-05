@@ -2,12 +2,9 @@
 
 A hook decorator only marks a function with an attribute named after the hook.
 ``MultiAgentEnv.__init_subclass__`` then records, as class variables, the name
-of the method that carries the ``reset``, ``transition`` or ``state_space``
-mark. The ``action``, ``observation`` and ``reward`` marks are read by
+of the method that carries the ``reset`` or ``transition`` mark. The
+``action``, ``observation`` and ``reward`` marks are read by
 ``Agent.__init_subclass__`` instead (see ``tests/agents/test_agent_base.py``).
-
-``state_space`` has a recorded class variable but no decorator in
-``core.envs.hooks``; the test sets the attribute by hand.
 """
 
 import pytest
@@ -54,20 +51,7 @@ def test_agent_hooks_are_not_recorded_by_the_environment(hook):
         def my_hook(self, mdp):
             return MDPState()
 
-    assert (Env._reset, Env._transition, Env._state_space) == (None, None, None)
-
-
-@pytest.mark.unit
-def test_state_space_mark_is_recorded_when_set_by_hand():
-    def space(self):
-        return None
-
-    space.state_space = True
-
-    class Env(MultiAgentEnv):
-        build_space = space
-
-    assert Env._state_space == "build_space"
+    assert (Env._reset, Env._transition) == (None, None)
 
 
 @pytest.mark.unit

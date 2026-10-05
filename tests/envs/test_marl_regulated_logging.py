@@ -37,7 +37,6 @@ def make_env(rewards: dict[str, float]):
         leaders={},
         logger=MetricLogger.from_schema(EpisodeRolloutSchema),
         horizon=None,
-        _t=0,
     )
     env.transition = lambda mdp: dataclasses.replace(mdp, t=mdp.t + 1)
     env.termination = lambda mdp: MultiAgentEnv.termination(env, mdp)

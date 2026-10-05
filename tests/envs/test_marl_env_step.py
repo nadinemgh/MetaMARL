@@ -98,11 +98,10 @@ def test_observations_are_the_current_stock_plus_the_leader_signal(regulated, to
 
 
 @pytest.mark.unit
-def test_step_advances_the_clock_and_the_counter(unregulated, toy):
+def test_step_advances_the_clock(unregulated, toy):
     states = run_episode(unregulated, toy, [0.0, 0.0])
 
     assert [s.t for s in states] == [0, 1, 2]
-    assert unregulated._t == 2
 
 
 @pytest.mark.unit

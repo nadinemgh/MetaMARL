@@ -84,9 +84,6 @@ class RegulatorEnv(gym.Env):
         Identifier of the optimizer that owns this environment, stamped on
         every published context. It can be set later through the ``opt_id``
         property (default ``None``).
-    mode : str, optional
-        Accepted for symmetry with the inner environments; not stored and not
-        used (default ``"train"``).
     **kwargs
         Forwarded to ``gymnasium.Env.__init__``, which accepts no argument:
         any extra keyword raises ``TypeError``.
@@ -97,8 +94,6 @@ class RegulatorEnv(gym.Env):
         The ``World`` handle.
     horizon : int or None
         Number of outer steps of an episode.
-    env_id : None
-        Placeholder, always ``None``.
     agents : dict[AgentID, Agent]
         The regulator's agents built from ``agents_cfgs``.
     inner : Optimizer
@@ -159,7 +154,6 @@ class RegulatorEnv(gym.Env):
         queries: Optional[tuple[Query]] = None,
         schema: Optional[MetricSchema] = None,
         opt_id: Optional[OptimizerID] = None,
-        mode: Optional[str] = "train",
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
@@ -168,7 +162,6 @@ class RegulatorEnv(gym.Env):
         self._opt_id = opt_id
         self.horizon = horizon
         self._t = 0
-        self.env_id = None
         self.agents: dict[AgentID, Agent] = {
             aid: cfg.build() for aid, cfg in agents_cfgs.items()
         }
@@ -280,9 +273,6 @@ class RegulatorEnv(gym.Env):
             metrics, reduced by ``inner.reduce_metrics()`` (which also clears
             them).
         """
-
-        # Setup agents' env after regulator action sampling
-        self._t_agents = 0
 
         for idx, a in enumerate(actions):
             for seed in self.seeds:

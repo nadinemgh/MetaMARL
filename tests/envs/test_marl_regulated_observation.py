@@ -58,7 +58,6 @@ def make_env(stocks: list[float], leaders: dict | None = None):
         leaders=leaders,
         logger=MetricLogger.from_schema(EpisodeRolloutSchema),
         horizon=None,
-        _t=0,
     )
     env.transition = lambda mdp: mdp.advance(state={"fish": stocks[mdp.t + 1]})
     env.termination = lambda mdp: MultiAgentEnv.termination(env, mdp)
