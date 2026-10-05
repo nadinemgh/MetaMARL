@@ -7,9 +7,12 @@ interchangeable models provide them behind the :class:`LakeModel` interface.
 ``RavenLake`` drives the external Raven hydrological model (Craig et al., 2020),
 as the first version of this example did: it copies a prepared model directory,
 rewrites the withdrawal series and the end date, runs the executable and reads
-the last row of its output files. The model directory (the ``raven/`` folder of
-the Belwood Lake catchment) and the executable are not part of this repository,
-so their locations are options of the run and nothing is hard-coded.
+the last row of its output files. The no-withdrawal baseline never changes, so
+it is run once per episode, up to the last day of the episode, and its daily
+rows are read as the episode advances. The model directory (the ``raven/``
+folder of the Belwood Lake catchment) and the executable are not part of this
+repository, so their locations are options of the run and nothing is
+hard-coded.
 
 ``SurrogateLake`` is a small mass-balance reservoir with seeded weather. It
 needs no external file, which lets the example, its tests and its smoke run work
@@ -193,7 +196,12 @@ class LakeModel(ABC):
         return (stage_m - (self.full_stage_m - self.max_depth_m)) / self.max_depth_m
 
     @abstractmethod
-    def start(self, date: datetime, rng: np.random.Generator) -> LakeReading:
+    def start(
+        self,
+        date: datetime,
+        rng: np.random.Generator,
+        end_date: Optional[datetime] = None,
+    ) -> LakeReading:
         """Begin an episode on ``date`` with no withdrawal so far.
 
         Parameters
@@ -202,6 +210,9 @@ class LakeModel(ABC):
             First day of the episode.
         rng : numpy.random.Generator
             Generator of the environment, for models with random weather.
+        end_date : datetime, optional
+            Last day the episode can reach. Models that simulate the
+            no-withdrawal baseline ahead of time need it; the others ignore it.
 
         Returns
         -------
@@ -362,7 +373,12 @@ class SurrogateLake(LakeModel):
 
         return volume, outflow
 
-    def start(self, date: datetime, rng: np.random.Generator) -> LakeReading:
+    def start(
+        self,
+        date: datetime,
+        rng: np.random.Generator,
+        end_date: Optional[datetime] = None,
+    ) -> LakeReading:
         """Draw an initial level and the weather of ``date``.
 
         Parameters
@@ -371,6 +387,9 @@ class SurrogateLake(LakeModel):
             First day of the episode.
         rng : numpy.random.Generator
             Generator of the environment.
+        end_date : datetime, optional
+            Ignored: the baseline is advanced day by day with the main
+            reservoir.
 
         Returns
         -------
@@ -466,8 +485,8 @@ OUTPUT_DIR = "3_Model_output"
 RUN_NAME = "2_Raven/ohms_canshield"
 
 
-def _last_row(csv_path: Path) -> dict[str, str]:
-    """Return the last row of a Raven output file, with stripped column names."""
+def _read_rows(csv_path: Path) -> list[dict[str, str]]:
+    """Return the rows of a Raven output file, with stripped column names."""
     if not csv_path.exists():
         raise RavenOutputError(f"Raven output not found: {csv_path}")
 
@@ -479,7 +498,7 @@ def _last_row(csv_path: Path) -> dict[str, str]:
     if not rows:
         raise RavenOutputError(f"Raven output is empty: {csv_path}")
 
-    return rows[-1]
+    return rows
 
 
 def _column(row: dict[str, str], name: str, *, prefix: bool) -> Optional[float]:
@@ -498,12 +517,18 @@ def _column(row: dict[str, str], name: str, *, prefix: bool) -> Optional[float]:
 
 
 class _RavenRun:
-    """One prepared copy of the Raven model and the files it writes."""
+    """One prepared copy of the Raven model and the files it writes.
+
+    The output files are parsed once after each run and kept until the next
+    run. Raven writes one row per day, so the row of a day is found by counting
+    back from the last row, which is the end date of the run.
+    """
 
     def __init__(self, *, model_dir: Path, command: str, run_root: Path) -> None:
         self.model_dir = model_dir
         self.command = command
         self.run_root = run_root
+        self._rows: dict[str, list[dict[str, str]]] = {}
 
     def prepare(self) -> None:
         """Copy the model directory to a clean run directory."""
@@ -517,6 +542,7 @@ class _RavenRun:
 
     def run(self, date: datetime, withdrawals: list[tuple[datetime, float]]) -> None:
         """Write the withdrawal series, set the end date and run Raven."""
+        self._rows = {}
         self._write_extraction(date, withdrawals)
         self._patch_end_date(date)
         (self.run_root / OUTPUT_DIR).mkdir(exist_ok=True)
@@ -566,17 +592,39 @@ class _RavenRun:
         ]
         path.write_text("\n".join(patched) + "\n", encoding="utf-8")
 
-    def stage(self, column: str) -> float:
-        """Last stage of the reservoir file; raises when it is missing."""
-        row = _last_row(self.run_root / OUTPUT_DIR / STAGE_FILE)
+    def _row(self, file_name: str, days_before_last: int) -> dict[str, str]:
+        """Return the row ``days_before_last`` days before the last row."""
+        if file_name not in self._rows:
+            self._rows[file_name] = _read_rows(self.run_root / OUTPUT_DIR / file_name)
+        rows = self._rows[file_name]
+        if not 0 <= days_before_last < len(rows):
+            raise RavenOutputError(
+                f"{file_name} has {len(rows)} rows, so it has no row "
+                + f"{days_before_last} days before the last."
+            )
+        return rows[-1 - days_before_last]
+
+    def stage(self, column: str, *, days_before_last: int = 0) -> float:
+        """Stage of the reservoir file; raises when it is missing.
+
+        ``days_before_last`` counts back from the last row (0 is the end date
+        of the run).
+        """
+        row = self._row(STAGE_FILE, days_before_last)
         value = _column(row, column, prefix=True)
         if value is None:
             raise RavenOutputError(f"No stage in column {column!r} of {STAGE_FILE}.")
         return value
 
-    def hydrograph(self, column: str, *, required: bool = True) -> Optional[float]:
-        """Last value of a hydrograph column; ``None`` when optional and absent."""
-        row = _last_row(self.run_root / OUTPUT_DIR / HYDROGRAPH_FILE)
+    def hydrograph(
+        self, column: str, *, required: bool = True, days_before_last: int = 0
+    ) -> Optional[float]:
+        """Value of a hydrograph column; ``None`` when optional and absent.
+
+        ``days_before_last`` counts back from the last row (0 is the end date
+        of the run).
+        """
+        row = self._row(HYDROGRAPH_FILE, days_before_last)
         value = _column(row, column, prefix=False)
         if value is None and required:
             raise RavenOutputError(
@@ -589,11 +637,21 @@ class RavenLake(LakeModel):
     """Lake driven by the external Raven hydrological model.
 
     The model directory is copied twice under ``work_dir``: one run receives the
-    irrigation withdrawals, the other receives none and gives the baseline. At
-    every day Raven is run again from the start of its simulation, with the
+    irrigation withdrawals, the other receives none and gives the baseline. The
+    main run is repeated every day from the start of its simulation, with the
     whole withdrawal series written to ``input/Extraction.rvt`` and the end date
-    set to the current day; the state is the last row of its output files. The
-    columns read are those of the Belwood Lake model.
+    set to the current day; its state is the last row of its output files. The
+    baseline input never changes, so the baseline run is made once, in
+    :meth:`start`, up to the last day of the episode, and every later day reads
+    its own row of that run (the row ``end_date - date`` days before the last).
+    This relies on Raven writing one row per day and on a run to a later end
+    date giving the same values on the earlier days, as a causal model does.
+    The columns read are those of the Belwood Lake model.
+
+    The reuse of the baseline run is verified only against the stand-in
+    executable of :func:`write_stand_in_raven`, because the Raven model of the
+    Belwood Lake catchment is not part of this repository; it has not been
+    checked against the real model.
 
     Parameters
     ----------
@@ -618,7 +676,11 @@ class RavenLake(LakeModel):
     ------
     RavenOutputError
         From :meth:`start` and :meth:`advance` when an output file or a
-        required column is missing.
+        required column is missing, or when a day outside the baseline run is
+        read.
+    ValueError
+        From :meth:`start` without an ``end_date``, and from :meth:`advance`
+        for a day after it.
 
     When to use: for a run on the real Belwood Lake model, with the ``raven/``
     directory and the executable available. Use :class:`SurrogateLake` when they
@@ -642,7 +704,7 @@ class RavenLake(LakeModel):
     ...         work_dir=Path(tmp) / "runs",
     ...     )
     ...     rng = np.random.default_rng(0)
-    ...     start = lake.start(datetime(1980, 5, 1), rng)
+    ...     start = lake.start(datetime(1980, 5, 1), rng, datetime(1980, 5, 2))
     ...     day = lake.advance(datetime(1980, 5, 2), withdrawal_m3s=2.0, rng=rng)
     >>> start.stage_m, day.stage_m, day.baseline_stage_m
     (420.0, 418.0, 420.0)
@@ -681,8 +743,23 @@ class RavenLake(LakeModel):
         self.outflow_col = outflow_col
         self.precip_col = precip_col
         self._withdrawals: list[tuple[datetime, float]] = []
+        self._end_date: Optional[datetime] = None
+
+    def _days_to_end(self, date: datetime) -> int:
+        """Return the days from ``date`` to the end of the baseline run."""
+        if self._end_date is None:
+            raise ValueError("RavenLake.start must be called before the lake is read.")
+        if date.date() > self._end_date.date():
+            raise ValueError(
+                f"{date.date()} is after the end of the episode "
+                + f"({self._end_date.date()}), where the baseline run stops."
+            )
+        return (self._end_date.date() - date.date()).days
 
     def _read(self, date: datetime) -> LakeReading:
+        # The baseline run ends on the last day of the episode; the row of
+        # ``date`` is ``ahead`` days before its last row.
+        ahead = self._days_to_end(date)
         gauges = {}
         for name, column in GAUGE_COLUMNS.items():
             value = self._main.hydrograph(column, required=False)
@@ -694,14 +771,28 @@ class RavenLake(LakeModel):
             inflow_m3s=self._main.hydrograph(self.inflow_col),
             outflow_m3s=self._main.hydrograph(self.outflow_col),
             precip_mm_day=self._main.hydrograph(self.precip_col),
-            baseline_stage_m=self._baseline.stage(self.stage_col),
-            baseline_inflow_m3s=self._baseline.hydrograph(self.inflow_col),
-            baseline_outflow_m3s=self._baseline.hydrograph(self.outflow_col),
+            baseline_stage_m=self._baseline.stage(
+                self.stage_col, days_before_last=ahead
+            ),
+            baseline_inflow_m3s=self._baseline.hydrograph(
+                self.inflow_col, days_before_last=ahead
+            ),
+            baseline_outflow_m3s=self._baseline.hydrograph(
+                self.outflow_col, days_before_last=ahead
+            ),
             gauges=gauges,
         )
 
-    def start(self, date: datetime, rng: np.random.Generator) -> LakeReading:
-        """Prepare both run directories and run Raven up to ``date``.
+    def start(
+        self,
+        date: datetime,
+        rng: np.random.Generator,
+        end_date: Optional[datetime] = None,
+    ) -> LakeReading:
+        """Prepare both run directories, run Raven to ``date`` and the baseline.
+
+        The main model is run up to ``date``. The baseline model is run once,
+        up to ``end_date``, and answers every day of the episode.
 
         Parameters
         ----------
@@ -709,29 +800,48 @@ class RavenLake(LakeModel):
             First day of the episode.
         rng : numpy.random.Generator
             Unused: the weather comes from the Raven forcing files.
+        end_date : datetime
+            Last day the episode can reach, at or after ``date``; it is
+            required.
 
         Returns
         -------
         LakeReading
-            Last row of the outputs, with no withdrawal so far.
+            Last row of the main outputs and the row of ``date`` of the
+            baseline, with no withdrawal so far.
+
+        Raises
+        ------
+        ValueError
+            If ``end_date`` is missing or before ``date``.
         """
+        if end_date is None or end_date.date() < date.date():
+            raise ValueError(
+                "RavenLake.start needs an end_date at or after the first day, "
+                + f"got {end_date!r} for {date.date()}."
+            )
         self._withdrawals = []
+        self._end_date = end_date
         self._main.prepare()
         self._baseline.prepare()
         self._main.run(date, self._withdrawals)
-        self._baseline.run(date, [])
+        self._baseline.run(end_date, [])
         return self._read(date)
 
     def advance(
         self, date: datetime, withdrawal_m3s: float, rng: np.random.Generator
     ) -> LakeReading:
-        """Record the withdrawal at ``date`` and run both models up to it.
+        """Record the withdrawal at ``date``, run the main model up to it.
+
+        The baseline is not run again: its row of ``date`` is read from the run
+        made by :meth:`start`.
 
         Parameters
         ----------
         date : datetime
             The day that is reached; the withdrawal is written at this day,
-            as the first version of the example did.
+            as the first version of the example did. It must not be after the
+            ``end_date`` given to :meth:`start`.
         withdrawal_m3s : float
             Total irrigation withdrawal (cubic metres per second).
         rng : numpy.random.Generator
@@ -740,37 +850,65 @@ class RavenLake(LakeModel):
         Returns
         -------
         LakeReading
-            Last row of the outputs of both runs.
+            Last row of the main outputs and the row of ``date`` of the
+            baseline.
+
+        Raises
+        ------
+        ValueError
+            If ``date`` is after the end of the episode.
         """
+        self._days_to_end(date)
         self._withdrawals.append((date, withdrawal_m3s))
         self._main.run(date, self._withdrawals)
-        self._baseline.run(date, [])
         return self._read(date)
 
 
 _STAND_IN_SCRIPT = """\
 #!{python}
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 root = Path.cwd()
 out = root / sys.argv[sys.argv.index("-o") + 1]
 out.mkdir(exist_ok=True)
+# One line per execution, in a file beside the executable: the run directory
+# is wiped at every episode, so it cannot keep the count.
+with (Path(__file__).resolve().parent / "calls.log").open("a") as log:
+    log.write(root.name + "\\n")
+
+rvi = (root / (sys.argv[1] + ".rvi")).read_text().splitlines()
+
+
+def read_date(key):
+    line = next(l for l in rvi if l.strip().startswith(key))
+    return date.fromisoformat(line.split()[1])
+
+
+first = read_date(":StartDate")
+last = read_date(":EndDate")
 lines = (root / "input" / "Extraction.rvt").read_text().splitlines()
 header = next(i for i, l in enumerate(lines) if l.strip().startswith("1980-01-01"))
 ends = [i for i, l in enumerate(lines) if l.strip().startswith(":End")]
-end = ends[0]
-withdrawn = -sum(float(v) for v in lines[header + 1:end])
-stage = 420.0 - withdrawn
-(out / "ohms_canshield_ReservoirStages.csv").write_text(
-    "time, Belwood_Lake [m]\\n1980-01-01, 400.0\\n2000-01-01, %s\\n" % stage
-)
-(out / "ohms_canshield_Hydrographs.csv").write_text(
+values = [float(v) for v in lines[header + 1:ends[0]]]
+
+stages = ["time, Belwood_Lake [m]"]
+hydrographs = [
     "time, Belwood_Lake (res. inflow) [m3/s], Belwood_Lake [m3/s], precip [mm/day], "
-    "West_Montrose [m3/s]\\n"
-    "1980-01-01, 1.0, 1.0, 0.0, 1.0\\n"
-    "2000-01-01, 5.0, 3.0, 2.0, 9.0\\n"
-)
+    "West_Montrose [m3/s]"
+]
+withdrawn = 0.0
+for index in range((last - first).days + 1):
+    day = first + timedelta(days=index)
+    if index < len(values):
+        withdrawn -= values[index]
+    stages.append("%s, %r" % (day, 420.0 - withdrawn))
+    hydrographs.append(
+        "%s, %r, %r, 2.0, 9.0" % (day, 5.0 + 0.01 * index, 3.0 + 0.01 * index)
+    )
+(out / "ohms_canshield_ReservoirStages.csv").write_text("\\n".join(stages) + "\\n")
+(out / "ohms_canshield_Hydrographs.csv").write_text("\\n".join(hydrographs) + "\\n")
 """
 
 
@@ -778,10 +916,15 @@ def write_stand_in_raven(directory: Path) -> tuple[Path, str]:
     """Write a tiny model directory and an executable that mimics Raven.
 
     The stand-in reads the withdrawal series from ``input/Extraction.rvt`` and
-    writes the two output files that :class:`RavenLake` reads. The stage it
-    reports is ``420`` minus the sum of the withdrawals (cubic metres per
-    second); the hydrograph is constant (inflow 5, release 3, rain 2 and a
-    ``West_Montrose`` gauge of 9).
+    the end date from the ``.rvi`` file, and writes the two output files that
+    :class:`RavenLake` reads, with one row per day from 1980-01-01 to the end
+    date, as Raven does. The stage of day ``k`` (counted from 1980-01-01) is
+    ``420`` minus the sum of the withdrawals up to that day (cubic metres per
+    second); the hydrograph has an inflow of ``5 + 0.01 k``, a release of
+    ``3 + 0.01 k``, a rain of 2 and a ``West_Montrose`` gauge of 9. The rows
+    that change from one day to the next let a test tell which day a reading
+    comes from. Every execution appends the name of its run directory to
+    ``calls.log``, beside the executable, so that a test can count the runs.
 
     Parameters
     ----------

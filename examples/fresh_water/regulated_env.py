@@ -569,7 +569,8 @@ class WaterRegulatedEnv(MultiAgentEnv):
         SurrogateLake`).
     hydrology : str, optional
         ``"surrogate"`` (default) for the built-in reservoir, or ``"raven"`` for
-        the external Raven model.
+        the external Raven model, which needs a ``horizon`` because it runs the
+        no-withdrawal baseline once, up to the end of the episode.
     raven_cwd : str or Path, optional
         Raven model directory; required with ``hydrology="raven"``.
     raven_cmd : str or Path, optional
@@ -607,7 +608,7 @@ class WaterRegulatedEnv(MultiAgentEnv):
     ------
     ValueError
         If ``hydrology`` is unknown, or is ``"raven"`` without ``raven_cwd`` and
-        ``raven_cmd``.
+        ``raven_cmd``, or without a ``horizon``.
 
     When to use: as the ``env`` of the inner (society) optimizer of the
     fresh-water experiment, with ``UtilizerConfig`` agents and the
@@ -665,6 +666,11 @@ class WaterRegulatedEnv(MultiAgentEnv):
                     "hydrology='raven' needs raven_cwd (the model directory) and "
                     + "raven_cmd (the executable)."
                 )
+            if self.horizon is None:
+                raise ValueError(
+                    "hydrology='raven' needs a horizon: the baseline run is made "
+                    + "once, up to the last day of the episode."
+                )
             self.lake = RavenLake(
                 raven_cwd=raven_cwd,
                 raven_cmd=raven_cmd,
@@ -710,8 +716,10 @@ class WaterRegulatedEnv(MultiAgentEnv):
 
         The planting day is drawn uniformly from ``PLANTING_DAY_OF_YEAR`` with
         the environment's seeded generator, counting from January 1 of 1980, and
-        the episode starts that day. The lake model then returns the initial
-        state, with no withdrawal so far.
+        the episode starts that day. The lake model is told the last day the
+        episode can reach, the planting day plus ``horizon`` days (``None``
+        without a horizon), and returns the initial state, with no withdrawal so
+        far.
 
         Parameters
         ----------
@@ -749,7 +757,12 @@ class WaterRegulatedEnv(MultiAgentEnv):
         self._planting_date = RAVEN_ORIGIN + timedelta(days=planting_day_of_year)
         self._date = self._planting_date
 
-        reading = self.lake.start(self._date, self.rng)
+        # The last day the episode can reach: it plays ``horizon`` days, and the
+        # Raven lake runs its no-withdrawal baseline once up to this day.
+        end_date = (
+            None if self.horizon is None else self._date + timedelta(days=self.horizon)
+        )
+        reading = self.lake.start(self._date, self.rng, end_date)
         self._reading = reading
         self._crop = self._demand(self._date, reading)
         entries = self._state_entries(reading, self._crop)

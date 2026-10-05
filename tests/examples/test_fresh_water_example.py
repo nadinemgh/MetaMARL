@@ -45,7 +45,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -439,7 +439,7 @@ def test_raven_lake_reads_the_stand_in_outputs(tmp_path):
         work_dir=tmp_path / "runs",
     )
     rng = np.random.default_rng(0)
-    start = lake.start(datetime(1980, 5, 1), rng)
+    start = lake.start(datetime(1980, 5, 1), rng, datetime(1980, 5, 3))
     assert (start.stage_m, start.baseline_stage_m) == (420.0, 420.0)
 
     first = lake.advance(datetime(1980, 5, 2), withdrawal_m3s=2.0, rng=rng)
@@ -449,11 +449,12 @@ def test_raven_lake_reads_the_stand_in_outputs(tmp_path):
     assert first.stage_m == 418.0
     assert second.stage_m == 417.5
     assert second.baseline_stage_m == 420.0
-    assert (second.inflow_m3s, second.outflow_m3s, second.precip_mm_day) == (
-        5.0,
-        3.0,
-        2.0,
-    )
+    # Its inflow and release grow by 0.01 a day from the first day of 1980.
+    day = (datetime(1980, 5, 3) - datetime(1980, 1, 1)).days
+    assert second.inflow_m3s == pytest.approx(5.0 + 0.01 * day)
+    assert second.outflow_m3s == pytest.approx(3.0 + 0.01 * day)
+    assert second.precip_mm_day == 2.0
+    assert second.baseline_inflow_m3s == pytest.approx(5.0 + 0.01 * day)
     assert second.gauges["gauge_west_montrose_m3s"] == 9.0
 
 
@@ -472,7 +473,107 @@ def test_raven_lake_names_the_missing_executable_output(tmp_path):
         work_dir=tmp_path / "runs",
     )
     with pytest.raises(RavenOutputError):
-        lake.start(datetime(1980, 5, 1), np.random.default_rng(0))
+        lake.start(datetime(1980, 5, 1), np.random.default_rng(0), datetime(1980, 5, 2))
+
+
+class PerDayBaselineLake(RavenLake):
+    """The Raven lake as it was: the baseline is run again every day.
+
+    Its baseline run ends on the day that is read, so the reading is its last
+    row, which is what the lake did before the baseline was run once.
+    """
+
+    def start(self, date, rng, end_date=None):
+        self._withdrawals = []
+        self._end_date = date
+        self._main.prepare()
+        self._baseline.prepare()
+        self._main.run(date, self._withdrawals)
+        self._baseline.run(date, [])
+        return self._read(date)
+
+    def advance(self, date, withdrawal_m3s, rng):
+        self._end_date = date
+        self._withdrawals.append((date, withdrawal_m3s))
+        self._main.run(date, self._withdrawals)
+        self._baseline.run(date, [])
+        return self._read(date)
+
+
+def stand_in_lake(tmp_path: Path, lake_class: type, key: str) -> tuple[Any, Path]:
+    """Lake on its own stand-in executable, and the log of its executions."""
+    directory = tmp_path / key
+    directory.mkdir()
+    model, command = write_stand_in_raven(directory)
+    lake = lake_class(
+        full_stage_m=420.0,
+        max_depth_m=10.0,
+        raven_cwd=model,
+        raven_cmd=command,
+        key="episode",
+        work_dir=directory / "runs",
+    )
+    return lake, directory / "calls.log"
+
+
+def executions(log: Path, run: str) -> int:
+    """Number of times the stand-in ran in the run directory named ``run``."""
+    return log.read_text().splitlines().count(run)
+
+
+@pytest.mark.unit
+def test_raven_baseline_is_run_once_per_episode_and_reads_the_per_day_values(tmp_path):
+    withdrawals = [2.0, 0.5, 0.0, 1.25, 3.0]
+    first_day = datetime(1980, 5, 1)
+    last_day = datetime(1980, 5, 6)
+    rng = np.random.default_rng(0)
+
+    once, once_log = stand_in_lake(tmp_path, RavenLake, "once")
+    per_day, per_day_log = stand_in_lake(tmp_path, PerDayBaselineLake, "per_day")
+
+    def episode(lake) -> list:
+        readings = [lake.start(first_day, rng, last_day)]
+        for index, withdrawal in enumerate(withdrawals):
+            date = first_day + timedelta(days=index + 1)
+            readings.append(lake.advance(date, withdrawal, rng))
+        return readings
+
+    new_readings = episode(once)
+    old_readings = episode(per_day)
+
+    # Same readings, baseline included, whichever way the baseline is obtained.
+    assert new_readings == old_readings
+    # The baseline of the stand-in differs from day to day, so a reading taken
+    # from the wrong row would have shown above.
+    baselines = [reading.baseline_inflow_m3s for reading in new_readings]
+    assert len(set(baselines)) == len(baselines)
+
+    # One baseline execution for the episode, against one per day before; the
+    # main model is run every day in both cases.
+    days = len(withdrawals) + 1
+    assert executions(once_log, "baseline_episode") == 1
+    assert executions(per_day_log, "baseline_episode") == days
+    assert executions(once_log, "episode") == days
+    assert executions(per_day_log, "episode") == days
+
+    # A second episode runs the baseline once more.
+    once.start(first_day, rng, last_day)
+    assert executions(once_log, "baseline_episode") == 2
+
+
+@pytest.mark.unit
+def test_raven_baseline_run_stops_at_the_end_of_the_episode(tmp_path):
+    lake, _ = stand_in_lake(tmp_path, RavenLake, "short")
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="end_date"):
+        lake.start(datetime(1980, 5, 1), rng)
+    with pytest.raises(ValueError, match="end_date"):
+        lake.start(datetime(1980, 5, 2), rng, datetime(1980, 5, 1))
+
+    lake.start(datetime(1980, 5, 1), rng, datetime(1980, 5, 2))
+    lake.advance(datetime(1980, 5, 2), 1.0, rng)
+    with pytest.raises(ValueError, match="after the end of the episode"):
+        lake.advance(datetime(1980, 5, 3), 1.0, rng)
 
 
 # --- Environment construction ----------------------------------------------------
@@ -488,6 +589,13 @@ def test_environment_refuses_an_unknown_lake_model(build_env):
 def test_raven_lake_needs_the_model_directory_and_the_executable(build_env):
     with pytest.raises(ValueError, match="raven_cwd"):
         build_env(hydrology="raven")
+
+
+@pytest.mark.unit
+def test_raven_lake_needs_a_horizon_for_its_baseline_run(build_env, tmp_path):
+    model, command = write_stand_in_raven(tmp_path)
+    with pytest.raises(ValueError, match="horizon"):
+        build_env(horizon=None, hydrology="raven", raven_cwd=model, raven_cmd=command)
 
 
 @pytest.mark.unit
@@ -870,6 +978,12 @@ def test_the_raven_lake_runs_inside_the_environment(build_env, tmp_path):
     assert env._reading.stage_m == pytest.approx(420.0 - delivered / SECONDS_PER_DAY)
     reduced = env.logger.reduce()
     assert reduced.gauge_west_montrose_m3s == 9.0
+    # The episode (reset and one step of its two) ran the baseline once, up to
+    # the last day, and the main model on the first day and on the day played.
+    log = (tmp_path / "calls.log").read_text().splitlines()
+    key = "m_0_seed_0"
+    assert log.count(f"baseline_{key}") == 1
+    assert log.count(key) == 2
     # The stand-in baseline never loses water, so its level is that of 420 m.
     assert reduced.baseline_reservoir_level_norm_series == [
         pytest.approx(env.lake.level_norm(420.0))
