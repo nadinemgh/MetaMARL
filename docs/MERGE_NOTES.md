@@ -10,12 +10,12 @@ left for you to decide. Every change is its own commit with its own test, so any
 them can be reverted on its own; the hashes below are those of the branch when it is
 pushed.
 
-The state at the end of the pass is the following. The suite has about 1870 tests,
+The state at the end of the pass is the following. The suite has about 1890 tests,
 including the doctests of `core/` and `examples/`, and covers 99 % of `core/`. The
 three examples run end to end, and two runs with the same seeds give bit-identical
 fitness. `ruff check --no-fix .` and `ruff format --check .` pass on the whole tree
-with your configuration, and continuous integration runs the lint, the unit tests
-and the integration tests. The README, QUICKSTART, AGENTS and
+with your configuration, and continuous integration runs the lint, the unit tests,
+the integration tests and the five tutorial notebooks. The README, QUICKSTART, AGENTS and
 `docs/ARCHITECTURE.md` describe the present code; the commands they quote were
 executed.
 
@@ -122,6 +122,25 @@ instead of once per day (`e6a3015`). With 20 farms, 30-day episodes and three
 generations, the fitness moved from 1.2533, 1.2020 and 1.2250 to 1.2816, 1.2319 and
 1.2595, and the residence time now ranges from 42 to 158 days.
 
+**Three behaviour changes decided on 5 October.** The regulator environment
+hands the same candidate to every leader and each leader applies the mechanisms
+it owns, yet the ES built its search space from the first regulator agent only, so
+a second leader never received a candidate. The ES now searches the union of the
+mechanisms of every regulator agent (`a65b543`). Every quota wrote its allowance
+to the same state entry, so a second quota overwrote the first; the entry is now
+`allowed_frac:<mechanism id>` (`6bf771c`). Two quotas on one target still sum
+their corrections, so the fisher is cut twice; the docstring and a test now state
+it. Social influence sorted the peers by their identifier as a string, which puts
+`fisherman:10` before `fisherman:2` beyond ten fishers; the numeric index now
+decides, and identifiers without one follow in string order (`14557d7`). The
+single-regulator fishery with fewer than eleven fishers is unchanged by all three.
+
+**Averaged curves keep their order.** A `MEAN` reduction over a `SERIES` level
+iterated a set, whose order depends on `PYTHONHASHSEED`, so the order of the
+averaged curves, and with it their colours and their place in the legend, could
+change from one run to the next. It now keeps the sorted order of the groups
+(`e00ec36`).
+
 ## Interface changes
 
 The following were deleted because nothing called them or because they could not
@@ -159,6 +178,12 @@ now called `metamarl`, after the repository, and installs a `metamarl` command
 that runs `metamarl run config.yaml` and `metamarl check config.yaml` (`5a95efa`,
 `bd5254f`); `python -m core.config.cli` still works.
 
+Two names changed with the behaviour changes above. Code that reads the quota's
+allowance must read `allowed_frac:<mechanism id>`, for example
+`allowed_frac:quota`, instead of `allowed_frac` (`6bf771c`). `ESOptimizer` no
+longer has the `agents_cfgs` attribute that held the first regulator agent
+(`a65b543`).
+
 ## New errors
 
 Several silent failures now raise. The ES rejects bounds other than `[0, 1]`
@@ -171,7 +196,10 @@ carrying the same hook mark (`05dfc50`, `bfcc5c5`), a trajectory that skips a st
 (`29f351d`), a context that fails validation (`a18c5b8`), a fetch mode other than
 train or eval (`5a2f552`), an unknown `WandbConfig` argument (`86b0c80`) and a
 negative `influence_weight` (`dbe2338`) raise as well. A failed mechanism fetch
-names the mechanism (`5f2b295`, `4efe1de`).
+names the mechanism (`5f2b295`, `4efe1de`). The ES raises a `ValueError` that names
+both agents when two regulator agents declare the same mechanism id, since the
+candidate is keyed by mechanism id, and a `ValueError` instead of an
+`AttributeError` when no regulator agent was declared (`a65b543`).
 
 `ESConfig` and its `training` builder accepted any keyword and ignored it, so a
 misspelled option such as `mean_rl` kept the default without a word; an unknown
@@ -234,6 +262,39 @@ weights, so the ES gradient may follow the differences between slot initialisati
 rather than the mechanism. The measurement predates the new dynamics and the tail
 window; it is repeated on the shrunk and full configurations before the push, and
 its result will be added here.
+
+## The tutorials
+
+Most of the code of the tutorials sat in fenced markdown blocks that never ran,
+and it had drifted from the API without any test failing. Every code example is
+now an executable cell, the sections that taught removed concepts were rewritten
+to their present equivalent, and a test runs each notebook end to end under the
+`notebook` marker, in its own CI job (`6aaee13`). The custom benchmark tutorial
+builds a common-pool environment, an extraction mechanism and a custom scarcity
+tax, tests them analytically and runs a tiny bilevel experiment (`97af7e4`). The
+mechanism tutorial steps the real fishery under each mechanism and closes with a
+tiny training run (`13aff1b`). The visualization tutorial draws every query from
+made-up metrics against the present reporting API (`268b500`). The continuous-time
+notebook is mathematics only and did not change. Together the five run in about
+two minutes.
+
+Your fishery tutorial now runs at a reduced scale by default, so that it executes
+in about a minute: 12 ES generations, 8 APPO iterations per generation, a horizon
+of 50, 4 fishers and one evaluation seed (`279fba0`). Its Section 10 gives the
+values of the original experiment (1000 generations, 50 iterations, a horizon of
+100, 10 fishers, 3 evaluation seeds) and says to set them to launch the real run.
+It writes an offline W&B run under `tutorials/wandb/`. The line `!tutorials/*` of
+`.gitignore` un-ignored that directory and the CSV output of the other tutorials,
+so it was removed (`f77ea7b`).
+
+The notebook pass found four documentation defects in `core/` and the fishery,
+each fixed in its own commit: `raw_actions` also receives the leaders' residuals
+(`45cc14f`), the Ray schema is never passed to `reporting` (`e6dc300`), the
+rollout schema is keyed by the environment seed and the learner schema by the
+policy seed (`17f48b6`), and the society environment reads no regulator `K`
+(`acd529b`). One limit is worth knowing: the fishery observation has five entries
+and the fisher fills two of them, so social influence on a scalar action fits at
+most three fishers, and a fourth raises an error that names the missing entries.
 
 ## Tooling
 
