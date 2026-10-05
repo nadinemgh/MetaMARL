@@ -8,12 +8,30 @@ path continues with a :class:`~core.metrics.enums.ReduceProtocol` token:
 averages the keys pointwise, skipping the gaps that the logger records for a key
 absent from a push. A reporter resolves each query against the
 populated schema of an iteration and renders the result, so a query is the
-only place where the shape of a plot is decided::
+only place where the shape of a plot is decided. One of the fishery's queries
+(``examples/bilevel_fishery/queries.py``) draws one curve per mechanism, averaged
+over seeds and episodes, with a standard-deviation band:
 
-    Query(title="Fish biomass by mechanism",
-          x=("iter",),
-          y=("train", "rollout", "by_mechanism", ReduceProtocol.MEAN, "fish_norm"),
-          error="std", error_path=("train", "rollout", "by_mechanism"))
+>>> query = Query(
+...     title="Mean normalized fish biomass over training episodes",
+...     legend_labels=("train",),
+...     x=("iter",),
+...     y=(
+...         (
+...             "train", "rollout", "by_mechanism", ReduceProtocol.SERIES,
+...             "by_seed", ReduceProtocol.MEAN, "by_episode", ReduceProtocol.MEAN,
+...             "fish_norm_next_mean",
+...         ),
+...     ),
+...     x_label="training episode",
+...     y_label="normalized mean fish biomass",
+...     error="std",
+...     error_path=(
+...         "train", "rollout", "by_mechanism", ReduceProtocol.SERIES, "by_seed"
+...     ),
+... )
+>>> query.y[0][-1]
+'fish_norm_next_mean'
 """
 
 from dataclasses import dataclass
