@@ -3115,8 +3115,8 @@ agents' observations is an open design question for the mechanism port.
 
 - `World.__init__` (line 51): the reporting type annotation to add
 - `World.__init__` (line 54): replace with registry
-- `World.get_mechanism_by_index` (line 315): fix this function. now the primary key is ctx_id
-- `World.flush` (line 515): fix this function. now the primary key is ctx_id
+- `World.get_mechanism_by_index` (line 315): fix this function. now the primary key is ctx_id — resolved in `f48cabb`: the lookup now scans the registry for the candidate's batch index and skips `done` entries.
+- `World.flush` (line 515): fix this function. now the primary key is ctx_id — resolved in `caf369e`: flushing now removes each mechanism from the three registries together.
 
 ## `core/world/context.py`
 
@@ -3179,10 +3179,10 @@ agents' observations is an open design question for the mechanism port.
 - `module level` (line 22): seeding API
 - `module level` (line 23): experimentation helpers
 - `module level` (line 24): review ray configz
-- `module level` (line 28): move this to the config ! (refers to the `ModelCatalog.register_custom_model("mps_fcnet", ...)` registration that follows)
+- `module level` (line 28): move this to the config ! (refers to the `ModelCatalog.register_custom_model("mps_fcnet", ...)` registration that follows) — resolved in `09033f7`: the cart-pole port removed the custom model and its registration.
 - `module level` (line 57): dimension inferred from mechanism ? (trailing comment on `.training(` of the outer `ESConfig`)
 - `module level` (line 68): implement early stop for plateau (trailing comment on `train_iters=200` of the outer `ESConfig`)
-- `module level` (line 79): fix this its using old api stack (above the commented-out `.model(custom_model="mps_fcnet")`)
+- `module level` (line 79): fix this its using old api stack (above the commented-out `.model(custom_model="mps_fcnet")`) — resolved in `09033f7`: the commented-out old-API model call is gone and the scripts use the new API stack.
 - `module level` (line 81): use the new api stack and better custom model integration (above `.api_stack(`)
 - `module level` (line 107): review (trailing comment on `circular_buffer_num_batches=2`)
 - `module level` (line 108): review (trailing comment on `circular_buffer_iterations_per_batch=1`)
@@ -3198,10 +3198,10 @@ agents' observations is an open design question for the mechanism port.
 - `module level` (line 22): seeding API
 - `module level` (line 23): experimentation helpers
 - `module level` (line 24): review ray configz
-- `module level` (line 28): move this to the config ! (refers to the `ModelCatalog.register_custom_model("mps_fcnet", ...)` registration that follows)
+- `module level` (line 28): move this to the config ! (refers to the `ModelCatalog.register_custom_model("mps_fcnet", ...)` registration that follows) — resolved in `09033f7`: the cart-pole port removed the custom model and its registration.
 - `module level` (line 57): dimension inferred from mechanism ? (trailing comment on `.training(` of the outer `ESConfig`)
 - `module level` (line 68): implement early stop for plateau (trailing comment on `train_iters=100` of the outer `ESConfig`)
-- `module level` (line 79): fix this its using old api stack (above the commented-out `.model(custom_model="mps_fcnet")`)
+- `module level` (line 79): fix this its using old api stack (above the commented-out `.model(custom_model="mps_fcnet")`) — resolved in `09033f7`: the commented-out old-API model call is gone and the scripts use the new API stack.
 - `module level` (line 81): use the new api stack and better custom model integration (above `.api_stack(`)
 - `module level` (line 105): review (inside commented-out code, trailing comment on `# circular_buffer_num_batches=2,`)
 - `module level` (line 106): review (inside commented-out code, trailing comment on `# circular_buffer_iterations_per_batch=1,`)
