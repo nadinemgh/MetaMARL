@@ -63,8 +63,8 @@ def tag_episode_with_env_idx(
         Runner owning the vectorised environment; the sub-env is fetched as
         ``env_runner.env.envs[env_index].unwrapped``.
     env : VectorMultiAgentEnv
-        Vector env passed by RLlib; immediately shadowed by the unwrapped
-        sub-environment and otherwise unused.
+        Vector env passed by RLlib; unused (the sub-environment is read from
+        ``env_runner``).
     env_index : int
         Position of the sub-environment in the vector env.
     **kwargs
@@ -104,25 +104,27 @@ def tag_episode_with_env_idx(
     0
     """
 
-    env: gym.Env = env_runner.env.envs[env_index].unwrapped
+    sub_env: gym.Env = env_runner.env.envs[env_index].unwrapped
 
     # Access env seed and mechanism id
-    if getattr(env, "mechanism_id", None) is None:
+    if getattr(sub_env, "mechanism_id", None) is None:
         raise RuntimeError(
             "Env has no mechanism_id. It must be assigned at construction."
         )
 
-    if getattr(env, "seed", None) is None:
+    if getattr(sub_env, "seed", None) is None:
         raise RuntimeError("Env has no seed. It must be assigned at construction.")
 
-    if getattr(env, "env_id", None) is None:
-        env.env_id = env_index
-    elif env.env_id != env_index:
-        raise RuntimeError(f"Immutable env_id changed: {env.env_id}, new={env_index}")
+    if getattr(sub_env, "env_id", None) is None:
+        sub_env.env_id = env_index
+    elif sub_env.env_id != env_index:
+        raise RuntimeError(
+            f"Immutable env_id changed: {sub_env.env_id}, new={env_index}"
+        )
 
-    mechanism_id = env.mechanism_id
-    seed = env.seed
-    policy_seed = env.policy_seed
+    mechanism_id = sub_env.mechanism_id
+    seed = sub_env.seed
+    policy_seed = sub_env.policy_seed
 
     # set env id
     raw_episode_id = episode.id_
@@ -163,7 +165,8 @@ def log_and_report_episode_metrics(
         Runner owning the vectorised environment; the sub-env is fetched as
         ``env_runner.env.envs[env_index].unwrapped``.
     env : VectorMultiAgentEnv
-        Vector env passed by RLlib; shadowed by the unwrapped sub-environment.
+        Vector env passed by RLlib; unused (the sub-environment is read from
+        ``env_runner``).
     env_index : int
         Position of the sub-environment in the vector env.
     metrics_logger : MetricsLogger
@@ -208,14 +211,14 @@ def log_and_report_episode_metrics(
     ('by_episode', 'env=0|m=1|ps=2|ss=3') 3.0 item
     """
 
-    env: gym.Env = env_runner.env.envs[env_index].unwrapped
+    sub_env: gym.Env = env_runner.env.envs[env_index].unwrapped
 
-    metrics = env.logger.peek()
+    metrics = sub_env.logger.peek()
 
-    if env.reporter is not None:
-        env.reporter.report(metrics)
+    if sub_env.reporter is not None:
+        sub_env.reporter.report(metrics)
 
-    reduced = env.logger.reduce()
+    reduced = sub_env.logger.reduce()
     episode_id = episode.id_.partition("|raw=")[0]
 
     metrics_logger.log_value(
