@@ -237,10 +237,6 @@ class RecordingReporterConfig(ReporterConfig):
         return reporter
 
 
-class OptSchema(MetricSchema):
-    """Optimizer-level reporting schema."""
-
-
 class EnvSchema(MetricSchema):
     """Env-level reporting schema."""
 
@@ -331,7 +327,7 @@ def society(
         )
 
     if reporting:
-        cfg.reporting(queries=(OPT_QUERY,), schema=OptSchema)
+        cfg.reporting(queries=(OPT_QUERY,))
 
     if reporter:
         cfg.reporter_cfg = RecordingReporterConfig(project="unit")

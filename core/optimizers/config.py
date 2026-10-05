@@ -158,7 +158,6 @@ class OptimizerConfig(_Config, ABC):
         # reporting
         self.stats_cls_lookup = DEFAULT_STATS_CLS_LOOKUP
         self._reporter_cfg: Optional[ReporterConfig] = None
-        self._reporting_schema: Optional[type[MetricSchema]] = None
         self._reporting_queries: Optional[tuple[Query, ...]] = None
         self._reporting_schema_env: Optional[type[MetricSchema]] = None
         self._reporting_queries_env: Optional[tuple[Query, ...]] = None
@@ -528,30 +527,24 @@ class OptimizerConfig(_Config, ABC):
 
         return self
 
-    def reporting(
-        self,
-        queries: Optional[tuple[Query, ...]],
-        schema: Optional[type[MetricSchema]] = None,
-    ) -> Self:
-        """Declare the optimizer-level metric schema and the queries to render.
+    def reporting(self, queries: Optional[tuple[Query, ...]]) -> Self:
+        """Declare the queries the optimizer-level reporter renders.
+
+        The paths of the queries refer to the metric schema the optimizer logs
+        into, which the optimizer class fixes (``ESSchema`` for the evolution
+        strategy, ``RaySchema`` for the RLlib society).
 
         Parameters
         ----------
         queries : tuple of Query or None
             Queries the optimizer's reporter renders; ``None`` keeps the
             current queries.
-        schema : type[MetricSchema], optional
-            Metric schema the optimizer logs into; ``None`` keeps the current
-            schema.
 
         Returns
         -------
         OptimizerConfig
             ``self`` for chaining.
         """
-
-        if schema is not None:
-            self._reporting_schema = schema
 
         if queries is not None:
             self._reporting_queries = tuple(queries)

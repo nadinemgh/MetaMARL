@@ -28,16 +28,11 @@ from core.adaptors.ray.optimizer import RayOptimizer
 from core.adaptors.ray.optimizer_config import RayOptimizerConfig, RLlibConfigOp
 from core.agents.base import AgentConfig
 from core.mechanism.config import MechanismConfig
-from core.metrics.schemas import MetricSchema
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.ppo.config import PPOptimizerConfig
 from core.reporting.query import Query
 
 BOX = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
-
-
-class OptSchema(MetricSchema):
-    """Schema for the optimizer-level reporting declaration."""
 
 
 QUERY = Query(title="opt", x=("iter",), y=("iter",))
@@ -215,12 +210,9 @@ def test_env_runners_records_the_mechanism_count_and_defaults_it_to_one():
 def test_reporting_stores_the_declaration_and_defers_the_rllib_kwargs():
     cfg = PPOptimizerConfig()
 
-    returned = cfg.reporting(
-        queries=(QUERY,), schema=OptSchema, metrics_num_episodes_for_smoothing=5
-    )
+    returned = cfg.reporting(queries=(QUERY,), metrics_num_episodes_for_smoothing=5)
 
     assert returned is cfg
-    assert cfg._reporting_schema is OptSchema
     assert cfg._reporting_queries == (QUERY,)
     op = cfg._cfg_ops["_reporting_rllib"]
     assert op.kwargs == {"metrics_num_episodes_for_smoothing": 5}
@@ -228,11 +220,10 @@ def test_reporting_stores_the_declaration_and_defers_the_rllib_kwargs():
 
 @pytest.mark.unit
 def test_reporting_with_none_keeps_the_previous_declaration():
-    cfg = PPOptimizerConfig().reporting(queries=(QUERY,), schema=OptSchema)
+    cfg = PPOptimizerConfig().reporting(queries=(QUERY,))
 
-    cfg.reporting(queries=None, schema=None)
+    cfg.reporting(queries=None)
 
-    assert cfg._reporting_schema is OptSchema
     assert cfg._reporting_queries == (QUERY,)
 
 

@@ -119,8 +119,8 @@ class ESSchema(MetricSchema):
     inner : MetricSchema or None
         Reduced metrics of the inner optimizer for this generation.
 
-    When to use: as the metric schema of the outer optimizer when declaring its
-    reporting queries (``ESConfig().reporting(queries, schema=ESSchema)``).
+    When to use: the outer optimizer logs into it, so the paths of the queries
+    given to ``ESConfig().reporting(queries)`` refer to its fields.
 
     Examples
     --------

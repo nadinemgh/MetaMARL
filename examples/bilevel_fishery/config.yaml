@@ -93,9 +93,6 @@ experiment:
                 num_seeds: 1
 
             - reporting:
-                schema:
-                  _symbol_: core.optimizers.es.schema.ESSchema
-
                 queries:
                   _symbol_: examples.bilevel_fishery.queries.ES_QUERIES
 
@@ -240,9 +237,6 @@ experiment:
                 min_time_s_per_iteration: 0
                 min_sample_timesteps_per_iteration: 0
                 min_train_timesteps_per_iteration: 0
-
-                schema:
-                  _symbol_: core.adaptors.ray.schema.RaySchema
 
                 queries:
                   _symbol_: examples.bilevel_fishery.queries.INNER_QUERIES

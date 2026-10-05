@@ -51,7 +51,6 @@ from core.adaptors.ray.optimizer import RayOptimizer
 from core.agents.base import AgentConfig
 from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
-from core.metrics.schemas import MetricSchema
 from core.optimizers.config import OptimizerConfig
 from core.reporting.query import Query
 from core.utils import generate_uuid
@@ -599,21 +598,14 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.reporting(**kwargs)
 
     @override(OptimizerConfig)
-    def reporting(
-        self,
-        queries: Optional[tuple[Query, ...]],
-        schema: Optional[type[MetricSchema]],
-        **kwargs: Any,
-    ) -> Self:
-        """Declare the optimizer-level metrics and record the RLlib reporting call.
+    def reporting(self, queries: Optional[tuple[Query, ...]], **kwargs: Any) -> Self:
+        """Declare the optimizer-level queries and record the RLlib reporting call.
 
         Parameters
         ----------
         queries : tuple of Query or None
             Queries rendered by the optimizer-level reporter, stored through
             ``OptimizerConfig.reporting``.
-        schema : type[MetricSchema] or None
-            Metric schema attached to the optimizer-level reporter.
         **kwargs
             Forwarded to the deferred ``AlgorithmConfig.reporting`` (RLlib's
             own reporting knobs such as ``metrics_num_episodes_for_smoothing``).
@@ -624,11 +616,11 @@ class RayOptimizerConfig(OptimizerConfig):
             ``self`` for chaining.
 
         When to use: to choose which metrics the inner optimizer reports and
-        how RLlib smooths them; pass ``RaySchema`` as ``schema`` for the usual
-        typed logging.
+        how RLlib smooths them; the query paths refer to ``RaySchema``, the
+        schema the inner optimizer logs into.
         """
 
-        super().reporting(queries=queries, schema=schema)
+        super().reporting(queries=queries)
 
         return self._reporting_rllib(**kwargs)
 

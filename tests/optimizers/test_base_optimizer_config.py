@@ -221,18 +221,16 @@ class TestSeeds:
 
 @pytest.mark.unit
 class TestReportingAndAgents:
-    def test_reporting_records_schema_and_queries(self):
-        cfg = RecordingConfig().reporting(queries=["q"], schema=dict)
+    def test_reporting_records_the_queries(self):
+        cfg = RecordingConfig().reporting(queries=["q"])
 
-        assert cfg._reporting_schema is dict
         assert cfg._reporting_queries == ("q",)
 
     def test_reporting_with_none_keeps_the_previous_declaration(self):
-        cfg = RecordingConfig().reporting(queries=["q"], schema=dict)
+        cfg = RecordingConfig().reporting(queries=["q"])
 
         cfg.reporting(queries=None)
 
-        assert cfg._reporting_schema is dict
         assert cfg._reporting_queries == ("q",)
 
     def test_a_single_agent_is_keyed_by_its_id(self):
@@ -359,7 +357,7 @@ class TestBuildOptimizer:
             RecordingConfig()
             .environment(env=RecordingEnv, env_config=env_config)
             .agents(regulator("quota"))
-            .reporting(queries=["q"], schema=dict)
+            .reporting(queries=["q"])
         )
         cfg.training(episodes=4)
         cfg.reporter_cfg = reporter_config
