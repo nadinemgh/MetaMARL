@@ -5,8 +5,9 @@ one agent on ``CartpoleRegulatedEnv`` (Gymnasium's ``CartPole-v1``) with PPO or
 APPO. The outer level is an Evolution Strategies optimizer over the single
 parameter of the inert ``dial`` mechanism, so the experiment checks a whole
 bilevel run on a task with a known solution: the fitness of a candidate is the
-mean per-step reward of the agent, which reaches ``1.0`` when the pole never
-falls before the episode ends. Every level logs a typed metric schema and
+mean per-step reward of the agent, which is the constant ``1.0`` because every
+step of ``CartPole-v1`` pays ``1.0``. The run is a pipeline check in which the
+ES gets no signal to follow. Every level logs a typed metric schema and
 renders the queries of :mod:`examples.cartpole.queries` through the configured
 reporter.
 

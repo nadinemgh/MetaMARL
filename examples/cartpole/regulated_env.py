@@ -15,9 +15,10 @@ The benchmark has no mechanism design problem of its own. It exists to check a
 whole bilevel run on a task with a known solution. The outer level therefore
 searches a single parameter of an inert mechanism, the ``dial`` of
 ``DialConfig``, that has no effect on the dynamics or the reward; the fitness
-of a candidate is the mean per-step reward of the balancing agent
-(see :mod:`examples.cartpole.regulator_env`). The dynamics, the reward and the
-termination rules are those of Gymnasium and are not re-implemented here.
+of a candidate is the mean per-step reward of the balancing agent, which is
+always ``1.0`` (see :mod:`examples.cartpole.regulator_env`). The dynamics, the
+reward and the termination rules are those of Gymnasium and are not
+re-implemented here.
 
 The agent holds one mechanism, ``push``, whose action is the discrete choice
 ``0`` (push left) or ``1`` (push right). The mechanism applies no residual: the

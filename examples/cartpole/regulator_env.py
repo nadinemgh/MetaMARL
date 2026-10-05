@@ -5,9 +5,13 @@ step publishes the population of candidates to the World, lets the inner
 optimizer train and evaluate the balancing agent against them (all handled by
 the ``RegulatorEnv`` base class) and then calls
 :meth:`CartpoleRegulatorEnv.reward`, which turns the inner metrics into one
-fitness per candidate: the mean per-step reward of the agent. The candidate is
-the inert ``dial`` mechanism, so the fitness measures how well the agent
-balances, not what the mechanism does.
+fitness per candidate: the mean per-step reward of the agent. That fitness is
+the constant ``1.0``: Gymnasium's ``CartPole-v1`` pays ``1.0`` at every step,
+the terminating step included, so the mean per-step reward does not depend on
+how long the pole stays up. The candidate is the inert ``dial`` mechanism, which
+changes nothing either. The example is therefore a pipeline check, which runs
+every stage of a bilevel experiment, and not an optimisation problem: the ES
+receives the same fitness for every candidate.
 """
 
 import logging
@@ -31,10 +35,13 @@ class CartpoleRegulatorEnv(RegulatorEnv):
     """Outer-loop environment that scores cart-pole mechanism candidates.
 
     The fitness of a candidate is the mean of the per-episode ``reward_mean``
-    (the mean per-step reward, which is ``1.0`` for an agent that never drops
-    the pole before the episode ends and smaller otherwise) over every episode
-    and seed of the candidate, read from the ``train`` or ``eval`` split of the
-    inner metrics selected by ``aggregation_status``.
+    over every episode and seed of the candidate, read from the ``train`` or
+    ``eval`` split of the inner metrics selected by ``aggregation_status``. The
+    per-episode ``reward_mean`` is the mean per-step reward, and every step of
+    ``CartPole-v1`` pays ``1.0``, so in a real run each episode logs ``1.0``
+    whatever its length and every candidate gets the fitness ``1.0``. The
+    episode length is logged in ``reward_total`` and ``episode_len_*``, which
+    the fitness does not read.
 
     Parameters
     ----------
