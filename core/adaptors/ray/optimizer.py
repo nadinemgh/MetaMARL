@@ -225,7 +225,7 @@ class RayOptimizer(Optimizer):
         """
 
         for episode in range(self.episodes):
-            logger.info("[PPO] Training step started")
+            logger.info("[Ray] Training step started")
             result = ray.get(self.policy_actor.train.remote())
 
             self.logger.push(key=("iter",), value=episode)
@@ -244,7 +244,7 @@ class RayOptimizer(Optimizer):
             policy_loss = get_policy_loss_if_present(result)
 
             logger.info(
-                "[PPO] Training step completed | "
+                "[Ray] Training step completed | "
                 + "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
                 + "ep_return=%.4f | env_steps_iter=%d | "
                 + "env_steps_lifetime=%d | policy_loss=%s",
@@ -272,13 +272,13 @@ class RayOptimizer(Optimizer):
         registry so they are not fetched again. The regulator reads the outcome
         from the logger snapshot that ``train`` returns, not from the World.
         """
-        logger.info("[PPO] Evaluation started")
+        logger.info("[Ray] Evaluation started")
 
         result = ray.get(self.policy_actor.evaluate.remote())
         metrics = self._to_logger_payload(result, is_eval=True)
 
         self.logger.push_data(metrics)
-        logger.info("[PPO] Evaluation completed")
+        logger.info("[Ray] Evaluation completed")
 
         ray.get(self.world.flush.remote(status=MechanismStatus.eval))
 
@@ -292,7 +292,7 @@ class RayOptimizer(Optimizer):
         incremented.
         """
 
-        logger.info("[PPO] Resetting policy weights")
+        logger.info("[Ray] Resetting policy weights")
 
         self._es_round += 1
 
@@ -312,7 +312,7 @@ class RayOptimizer(Optimizer):
         """
 
         ray.get(self.policy_actor.stop.remote())
-        logger.info("[PPO] Algorithm stopped")
+        logger.info("[Ray] Algorithm stopped")
 
         return self.logger.reduce()
 

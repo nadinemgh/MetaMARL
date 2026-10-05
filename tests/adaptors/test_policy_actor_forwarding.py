@@ -165,7 +165,9 @@ def test_reset_stops_the_previous_algorithm_then_replaces_it(caplog):
     assert actor.algo is second
     second.set_weights.assert_called_once_with(INIT_WEIGHTS)
     first.set_weights.assert_not_called()
-    assert f"Initial policy weight hash: {hash_weights(INIT_WEIGHTS)}" in caplog.text
+    assert (
+        f"[Ray] Initial policy weight hash: {hash_weights(INIT_WEIGHTS)}" in caplog.text
+    )
     # The previous algorithm releases its workers before the new one asks for
     # the same resources.
     assert [call[0] for call in order.mock_calls] == ["stop_first", "build_algo"]

@@ -188,7 +188,7 @@ class PolicyActor:
 
         weights = self.algo.get_weights()
 
-        logger.info("[PPO] Initial policy weight hash: %s", hash_weights(weights))
+        logger.info("[Ray] Initial policy weight hash: %s", hash_weights(weights))
 
     def stop(self) -> None:
         """Stop the owned ``Algorithm`` and release its workers.

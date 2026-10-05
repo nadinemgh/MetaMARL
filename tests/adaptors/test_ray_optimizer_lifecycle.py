@@ -339,6 +339,24 @@ def test_stop_stops_the_actor_and_returns_the_metrics_reduced_over_the_run(actor
 
 
 @pytest.mark.unit
+def test_every_lifecycle_message_names_the_ray_optimizer(actors, caplog):
+    # The optimizer drives APPO as well as PPO, so its messages carry the
+    # optimizer's name, as the ES and bilevel levels carry theirs.
+    actors.train_results = [train_result()]
+    actors.eval_result = {"env_runners": {"episode_return_mean": 9.0}}
+    opt, _ = make_optimizer()
+
+    with caplog.at_level("INFO", logger="core.adaptors.ray.optimizer"):
+        opt.train()
+        opt.reset()
+        opt.stop()
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert len(messages) >= 6
+    assert all(m.startswith("[Ray] ") for m in messages), messages
+
+
+@pytest.mark.unit
 def test_save_is_a_stub_returning_none(actors):
     opt, _ = make_optimizer()
 
