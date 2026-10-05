@@ -1,10 +1,13 @@
 """Base configuration objects for optimizers.
 
-``OptimizerConfig`` follows the builder pattern of RLlib's ``AlgorithmConfig``:
-a mutable object configured through chained method calls (``environment``,
-``debugging``, ``training`` ...), then frozen and turned into an ``Optimizer``
-by ``build_optimizer``. Concrete configs (``RayOptimizerConfig``, ``ESConfig``)
-extend it with backend-specific builders.
+This module holds ``OptimizerConfig``, the base of every configuration in the
+framework. It follows the builder pattern of RLlib's ``AlgorithmConfig``: a
+mutable object configured through chained method calls (``environment``,
+``debugging``, ``training`` ...), then copied into a frozen snapshot and turned
+into an ``Optimizer`` by ``build_optimizer``. Concrete configs
+(``RayOptimizerConfig`` for the inner learner, ``ESConfig`` for the outer
+search, ``BilevelConfig`` for the composition of both) extend it with
+backend-specific builders.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ class _Config(ABC):
     """Minimal interface shared by all configuration objects."""
 
     def to_dict(self) -> dict:
-        """Converts this configuration to dict format."""
+        """Convert this configuration to dict format; not implemented here."""
 
         raise NotImplementedError
 
@@ -43,23 +46,31 @@ class _Config(ABC):
 class OptimizerConfig(_Config, ABC):
     """Fluent, freezable configuration from which an ``Optimizer`` is built.
 
+    Builder methods (``environment``, ``training``, ``debugging``,
+    ``reporting``, ``agents``) set attributes and chain. ``build_optimizer``
+    then copies the config into a frozen snapshot, registers the optimizer with
+    the ``World`` actor and instantiates its environment.
+
     Contract
     --------
     - *Fluent*: builder methods mutate ``self`` and return it, so calls
-      chain. Subclasses implement ``training`` (abstract) and may add more.
+      chain. The base ``training`` only stores ``episodes`` and returns
+      ``None``; subclasses override it with their own hyperparameters and
+      return ``self``.
     - *Freeze*: ``freeze()`` flips ``_is_frozen``; afterwards any attribute
       assignment raises ``AttributeError`` (enforced in ``__setattr__``).
       Freezing is shallow: nested objects such as ``env_config`` stay
-      mutable.
+      mutable. ``RayOptimizerConfig`` overrides ``freeze`` with a deferred
+      RLlib mutator, so its copies are not frozen by ``copy(copy_frozen=True)``.
     - *Copy*: ``copy(copy_frozen=...)`` deep-copies the config and sets the
-      frozen flag of the copy. ``build_optimizer`` always works on
-      ``self.copy(copy_frozen=True)``, so the original stays editable and the
-      optimizer owns an immutable snapshot.
+      frozen flag of the copy. ``build_optimizer`` builds from
+      ``self.copy(copy_frozen=True)``, so the original stays editable.
 
     Parameters
     ----------
     opt_class : type[Optimizer], optional
-        Optimizer class instantiated by ``build_optimizer``.
+        Optimizer class instantiated by ``build_optimizer`` (default ``None``;
+        building without one raises ``ValueError``).
 
     Attributes
     ----------
@@ -68,7 +79,14 @@ class OptimizerConfig(_Config, ABC):
     env_config : dict
         Keyword arguments passed to the environment constructor.
     horizon : int or None
-        Episode length; also copied into ``env_config["horizon"]``.
+        Episode length in steps. ``None`` until a subclass or the caller sets
+        it; ``environment(horizon=...)`` stores the value in
+        ``env_config["horizon"]`` and does not change this attribute.
+    agents_cfgs : dict[AgentID, AgentConfig] or None
+        Agent configurations keyed by agent id, set by ``agents``.
+    episodes : int or None
+        Number of iterations to run, set by ``training``. For ``ESConfig`` it
+        is the number of ES generations.
     base_seed : int or None
         Root seed given to ``debugging``.
     seeds : list of int
@@ -82,15 +100,37 @@ class OptimizerConfig(_Config, ABC):
     stats_cls_lookup : dict
         RLlib ``Stats`` class lookup handed to the optimizer's
         ``MetricsLogger``.
+
+    When to use: subclass it to give a new optimizer class its own fluent
+    configuration; use an existing subclass (``ESConfig``,
+    ``APPOptimizerConfig``, ``BilevelConfig``) to configure a run.
+
+    Examples
+    --------
+    Builders chain, and a frozen copy refuses further assignment while the
+    original stays editable:
+
+    >>> from core.optimizers.es.config import ESConfig
+    >>> cfg = ESConfig().debugging(seed=0, num_seeds=2).training(episodes=5)
+    >>> cfg.seeds
+    [2968811710, 3677149159]
+    >>> snapshot = cfg.copy(copy_frozen=True)
+    >>> snapshot.episodes = 9  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    AttributeError: Cannot set attribute (episodes) of an already frozen ...
+    >>> cfg.episodes = 9
+    >>> (cfg.episodes, snapshot.episodes)
+    (9, 5)
     """
 
     def __init__(self, opt_class: Optional[Type[Optimizer]] = None):
-        """Initializes an OptimizerConfig instance.
+        """Initialize an OptimizerConfig with every attribute at its default.
 
-        Args:
-            optimizer_class: An optional Optimizer class that this config class
-                belongs to. Used (if provided) to build a respective Optimizer
-                instance from this config.
+        Parameters
+        ----------
+        opt_class : type[Optimizer], optional
+            Optimizer class that ``build_optimizer`` instantiates.
         """
 
         self.opt_class = opt_class
@@ -138,11 +178,17 @@ class OptimizerConfig(_Config, ABC):
         """Attach a reporter configuration.
 
         ``BilevelConfig`` copies one to each level.
+
+        Parameters
+        ----------
+        reporter_cfg : ReporterConfig
+            Configuration from which ``build_optimizer`` builds the
+            optimizer-level reporter.
         """
 
         self._reporter_cfg = reporter_cfg
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(self, "_is_frozen") and self._is_frozen:
             if name not in ["_is_frozen"]:
                 raise AttributeError(
@@ -172,7 +218,7 @@ class OptimizerConfig(_Config, ABC):
         """Freeze this config object, such that no attributes can be set anymore.
 
         Optimizers should use this method to make sure their config objects
-        remain read-only after this.
+        remain read-only after this. Freezing twice is harmless.
         """
 
         if self._is_frozen:
@@ -181,14 +227,19 @@ class OptimizerConfig(_Config, ABC):
         self._is_frozen = True
 
     def copy(self, copy_frozen: Optional[bool] = None) -> Self:
-        """Creates a deep copy of this config and (un)freezes if necessary.
+        """Create a deep copy of this config and (un)freeze it if requested.
 
-        Args:
-            copy_frozen: Whether the created deep copy is frozen or not, If None,
-                keep the same frozen status that 'self' currently has.
+        Parameters
+        ----------
+        copy_frozen : bool, optional
+            ``True`` freezes the copy, ``False`` unfreezes it (and its
+            ``evaluation_config``), ``None`` keeps the frozen status that
+            ``self`` has.
 
-        Returns:
-            A deep copy of 'self' that is (un)frozen.
+        Returns
+        -------
+        OptimizerConfig
+            A deep copy of ``self`` of the same class.
         """
 
         cp = copy.deepcopy(self)
@@ -205,7 +256,22 @@ class OptimizerConfig(_Config, ABC):
 
     @classmethod
     def from_dict(cls, data: dict) -> Self:
-        """Serialization from dict"""
+        """Build a config from a dictionary of attribute values.
+
+        Keys that are not attributes of a default instance are ignored; the
+        values are assigned as they are, without validation.
+
+        Parameters
+        ----------
+        data : dict
+            Attribute names mapped to values.
+
+        Returns
+        -------
+        OptimizerConfig
+            A new instance of ``cls`` (which must be constructible without
+            arguments).
+        """
 
         cfg = cls()
 
@@ -217,7 +283,18 @@ class OptimizerConfig(_Config, ABC):
 
     @classmethod
     def from_yaml(cls, path: str) -> Self:
-        """Serialization from yaml"""
+        """Build a config from a YAML file holding a mapping of attributes.
+
+        Parameters
+        ----------
+        path : str
+            Path of the YAML file, read with ``yaml.safe_load``.
+
+        Returns
+        -------
+        OptimizerConfig
+            The result of :meth:`from_dict` on the parsed mapping.
+        """
 
         import yaml
 
@@ -239,7 +316,7 @@ class OptimizerConfig(_Config, ABC):
 
         Returns
         -------
-        BaseEnv
+        gymnasium.Env
             A new environment instance. ``self.env`` must be a callable class;
             string specifiers are not resolved here.
         """
@@ -255,12 +332,39 @@ class OptimizerConfig(_Config, ABC):
     ) -> Optimizer:
         """Build an ``Optimizer`` from a frozen deep copy of this config.
 
-        The optimizer is registered with ``world`` (when given) to obtain its
-        ``opt_id``, receives the optimizer-level reporter (``None`` when no
-        reporter configuration was set), and its environment is instantiated
-        once through ``_env_creator`` with ``world``, ``opt_id``,
-        ``inner_opt`` and the ``env_config`` entries. Extra keyword arguments
-        are accepted for subclass compatibility and ignored.
+        The optimizer is registered with ``world`` to obtain its ``opt_id``,
+        receives the optimizer-level reporter (``None`` when no reporter
+        configuration was set), and its environment is instantiated once
+        through ``_env_creator`` with ``world``, ``opt_id``, ``inner_opt``, the
+        agent configurations, the reporting settings and the ``env_config``
+        entries. The environment is attached with ``opt.env``.
+
+        With ``world=None`` no identifier is requested, and reading
+        ``opt.id`` while the environment arguments are assembled raises
+        ``RuntimeError``: a World is required in practice.
+
+        Parameters
+        ----------
+        world : ActorHandle[World], optional
+            Handle to the shared ``World`` actor that hands out the optimizer
+            identifier.
+        inner_opt : Optimizer, optional
+            Inner optimizer given to the environment as ``optimizer`` (the
+            outer level passes the inner one here).
+        **kwargs : Any
+            Accepted for subclass compatibility and ignored.
+
+        Returns
+        -------
+        Optimizer
+            An instance of ``opt_class`` with its id and environment set.
+
+        Raises
+        ------
+        ValueError
+            If the config has no ``opt_class``.
+        RuntimeError
+            If no ``world`` is given (see above).
         """
 
         cfg = self.copy(copy_frozen=True)
@@ -322,9 +426,6 @@ class OptimizerConfig(_Config, ABC):
         env : str or EnvType, optional
             Environment class instantiated by ``_env_creator`` (string
             specifiers are stored but not resolved by the base class).
-        train_iters : int, optional
-            Stored in ``env_config["train_iters"]``; the regulator environment
-            reads it as the number of inner training iterations per candidate.
         horizon : int, optional
             Episode length in steps, stored in ``env_config["horizon"]``.
         queries : tuple of Query, optional
@@ -332,7 +433,9 @@ class OptimizerConfig(_Config, ABC):
         schema : type[MetricSchema], optional
             Metric schema the environment logs into.
         env_config : dict, optional
-            Extra constructor arguments merged into ``env_config``.
+            Extra constructor arguments merged into ``env_config`` (for
+            example ``{"train_iters": 50}`` for a regulator environment that
+            takes it).
         observation_space, action_space : gymnasium.Space, optional
             Stored in ``env_config`` for environments that take them.
         disable_env_checking : bool, optional
@@ -375,7 +478,14 @@ class OptimizerConfig(_Config, ABC):
     def training(self, *, episodes: Optional[int] = None) -> Self:
         """Set the optimizer's training hyperparameters (backend specific).
 
-        Subclasses define the accepted keyword arguments and return ``self``.
+        The base implementation stores ``episodes`` when given and returns
+        ``None``, so it cannot be chained. Subclasses define further keyword
+        arguments and return ``self``.
+
+        Parameters
+        ----------
+        episodes : int, optional
+            Number of iterations to run; ``None`` keeps the current value.
         """
         if episodes is not None:
             self.episodes = episodes
@@ -421,7 +531,22 @@ class OptimizerConfig(_Config, ABC):
         queries: Optional[tuple[Query]],
         schema: Optional[type[MetricSchema]] = None,
     ) -> Self:
-        """Declare the optimizer-level metric schema and the queries to render."""
+        """Declare the optimizer-level metric schema and the queries to render.
+
+        Parameters
+        ----------
+        queries : tuple of Query or None
+            Queries the optimizer's reporter renders; ``None`` keeps the
+            current queries.
+        schema : type[MetricSchema], optional
+            Metric schema the optimizer logs into; ``None`` keeps the current
+            schema.
+
+        Returns
+        -------
+        OptimizerConfig
+            ``self`` for chaining.
+        """
 
         if schema is not None:
             self._reporting_schema = schema
@@ -432,6 +557,25 @@ class OptimizerConfig(_Config, ABC):
         return self
 
     def agents(self, agents: AgentConfig | tuple[AgentConfig, ...]) -> Self:
+        """Set the agent configurations, keyed by their ``id``.
+
+        Parameters
+        ----------
+        agents : AgentConfig or tuple of AgentConfig
+            One configuration or a non-empty tuple; replaces any earlier
+            ``agents_cfgs``.
+
+        Returns
+        -------
+        OptimizerConfig
+            ``self`` for chaining.
+
+        Raises
+        ------
+        ValueError
+            If an empty tuple is given.
+        """
+
         if isinstance(agents, tuple):
             if len(agents) < 1:
                 raise ValueError("agents cannot be empty")

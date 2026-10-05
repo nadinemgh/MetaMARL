@@ -1,20 +1,28 @@
 """Evolution Strategies over mechanism parameters in ``[0, 1]^d``.
 
-The optimizer keeps a search distribution over the normalized mechanism
-vector: a mean in ``(0, 1)^d`` handled in logit space (so candidates never
-leave the unit cube) and a scalar standard deviation ``sigma``. Each
-generation samples an antithetic population, asks the ``RegulatorEnv`` for one
-fitness per candidate and moves the mean along the fitness-weighted noise
-directions (natural evolution strategies estimator of Salimans et al., 2017,
-https://arxiv.org/abs/1703.03864). ``sigma`` expands after a worse generation
-and contracts after a better one.
+This module holds ``ESOptimizer``, the outer level of a bilevel run: it searches
+the normalized mechanism vector that the regulator environment applies to the
+inner learner. The optimizer keeps a search distribution over that vector: a
+mean in ``(0, 1)^d`` handled in logit space (so candidates never leave the unit
+cube) and a scalar standard deviation ``sigma``. Each generation samples an
+antithetic population, asks the regulator environment for one fitness per
+candidate and moves the mean along the fitness-weighted noise directions,
+using the estimator of Salimans et al., 2017 (https://arxiv.org/abs/1703.03864)
+with standardized fitness values in place of their rank transformation.
+In population mode ``sigma`` expands after a worse generation and contracts
+after a better one.
 
 Three regimes share the same ``train()``:
 
 - population mode (``batch_capacity >= 2``): antithetic ES update;
-- single-candidate mode (``batch_capacity == 1``): sequential (1+1)-ES;
+- single-candidate mode (``batch_capacity == 1``): sequential (1+1)-ES, where
+  ``sigma`` expands after an accepted candidate and contracts after a rejected
+  one;
 - fixed mode (``dimension == 0``): no parameters, the fixed mechanism is
-  simply evaluated and reported.
+  meant to be evaluated and reported. The update of the optimizer supports it,
+  but a generation does not complete today: the metric payload of a fixed-mode
+  generation reads ``env.m_space``, which the regulator environments do not
+  define, so ``train`` raises ``AttributeError``.
 """
 
 from __future__ import annotations
@@ -45,47 +53,122 @@ SIGMA_PERFORMANCE_REL_TOL = 1e-3
 class ESOptimizer(Optimizer):
     """Outer optimizer searching the normalized mechanism vector by ES.
 
-    ES stands for Evolution Strategies.
+    ES stands for Evolution Strategies, a family of gradient-free methods that
+    estimate an ascent direction from the fitness of randomly perturbed
+    candidates.
 
     The state is a mean in ``(0, 1)^dimension`` (moved in logit space) and a
-    scalar ``sigma``. Each :meth:`run` call is one generation: sample the
-    population, step the regulator environment with it (which trains the
-    inner learner against every candidate and returns one fitness each),
-    update the mean and ``sigma``, log an ``ESSchema`` payload. Population
-    size comes from :attr:`batch_capacity`, which ``BilevelConfig`` sets to
-    the inner optimizer's capacity.
-
-    When to use: the mechanism has a handful of continuous parameters and the
-    fitness is a noisy black box (an inner RL run), which is exactly where
-    gradient-free ES is at home. See the module docstring for the three
-    regimes (population, single-candidate, fixed).
+    scalar ``sigma``. One call to :meth:`train` runs ``config.episodes``
+    generations. A generation samples the population, steps the regulator
+    environment with it (which trains the inner learner against every candidate
+    and returns one fitness each), updates the mean and ``sigma``, and logs an
+    ``ESSchema`` payload. The population size comes from :attr:`batch_capacity`,
+    which ``BilevelConfig`` sets to the inner optimizer's capacity. The
+    dimension is the size of the flattened action space of the regulator's
+    mechanisms; gymnasium orders the mechanisms by id, so the vector and
+    ``parameter_names`` follow the alphabetical order of the mechanism ids.
 
     Parameters
     ----------
     config : ESConfig
-        Hyperparameters (``sigma``, ``mean_lr``, sigma adaptation, bounds,
-        convergence criterion, ``initial_mean``) and ``dimension``;
-        ``config.base_seed`` seeds the generator.
+        Hyperparameters (``sigma``, ``mean_lr``, sigma adaptation and bounds,
+        ``break_symmetry``, ``initial_mean``), the number of generations
+        (``episodes``) and the regulator agent (``agents_cfgs``);
+        ``config.base_seed`` seeds the random generator.
+    **kwargs : Any
+        Forwarded to :class:`~core.optimizers.base.Optimizer` (``world``,
+        ``reporting``).
+
+    Attributes
+    ----------
+    dimension : int
+        Number of searched parameters (``0`` selects the fixed mode).
+    parameter_names : list of str
+        One name per coordinate: the mechanism id, or ``"id[k]"`` when a
+        mechanism has several values.
+    mean : numpy.ndarray
+        Mean of the search distribution, shape ``(dimension,)``, float32,
+        values in ``[0, 1]``.
+    sigma : float
+        Current standard deviation in logit space (dimensionless), kept within
+        ``[min_sigma, max_sigma]``.
+    best_fitness : float
+        Best fitness seen so far (objective units defined by the example);
+        ``-inf`` before the first generation.
+    best_candidate : numpy.ndarray
+        Candidate that reached ``best_fitness``, shape ``(dimension,)``, values
+        in ``[0, 1]``.
+    population_history : list of tuple
+        One ``(population, fitness)`` pair per generation, shapes
+        ``(batch_capacity, dimension)`` and ``(batch_capacity,)``.
 
     Raises
     ------
+    TypeError
+        If a mechanism of the regulator has a non-``Box`` action space.
     ValueError
-        On a negative dimension, a non-positive ``mean_lr``, a negative
-        ``sigma_lr``, a ``sigma_decay`` outside ``(0, 1]``, inconsistent
-        sigma bounds, or an ``initial_mean`` of the wrong shape or outside
-        ``[0, 1]``.
+        On action bounds other than ``[0, 1]``, a negative dimension, a
+        non-positive ``mean_lr``, a negative ``sigma_lr``, a ``sigma_decay``
+        outside ``(0, 1]``, a non-positive ``min_sigma``, ``max_sigma`` below
+        ``min_sigma``, or an ``initial_mean`` of the wrong shape, not finite or
+        outside ``[0, 1]``.
+    AttributeError
+        If no regulator agent was set on the config (``agents``).
+
+    When to use: the mechanism has a handful of continuous parameters and the
+    fitness is a noisy black box (an inner RL run), which is exactly where
+    gradient-free ES is at home. See the module docstring for the three
+    regimes (population, single-candidate, fixed). The sigma adaptation, the
+    gradient clipping at norm 5 and the logit parametrization are design
+    choices of this implementation, not part of the cited method.
 
     Examples
     --------
-    >>> cfg = ESConfig().training(sigma=0.15, mean_lr=0.1)
-    >>> cfg.dimension = 2
+    A regulator with one mechanism, ``quota``, searched on a toy fitness that
+    peaks at ``0.8``; the environment is a minimal stand-in for the regulator
+    environment:
+
+    >>> import numpy as np
+    >>> from gymnasium import spaces
+    >>> from core.agents.base import AgentConfig
+    >>> from core.mechanism.config import MechanismConfig
+    >>> from core.optimizers.es.config import ESConfig
+    >>> regulator = AgentConfig(
+    ...     id="regulator",
+    ...     policy_id="regulator_policy",
+    ...     mechanisms=(
+    ...         MechanismConfig(
+    ...             id="quota", action_space=spaces.Box(0.0, 1.0, (1,), np.float32)
+    ...         ),
+    ...     ),
+    ... )
+    >>> cfg = ESConfig().training(episodes=20, sigma=0.15, mean_lr=0.1)
+    >>> cfg = cfg.agents(regulator).debugging(seed=0)
     >>> opt = ESOptimizer(cfg)
     >>> opt.batch_capacity = 4
-    >>> opt.mean.tolist()
-    [0.5, 0.5]
+    >>> opt.mean.tolist(), opt.parameter_names
+    ([0.5], ['quota'])
+    >>> class ToyRegulatorEnv:
+    ...     def reset(self):
+    ...         return None, {}
+    ...     def step(self, actions):
+    ...         fitness = [-((a["quota"][0] - 0.8) ** 2) for a in actions]
+    ...         return None, fitness, True, False, {}
+    >>> opt.env = ToyRegulatorEnv()
+    >>> summary = opt.train()
+    >>> summary["episodes"], summary["converged"]
+    (20, False)
+    >>> bool(abs(summary["best_mechanism"][0] - 0.8) < 0.05)
+    True
+
+    References
+    ----------
+    .. [1] Salimans, T., Ho, J., Chen, X., Sidor, S., Sutskever, I. (2017).
+       Evolution Strategies as a Scalable Alternative to Reinforcement
+       Learning. arXiv:1703.03864. https://arxiv.org/abs/1703.03864
     """
 
-    def __init__(self, config: ESConfig, **kwargs) -> None:
+    def __init__(self, config: ESConfig, **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
 
         self.agents_cfgs = next(iter(config.agents_cfgs.values()))
@@ -200,6 +283,12 @@ class ESOptimizer(Optimizer):
     def batch_capacity(self) -> int:
         """Population size: number of candidates evaluated per generation.
 
+        Returns
+        -------
+        int
+            Number of candidates; equals the inner optimizer's capacity once
+            ``BilevelConfig`` has built the run.
+
         Raises
         ------
         RuntimeError
@@ -217,6 +306,17 @@ class ESOptimizer(Optimizer):
         switches to sequential (1+1)-ES; otherwise the value must be even
         unless ``break_symmetry`` is set, because the population is built
         from mirrored noise pairs.
+
+        Parameters
+        ----------
+        value : int
+            Number of candidates per generation.
+
+        Raises
+        ------
+        ValueError
+            If ``value`` is not positive, or is odd while ``break_symmetry`` is
+            off and the dimension is positive (other than ``1``).
         """
 
         if value <= 0:
@@ -672,31 +772,45 @@ class ESOptimizer(Optimizer):
             inner=inner,
         )
 
-    def _has_converged(self):
+    def _has_converged(self) -> bool:
+        """Report whether the search has converged; always ``False`` today."""
+
         return False
 
     def train(self) -> dict[str, Any]:
-        """Run up to ``self.episodes`` generations and return a summary.
+        """Run ``self.episodes`` generations and return a summary.
 
-        Samples the population, calls ``self.env.step(population)`` and reads
-        the fitness array (shape ``(batch_capacity,)``), appends the pair to
-        ``population_history``, applies the mean and sigma update, pushes the
-        generation's ``ESSchema`` payload to the logger and reports it.
+        Each generation samples the population, calls ``self.env.reset()``
+        then ``self.env.step(actions)`` until the episode ends, and reads the
+        fitness array (shape ``(batch_capacity,)``). It appends the
+        ``(population, fitness)`` pair to ``population_history``, applies the
+        mean and sigma update, pushes the generation's ``ESSchema`` payload to
+        the logger (the ``metrics`` entry of the last ``info`` becomes its
+        ``inner`` field) and reports it. ``actions`` is a list with one
+        dictionary per candidate, keyed by mechanism id.
+
+        The optimizer always runs all ``self.episodes`` generations:
+        ``converged`` is ``False`` because the convergence check never reports
+        convergence.
 
         Returns
         -------
         dict
-            ``episodes`` (generations actually run, fewer than
-            ``self.episodes`` when the convergence criterion stops the loop),
-            ``converged``, ``best_fitness`` (best value seen so far),
-            ``best_mechanism`` (the candidate that reached it) and
+            ``episodes`` (generations run), ``converged`` (always ``False``
+            today), ``best_fitness`` (best value seen so far),
+            ``best_mechanism`` (the normalized candidate that reached it,
+            shape ``(dimension,)``, values in ``[0, 1]``) and
             ``population_history``.
 
         Raises
         ------
         RuntimeError
-            If no environment is attached, a fitness is non-finite, or the
-            number of fitness values does not match the population size.
+            If no environment is attached, the population size is not set, a
+            fitness is non-finite, the number of fitness values does not
+            match the population size, or the episode is truncated or ends
+            without a fitness.
+        TypeError
+            If ``self.episodes`` is ``None``.
         """
 
         if self.env is None:

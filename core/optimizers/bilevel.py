@@ -1,30 +1,39 @@
 """Bilevel optimizer: an outer mechanism search wrapping an inner policy optimizer.
 
-The outer level (``ESConfig`` / ``ESOptimizer``) searches the mechanism
-parameters; the inner level (``APPOptimizerConfig`` / ``RayOptimizer``) trains
-the agents' policies against each candidate mechanism. Both share one
-``World`` Ray actor through which candidates and step records are exchanged.
+This module holds the composition root of the framework. The outer level
+(``ESConfig`` / ``ESOptimizer``) searches the mechanism parameters; the inner
+level (``APPOptimizerConfig`` / ``RayOptimizer``) trains the agents' policies
+against each candidate mechanism. Both share one ``World`` Ray actor, through
+which candidates and step records are exchanged.
 
-``BilevelConfig`` is the composition root: it starts Ray, creates the
-reporting and World actors, injects the mechanism space and the seeds
-into both levels, builds them and ties the ES population size to the number
-of inner environments. ``BilevelOptimizer.run`` is the outer loop.
+``BilevelConfig`` is the fluent configuration of the whole run. Its
+``build_optimizer`` starts Ray, creates the reporting and ``World`` actors,
+copies the inner seeds into the outer environment configuration, hands the
+regulator's agent configurations to the inner environment, builds both levels
+and ties the ES population size to the number of inner environments.
+``BilevelOptimizer.train`` is the outer loop: it runs the ES, then stops both
+levels and closes the reporter.
 
 Example
 -------
+>>> from core.optimizers.appo.config import APPOptimizerConfig
+>>> from core.optimizers.es.config import ESConfig
+>>> from core.reporting.csv import CSVConfig
 >>> cfg = (
 ...     BilevelConfig()
 ...     .world(world_name="fishery")
-...     .mechanism(space=FisheryMechanismSpace(), default=FisheryMechanism())
-...     .training(outer_iters=100)
-...     .outer(
-...         ESConfig().training(sigma=0.15).environment(env=FisheryRegulatorEnv, ...)
-...     )
-...     .inner(APPOptimizerConfig().environment(env=FisheryRegulatedEnv, ...))
+...     .reporter(CSVConfig(project="fishery"))
+...     .society(APPOptimizerConfig())
+...     .regulator(ESConfig().training(episodes=100, sigma=0.15))
 ... )
->>> result = cfg.build_optimizer().train()
+>>> cfg.outer_cfg.episodes, cfg.world_name.startswith("fishery_")
+(100, True)
+>>> optimizer = cfg.build_optimizer()  # doctest: +SKIP
+>>> summary = optimizer.train()  # doctest: +SKIP
 
-See ``examples/bilevel_fishery/debug.py`` for a complete configuration.
+The two last lines start Ray and train the inner learner, so the example does
+not run them. See ``examples/bilevel_fishery/debug.py`` for a complete
+configuration, including the environments and the regulator agent.
 """
 
 import logging
@@ -46,12 +55,49 @@ logger = logging.getLogger(__name__)
 class BilevelConfig(OptimizerConfig):
     """Fluent configuration of a bilevel run (see module docstring).
 
-    Builder methods: :meth:`world`, :meth:`mechanism`, :meth:`training`,
-    :meth:`ray`, :meth:`reporter`, :meth:`reporting`, :meth:`inner`,
-    :meth:`outer`. Every method returns ``self``.
+    Builder methods of this class: :meth:`world`, :meth:`ray`,
+    :meth:`reporter`, :meth:`society` (inner level) and :meth:`regulator`
+    (outer level). Every one returns ``self``. The inherited builders
+    (``training``, ``environment``, ``debugging``, ``reporting``, ``agents``)
+    configure the bilevel config itself; the numbers of generations and of inner
+    iterations are set on the levels, through ``regulator`` and ``society``.
+
+    Parameters
+    ----------
+    opt_class : type[Optimizer], optional
+        Optimizer class built by ``build_optimizer`` (default
+        ``BilevelOptimizer``).
+
+    Attributes
+    ----------
+    outer_cfg : OptimizerConfig or None
+        Outer (mechanism search) configuration, set by :meth:`regulator`.
+    inner_cfg : OptimizerConfig or None
+        Inner (policy learning) configuration, set by :meth:`society`.
+    world_name : str or None
+        Name of the ``World`` actor, with a random suffix, set by :meth:`world`.
+    ray_cfg : RayRuntimeConfig or None
+        Ray runtime configuration, set by :meth:`ray`; ``None`` means the
+        defaults of ``RayRuntimeConfig``.
+    default_mechanism : Mechanism or None
+        ``None`` unless set by the caller; nothing in the framework reads it.
+    output_dir : str or None
+        ``None`` unless set by the caller; copied onto ``BilevelOptimizer``.
+
+    When to use: to describe a full bilevel run (outer search plus inner
+    learner) before building it with ``build_optimizer``; the levels themselves
+    are configured through their own configs.
+
+    Examples
+    --------
+    >>> from core.optimizers.es.config import ESConfig
+    >>> from core.reporting.csv import CSVConfig
+    >>> cfg = BilevelConfig().regulator(ESConfig()).reporter(CSVConfig(project="p"))
+    >>> cfg.opt_class.__name__, cfg.inner_cfg is None
+    ('BilevelOptimizer', True)
     """
 
-    def __init__(self, opt_class=None):
+    def __init__(self, opt_class: Optional[type[Optimizer]] = None):
         super().__init__(opt_class=opt_class or BilevelOptimizer)
 
         self.outer_cfg = None
@@ -65,8 +111,19 @@ class BilevelConfig(OptimizerConfig):
         """Set the inner (policy learning) config, typically an ``APPOptimizerConfig``.
 
         The inner optimizer trains the agents' policies against each mechanism
-        candidate; ``build_optimizer`` injects the mechanism space into its
-        ``env_config`` and reads its seeds and batch capacity.
+        candidate. ``build_optimizer`` merges the regulator's agent
+        configurations into its ``env_config`` as ``leaders_cfg_dict``, and
+        reads its seeds and its batch capacity.
+
+        Parameters
+        ----------
+        cfg : OptimizerConfig, optional
+            The inner configuration; ``None`` keeps the current one.
+
+        Returns
+        -------
+        BilevelConfig
+            ``self`` for chaining.
         """
 
         if cfg is not None:
@@ -77,9 +134,19 @@ class BilevelConfig(OptimizerConfig):
     def regulator(self, cfg: Optional[OptimizerConfig] = None) -> Self:
         """Set the outer (mechanism search) config, typically an ``ESConfig``.
 
-        ``build_optimizer`` sets its ``dimension`` from the mechanism space,
-        copies the inner seeds into its ``env_config`` and sizes its population
-        from the inner batch capacity.
+        ``build_optimizer`` copies the inner seeds into its ``env_config`` and
+        sizes its population from the inner batch capacity. The number of
+        generations is the ``episodes`` of this config.
+
+        Parameters
+        ----------
+        cfg : OptimizerConfig, optional
+            The outer configuration; ``None`` keeps the current one.
+
+        Returns
+        -------
+        BilevelConfig
+            ``self`` for chaining.
         """
 
         if cfg is not None:
@@ -88,7 +155,21 @@ class BilevelConfig(OptimizerConfig):
         return self
 
     def world(self, *, world_name: str, **kwargs: Any) -> Self:
-        """Name the shared ``World`` actor (a random suffix keeps runs distinct)."""
+        """Name the shared ``World`` actor (a random suffix keeps runs distinct).
+
+        Parameters
+        ----------
+        world_name : str
+            Base name; the stored ``world_name`` is ``"<world_name>_<8 hex
+            characters>"``. ``None`` keeps the previous name.
+        **kwargs : Any
+            Accepted and ignored.
+
+        Returns
+        -------
+        BilevelConfig
+            ``self`` for chaining.
+        """
 
         if world_name is not None:
             self.world_name = f"{world_name}_{uuid.uuid4().hex[:8]}"
@@ -106,7 +187,29 @@ class BilevelConfig(OptimizerConfig):
         runtime_env: Optional[dict] = None,
         **kwargs: Any,
     ) -> Self:
-        """Configure the local Ray runtime (device, CPU/GPU counts, runtime env)."""
+        """Configure the local Ray runtime (device, CPU/GPU counts, runtime env).
+
+        Parameters
+        ----------
+        device : {"cpu", "cuda", "mps"}, optional
+            Device type of the runtime (default ``"cpu"``).
+        num_cpus, num_gpus : int, optional
+            Resources given to ``ray.init``; ``None`` leaves Ray to decide.
+        omp_threads : int, optional
+            Number of OpenMP threads per process (default 1).
+        logging_level : str, optional
+            Ray logging level (default ``"ERROR"``).
+        runtime_env : dict, optional
+            Ray runtime environment, for example files to exclude from the
+            upload.
+        **kwargs : Any
+            Extra keyword arguments forwarded to ``ray.init``.
+
+        Returns
+        -------
+        BilevelConfig
+            ``self`` for chaining.
+        """
 
         self.ray_cfg = RayRuntimeConfig(
             device=device,
@@ -127,6 +230,16 @@ class BilevelConfig(OptimizerConfig):
         into the primary (bilevel-level) reporter, and copied to the inner and
         outer levels so each builds its own reporter. A reporter config is
         required: ``build_optimizer`` reads it unconditionally.
+
+        Parameters
+        ----------
+        config : ReporterConfig
+            Backend configuration, for example ``CSVConfig`` or ``WandbConfig``.
+
+        Returns
+        -------
+        BilevelConfig
+            ``self`` for chaining.
         """
 
         self.reporter_cfg = config
@@ -137,11 +250,23 @@ class BilevelConfig(OptimizerConfig):
     def build_optimizer(self) -> "BilevelOptimizer":
         """Start Ray, create the actors and build both levels.
 
-        Returns a ``BilevelOptimizer``.
+        The inner and outer configurations are copied first, so the originals
+        are not modified. The ES population size is set to the inner optimizer's
+        ``batch_capacity`` (number of regulated environments divided by the
+        number of seeds), so every candidate is evaluated by exactly one
+        environment per seed.
 
-        The ES population size is set to the inner optimizer's ``batch_capacity``
-        (number of regulated environments divided by the number of seeds), so
-        every candidate is evaluated by exactly one environment per seed.
+        Returns
+        -------
+        BilevelOptimizer
+            The built optimizer (an instance of ``opt_class``) over the built
+            outer and inner levels and the primary reporter.
+
+        Raises
+        ------
+        AttributeError
+            If ``society``, ``regulator`` or ``reporter`` was not called; this
+            surfaces after Ray has started.
         """
 
         RayRuntime.ensure_initialized(self.ray_cfg or RayRuntimeConfig())
@@ -174,21 +299,65 @@ class BilevelConfig(OptimizerConfig):
 
 
 class BilevelOptimizer(Optimizer):
-    """Outer loop: run the outer optimizer, stopping early on convergence.
+    """Outer loop of a bilevel run: train the outer optimizer, then shut down.
 
-    The outer optimizer runs up to ``outer_iters`` generations.
+    ``train`` runs the outer optimizer, which trains the inner one through its
+    regulator environment, and returns the outer summary. Both levels are
+    stopped and the primary reporter is closed afterwards, even when training
+    fails.
 
     Parameters
     ----------
     config : BilevelConfig
+        Configuration of the run; ``world_name`` and ``output_dir`` are read
+        from it.
     outer : Optimizer
-        Optimizer whose ``train()`` returns a dict with ``best_fitness`` and an
-        optional ``converged`` flag (the ES).
+        Optimizer whose ``train()`` returns a dict with ``episodes``,
+        ``converged``, ``best_mechanism`` and ``best_fitness`` (the ES). Its
+        ``episodes`` attribute is the number of generations.
     inner : Optimizer
         Inner optimizer, driven by the outer env; kept for lifecycle access.
     reporter : Reporter
         Primary (bilevel-level) reporter built from ``config.reporter_cfg``;
         closed at the end of :meth:`train`, after both levels are stopped.
+
+    Attributes
+    ----------
+    world_name, output_dir : str or None
+        Copied from the config.
+    converged : bool
+        ``False``; never updated by :meth:`train`.
+    all_trajectories, population_history, es_metrics_history : list
+        Empty lists that nothing fills; the ES history is in the dict that
+        :meth:`train` returns.
+
+    When to use: it is what ``BilevelConfig.build_optimizer`` returns, so call
+    :meth:`train` on it to run the experiment. Build one directly only to test
+    the shutdown order with stand-in levels.
+
+    Examples
+    --------
+    With stand-in levels, ``train`` returns the outer summary and stops both
+    levels:
+
+    >>> from types import SimpleNamespace
+    >>> class Level:
+    ...     episodes = 1
+    ...     stopped = False
+    ...     def train(self):
+    ...         return {"episodes": 1, "converged": False, "best_fitness": 2.0,
+    ...                 "best_mechanism": [0.5]}
+    ...     def stop(self):
+    ...         self.stopped = True
+    >>> config = SimpleNamespace(
+    ...     episodes=None, env=None, world_name="w", output_dir=None
+    ... )
+    >>> outer, inner = Level(), Level()
+    >>> bilevel = BilevelOptimizer(config, outer=outer, inner=inner, reporter=None)
+    >>> bilevel.train()["best_fitness"]
+    2.0
+    >>> outer.stopped, inner.stopped
+    (True, True)
     """
 
     def __init__(
@@ -213,14 +382,23 @@ class BilevelOptimizer(Optimizer):
         self.reporting = reporter
 
     def train(self) -> dict:
-        """Run the outer generations and return a summary dict.
+        """Run the outer optimizer and return its summary dict unchanged.
+
+        Both levels are stopped and the reporter is closed in a ``finally``
+        block, then the run is logged.
 
         Returns
         -------
         dict
-            ``converged``, ``outer_iters`` (generations actually run),
-            ``best_fitness``, ``best_mechanism`` (encoded vector) and history
-            fields (``all_trajectories``, ``population_history``).
+            The summary of the outer optimizer. For ``ESOptimizer``:
+            ``episodes`` (generations run), ``converged``, ``best_fitness``,
+            ``best_mechanism`` (normalized vector in ``[0, 1]``) and
+            ``population_history``.
+
+        Raises
+        ------
+        Exception
+            Whatever the outer optimizer raises, after the shutdown.
         """
 
         logger.info(

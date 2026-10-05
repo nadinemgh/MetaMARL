@@ -1,4 +1,10 @@
-"""Hyperparameters of the Evolution Strategies outer optimizer."""
+"""Hyperparameters of the Evolution Strategies outer optimizer.
+
+This module holds ``ESConfig``, the fluent configuration of the outer level of
+a bilevel run. It stores the ES hyperparameters (search standard deviation,
+learning rates, sigma bounds, symmetry and initial mean) on top of the shared
+``OptimizerConfig`` builders and builds an ``ESOptimizer``.
+"""
 
 from typing import Any, Optional, Self
 
@@ -10,12 +16,62 @@ from core.optimizers.es.optimizer import ESOptimizer
 class ESConfig(OptimizerConfig):
     """Configuration of :class:`~core.optimizers.es.optimizer.ESOptimizer`.
 
-    The search dimension (``dimension``) and the population size are not set
-    here: ``BilevelConfig`` derives them from the mechanism space and from
-    the inner optimizer's batch capacity.
+    The search dimension and the population size are not set here. The
+    optimizer takes its dimension from the flattened action space of the
+    mechanisms of the regulator agent given to ``agents``, and
+    ``BilevelConfig`` sets the population size from the inner optimizer's batch
+    capacity. The ``dimension`` attribute below is never read.
+
+    Parameters
+    ----------
+    opt_class : type[Optimizer], optional
+        Optimizer class to build (default ``ESOptimizer``).
+    **kw : Any
+        Accepted and ignored.
+
+    Attributes
+    ----------
+    dimension : int or None
+        Placeholder, ``None``; not used by ``ESOptimizer``.
+    sigma : float
+        Initial standard deviation of the search distribution in logit space
+        (default 0.15, dimensionless).
+    mean_lr : float
+        Step size applied to the estimated gradient when moving the mean
+        (default 0.1).
+    sigma_lr : float
+        Strength of the sigma adaptation; ``0`` disables it (default 0.05).
+    sigma_decay : float
+        Base multiplicative sigma factor, in ``(0, 1]`` (default 0.99; ``1.0``
+        disables the adaptation).
+    min_sigma, max_sigma : float
+        Bounds on sigma (defaults 1e-3 and 0.5).
+    break_symmetry : bool
+        Replace one mirrored sample by an independent one (default ``False``).
+    convergence_eps : float
+        Stored (default 1e-4); not read by ``ESOptimizer`` today.
+    convergence_patience : int
+        Stored (default 10); not read by ``ESOptimizer`` today.
+    initial_mean : list of float or None
+        Starting point in ``[0, 1]^dimension``; ``None`` means ``0.5`` in every
+        coordinate.
+
+    When to use: to configure the outer mechanism search of a bilevel run,
+    typically passed to ``BilevelConfig.regulator``. Call ``agents`` with the
+    regulator agent whose mechanisms define the search space, ``training`` for
+    the hyperparameters and the number of generations, and ``debugging`` for
+    the seed.
+
+    Examples
+    --------
+    >>> cfg = ESConfig().training(episodes=100, sigma=0.2, mean_lr=0.05)
+    >>> (cfg.episodes, cfg.sigma, cfg.mean_lr, cfg.sigma_decay)
+    (100, 0.2, 0.05, 0.99)
+    >>> cfg.opt_class.__name__
+    'ESOptimizer'
     """
 
-    def __init__(self, opt_class=None, **kw):
+    def __init__(self, opt_class: Optional[type[ESOptimizer]] = None, **kw: Any):
         super().__init__(opt_class=opt_class or ESOptimizer)
 
         # Add default or from default
@@ -52,26 +108,37 @@ class ESConfig(OptimizerConfig):
     ) -> Self:
         """Set the ES search hyperparameters. Unset arguments keep their current value.
 
+        The values are stored without validation; ``ESOptimizer`` checks them
+        when it is built.
+
         Parameters
         ----------
-        sigma : float
-            Initial standard deviation of the search distribution in logit space.
-        mean_lr : float
+        episodes : int, optional
+            Number of ES generations to run.
+        sigma : float, optional
+            Initial standard deviation of the search distribution in logit
+            space.
+        mean_lr : float, optional
             Step size applied to the estimated gradient when moving the mean.
-        sigma_lr : float
+        sigma_lr : float, optional
             Strength of the sigma adaptation (``0`` disables it).
-        sigma_decay : float
+        sigma_decay : float, optional
             Base multiplicative factor of the sigma adaptation, in ``(0, 1]``.
-        min_sigma, max_sigma : float
+        min_sigma, max_sigma : float, optional
             Bounds of sigma: a floor keeps exploring, a ceiling avoids
             destabilizing jumps.
-        break_symmetry : bool
+        generation : int, optional
+            Stored as ``self.generation``; nothing reads it.
+        break_symmetry : bool, optional
             Replace one mirrored sample by an independent one so the population
             is not strictly antithetic (allows odd population sizes).
-        convergence_eps, convergence_patience : float, int
-            Convergence criterion on the mean displacement.
+        convergence_eps, convergence_patience : float, int, optional
+            Stored on the config; ``ESOptimizer`` does not read them, so no
+            convergence criterion stops the run today.
         initial_mean : list[float], optional
             Starting point in ``[0, 1]^dimension`` (default ``0.5`` everywhere).
+        **kwargs : Any
+            Accepted and ignored.
 
         Returns
         -------
