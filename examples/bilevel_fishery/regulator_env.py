@@ -143,8 +143,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
         if "K" not in ecology_cfg:
             raise ValueError(
                 "ecology_cfg must define 'K', the carrying capacity in biomass "
-                "units: the regulator needs it to denormalize the "
-                "sustainability threshold."
+                + "units: the regulator needs it to denormalize the "
+                + "sustainability threshold."
             )
         self.K = ecology_cfg["K"]
 
