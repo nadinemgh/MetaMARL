@@ -11,11 +11,12 @@ ES gets no signal to follow. Every level logs a typed metric schema and
 renders the queries of :mod:`examples.cartpole.queries` through the configured
 reporter.
 
-Nothing runs at import. :func:`main` parses the options, calls
-``ensure_hash_seed()`` (which may restart the process), builds the experiment
-and trains it, so the module can be imported, and its doctests run, without side
-effects. ``examples.cartpole.main_ppo`` and ``examples.cartpole.main_appo`` are
-the entry points of the two algorithms; both call :func:`main`.
+Nothing runs at import. :func:`main` configures the logging, calls
+``ensure_hash_seed()`` (which may restart the process, before Ray starts),
+parses the options, builds the experiment and trains it, so the module can be
+imported, and its doctests run, without side effects.
+``examples.cartpole.main_ppo`` and ``examples.cartpole.main_appo`` are the entry
+points of the two algorithms; both call :func:`main`.
 
 Options (``--help`` prints the same list):
 
@@ -338,9 +339,10 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
 def main(argv: Optional[Sequence[str]] = None) -> None:
     """Parse the options, build the experiment and train it.
 
-    ``ensure_hash_seed()`` runs first: when ``PYTHONHASHSEED`` is unset it
-    restarts the process with the same command line. The root logger is then
-    set to ``INFO`` so that the progress of the optimizers is printed.
+    The root logger is set to ``INFO`` first, so that the notice of the
+    hash-seed check and the progress of the optimizers are printed. Then
+    ``ensure_hash_seed()`` runs: when ``PYTHONHASHSEED`` is unset it restarts
+    the process with the same command line, before Ray starts.
 
     Parameters
     ----------
@@ -351,12 +353,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     ``main_appo`` call it with the algorithm fixed. It starts Ray and runs the
     full bilevel loop, so it has no doctest.
     """
-    ensure_hash_seed()
-    # The library no longer configures the root logger, so the script does it to
-    # show the progress lines of the optimizers.
+    # The library does not configure the root logger, so the script does it,
+    # before the hash-seed check, whose restart notice must be visible.
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
+    ensure_hash_seed()
     args = parse_args(argv)
 
     ray.shutdown()
