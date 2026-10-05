@@ -89,7 +89,6 @@ PASSTHROUGH_BUILDERS = [
     ("fault_tolerance", "fault_tolerance", "fault_tolerance"),
     ("rl_module", "rl_module", "rl_module"),
     ("experimental", "experimental", "experimental"),
-    ("freeze", "freeze", "freeze"),
     ("_evaluation_rllib", "evaluation", "_evaluation_rllib"),
     ("_reporting_rllib", "reporting", "_reporting_rllib"),
     ("_env_runners", "env_runners", "_env_runners"),
@@ -164,13 +163,27 @@ def test_training_without_episodes_keeps_the_previous_count():
 
 
 @pytest.mark.unit
-def test_freeze_is_recorded_for_the_rllib_config_instead_of_freezing_this_one():
+def test_freeze_freezes_this_config_and_records_nothing_for_rllib():
     cfg = PPOptimizerConfig()
 
     cfg.freeze()
 
-    assert "freeze" in cfg._cfg_ops
-    assert cfg._is_frozen is False
+    assert cfg._is_frozen is True
+    assert "freeze" not in cfg._cfg_ops
+    with pytest.raises(AttributeError, match="frozen"):
+        cfg.episodes = 99
+
+
+@pytest.mark.unit
+def test_copy_with_copy_frozen_returns_a_frozen_copy_and_leaves_the_original():
+    cfg = PPOptimizerConfig().resources(num_gpus=0)
+
+    frozen = cfg.copy(copy_frozen=True)
+
+    assert frozen._is_frozen is True and cfg._is_frozen is False
+    assert list(frozen._cfg_ops) == ["resources"]
+    with pytest.raises(AttributeError, match="frozen"):
+        frozen.episodes = 99
 
 
 @pytest.mark.unit

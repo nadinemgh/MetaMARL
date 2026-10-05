@@ -8,11 +8,8 @@ identity), ``register_env`` recording the creator it is given, and
 so the inner ``env_creator`` can be called as RLlib would call it. Tests that
 need the real ``RayOptimizer`` stub its ``PolicyActor``. Ray never starts.
 
-Four tests are marked ``xfail(strict=True)``: each keeps the behaviour the code
-documents and fails today because of a defect in ``build_optimizer`` or in
-``RayOptimizerConfig.freeze`` (the reason string names it). Every other test
-configures ``debugging`` after ``env_runners``, as the docstring of ``debugging``
-requires for the environment count to be scaled by the seeds.
+Every test configures ``debugging`` after ``env_runners``, as the docstring of
+``debugging`` requires for the environment count to be scaled by the seeds.
 """
 
 from __future__ import annotations
@@ -657,11 +654,6 @@ def test_the_built_optimizer_holds_the_reporter_it_was_built_with(
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason="RayOptimizerConfig.freeze is a deferred RLlib mutator, so "
-    + "copy(copy_frozen=True) never freezes the copy",
-)
 def test_the_snapshot_handed_to_the_optimizer_is_immutable(registered, stub_optimizer):
     # ``OptimizerConfig`` promises that ``build_optimizer`` works on
     # ``copy(copy_frozen=True)``: the optimizer owns an immutable snapshot.

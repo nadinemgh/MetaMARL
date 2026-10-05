@@ -909,10 +909,10 @@ class RayOptimizerConfig(OptimizerConfig):
            each sub-environment to a mechanism index and a pair of seeds (see
            ``env_creator`` below), and point ``rllib_cfg`` at it.
         7. Take a deep copy of this config with ``copy(copy_frozen=True)`` and
-           hand it to ``RayOptimizer``; the ``Algorithm`` itself is built
-           later inside ``PolicyActor``. Because ``freeze`` is overridden here
-           as a deferred RLlib mutator, the copy is not frozen: its attributes
-           stay assignable.
+           hand it to ``RayOptimizer``, so the optimizer owns an immutable
+           snapshot (assigning one of its attributes raises
+           ``AttributeError``); the ``Algorithm`` itself is built later
+           inside ``PolicyActor``.
         8. Build the optimizer-level reporter from ``reporter_cfg``
            (``None`` when no ``reporter_cfg`` was set) and attach it as
            ``opt.reporting``. Each environment receives a copy of
@@ -1122,29 +1122,6 @@ class RayOptimizerConfig(OptimizerConfig):
         opt.id = opt_id
 
         return opt
-
-    @rllib_config_mutator
-    @override(OptimizerConfig)
-    def freeze(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Record a deferred ``AlgorithmConfig.freeze`` call.
-
-        This overrides ``OptimizerConfig.freeze``: it records a freeze of the
-        *RLlib* config for replay and does not freeze this
-        ``RayOptimizerConfig``. As ``copy(copy_frozen=True)`` calls ``freeze``,
-        that copy is not frozen either.
-
-        Parameters
-        ----------
-        **kwargs : Any
-            Keyword arguments of ``AlgorithmConfig.freeze``.
-
-        Returns
-        -------
-        RayOptimizerConfig
-            ``self`` for chaining.
-        """
-
-        return cfg.freeze(**kwargs)
 
     @rllib_config_mutator
     def _training_rllb(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
