@@ -129,6 +129,10 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] seeded output layers and common random numbers for the exploration draws, test-first, in one commit because both live in `core/adaptors/ray/common_random.py` (`4602e42`). The work found two more defects, fixed in the same commit: the seeded initializer kept its layer counter across builds, so a rebuilt or pickled module did not reproduce its first build, and an unseeded run (`_sNone`) crashed the key piece. An integration test (`tests/integration/test_slot_common_random_numbers.py`) pins that the four slots return identical fitness at a negligible ES spread; it fails on `140c962` with the values of the morning measurement;
   - [x] keyed draws made faster, measured inside the env runner of the full configuration with and without keys: the first version doubled the full four-generation run (8 min 16 s), because every small torch call in the runner goes through a device-mode override and the version rebuilt the distribution row by row under `torch.manual_seed`. The current version draws one keyed standard-normal vector per row for diagonal-Gaussian actions and derives each key once per (seed, agent); it reproduces the first version's draws bit for bit (full four-generation run: 4 min 32 s and 4 min 11 s, against 4 min 22 s for `140c962` on the same machine the same evening, within the run-to-run spread; the first version of `140c962`'s baseline was invalid because Python loaded the main directory's code ahead of the worktree, so the baseline was rerun from inside the worktree);
   - [x] both configurations re-measured and recorded in `docs/MERGE_NOTES.md` ("The slots of one policy seed share their randomness"). The full configuration of 10-05 is `--outer-iters 4` on the defaults: the script's default is 1000 generations, and one run launched without the flag was stopped at generation 59 after two hours;
+  - [x] fresh-water timed at full size (500 farms, horizon 150, `--outer-iters 1` with the default 200 training iterations). On `0aeab19` one training iteration took 24 min 12 s and the policy reset before it 16 min 30 s, so one generation would have taken about 80 hours. The profile at 50 and 100 farms (8.4 s and 27.3 s per iteration) put the time in `Trajectory.add`, which copied every trajectory tree at each of the one-residual-per-agent compositions of a step, making an episode quadratic in the number of agents and in its length. On Rémy's decision the fix went in (`61bba5b`): `add` shares the branches and lists no delta writes, `Mechanism.__call__` writes the decoded action through the new `Trajectory.write`, which copies what it modifies, and `logical_or_dict` copies a flag dictionary in C when no residual sets a flag. One iteration now takes 1.0 s at 50 farms, 2.0 s at 100 and 12.8 s at 500, the reset 1 s; the fitness at 50 and 100 farms and the first iteration at 500 farms are identical to `0aeab19`. A full generation at 500 farms (`debug.py --outer-iters 1 --reporter csv`, the default 200 training iterations) took 41 min 47 s on `dbe3463`, with a flat rate of 12.0 to 12.7 s per iteration averaged over blocks of 40, a peak resident memory of 2.8 GB and a best fitness of 1.2164;
+  - [x] lint defect found on the way and fixed on Rémy's decision (`dbe3463`): the git-ignored run directory `wandb/` made isort take `wandb` for first-party code in the working copy, so the lint passed locally and failed in a clean checkout such as CI. `ruff.toml` now declares `wandb` third-party, and `ruff check --no-fix .` and `ruff format --check .` pass in the working copy and in a clean worktree;
+  - [x] commit trailers: twelve commits, not six, name Sonnet 5.5. The subagents that made them were told by their attribution reminder to sign that way, and that reminder follows the model actually running, so the trailers are probably accurate. Rémy decided to keep them: no history rewrite, so no hash to remap;
+  - [ ] push with Rémy's go-ahead.
 
 ## Baseline measured on `96294f6` (2026-10-04)
 
@@ -248,7 +252,7 @@ is rewritten in phase 4.)
 | 10-05 | The fresh-water residence time becomes storage volume over outflow, in days | Rémy, on Claude's recommendation |
 | 10-05 | The Raven no-withdrawal baseline is run once per episode and read daily instead of being re-run every day | Rémy, on Claude's recommendation |
 | 10-05 | The cart-pole example stays a pipeline check; its documentation states that the fitness is the constant 1.0 and the dial inert | Rémy, on Claude's recommendation |
-| 10-05 | The six commit trailers that name Sonnet 5.5 are rewritten once, just before the push, and every cited hash is updated afterwards | Rémy, on Claude's recommendation |
+| 10-05 | ~~The six commit trailers that name Sonnet 5.5 are rewritten once, just before the push, and every cited hash is updated afterwards~~ (superseded the same evening: twelve commits name Sonnet 5.5 and the trailers are probably accurate, so they are kept) | Rémy, on Claude's recommendation |
 | 10-05 | The fisher's reward stays as it is. Measured by the composition test of the fishery regulator, it is the harvest fraction after the regulator's quota and before the stock's pro-rata rationing; the notes and the docstring say so | Rémy, on Claude's recommendation |
 | 10-05 | The project is called MetaMARL everywhere: guides, package name and project URLs in `pyproject.toml` | Rémy, on Claude's recommendation |
 | 10-05 | A `metamarl` console command is added for `run` and `check`; the module form keeps working | Rémy, on Claude's recommendation |
@@ -262,6 +266,9 @@ is rewritten in phase 4.)
 | 10-05 | The visualisation plan in `TODO.md` is reconciled item by item against the tree, each done item marked with its commit | Rémy, on Claude's recommendation |
 | 10-05 | The pi and vf output layers get the seeded initializer too, so every slot of a policy seed starts from identical weights, as the code already promised | Rémy, on Claude's recommendation |
 | 10-05 | The exploration draws of the slots of one policy seed come from a common stream keyed by the seed and the step, so slots differ only by their candidate (common random numbers) | Rémy, on Claude's recommendation |
+| 10-05 | `Trajectory.add` shares the branches no delta writes, and the decoded action is written through a copying `Trajectory.write`, which makes the 500-farm fresh-water run usable without changing any result | Rémy, on Claude's recommendation |
+| 10-05 | `ruff.toml` gains one line declaring `wandb` third-party, so the lint gives the same verdict in a working copy and in CI | Rémy, on Claude's recommendation |
+| 10-05 | The twelve commit trailers that name Sonnet 5.5 are kept, and the history is not rewritten | Rémy, on Claude's recommendation |
 
 ## Waiting on
 
@@ -285,14 +292,12 @@ hers to decide: implement the KL influence term of Jaques et al. (2019, PMLR 97)
 rename `SocialInfluence`, which only shapes the observation and whose `influence_weight`
 has no effect. Those sections still describe the earlier constructor arguments.
 
-**A methodological doubt to re-measure.** On 10-04, in the shrunk fishery configuration,
-the four fitness values of the second generation were bit-identical to those of the
-first although the candidates differed. Each population slot trains and evaluates its
-own policy module (`fisher_policy_m<idx>_s<seed>`) with its own initial weights, so the
-ES gradient there followed the differences between slot initialisations rather than the
-mechanism. That measurement predates the new dynamics, the real tail window and the
-mechanism defaults, so it must be repeated in phase 6, on the shrunk and on the full
-configuration, before anything is claimed either way.
+**The slot doubt, measured and fixed.** On 10-04 the four fitness values of a shrunk
+generation repeated from one generation to the next although the candidates differed.
+Phase 6 measured the cause (slot-dependent output layers and exploration draws while
+the quota does not bind) and fixed it with seeded output layers and common random
+numbers (`4602e42`, `a1491b3`); the notes for Nadine give the measurements under "The
+slots of one policy seed share their randomness".
 
 **Behaviour that changed under her code.** `decode` now receives the raw action at
 every step through `MDPState.raw_actions`, so it no longer has to be idempotent.
@@ -367,19 +372,13 @@ IMPALA's deque queue, which it does not cover.
 
 ## Next step
 
-Phase 5 is closed. Phase 6 audits by measurement:
-- done: the slot doubt, its two fixes and their measurement (see the status board);
-- time a fresh-water run at full size, with an explicit small `--outer-iters`, since the
-  example scripts default to long runs;
-- just before the push, rewrite the six commit trailers that name Sonnet 5.5 and update
-  every cited hash;
-- after the rewrite, remap every hash quoted in `docs/MERGE_NOTES.md`, whose preface promises
-  the pushed hashes, in `TODO.md` (65 hashes) and in this file;
-- push with Rémy's go-ahead.
+Phase 6 has measured everything it planned: the slot doubt and its fixes, the
+full-size fresh-water timing and its fix, and the lint in a clean checkout. The trailers
+are kept, so no hash changes. What remains is the push of
+`feature/social-influence-testing-v2` to `origin`, with Rémy's go-ahead.
 
-**Suite conseillée :** modèle opus, effort high — phase 6 runs real Ray measurements whose
-results must be interpreted before anything is written for Nadine, then a history
-rewrite with a hash remap across three files; start it in a fresh session after `/clear`.
+**Suite conseillée :** modèle sonnet, effort low — only the push remains, with
+Rémy's go-ahead, then a last check that `origin` holds the branch head.
 
 ## Known traps
 

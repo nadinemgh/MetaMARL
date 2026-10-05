@@ -73,16 +73,16 @@ obtained on this tree at the time of writing.
 | --- | --- | --- |
 | `uv sync --directory <repo> --locked` | Install the locked environment | 169 packages resolved, 147 checked, no change |
 | `uv run --directory <repo> ruff check --no-fix .` | Lint without rewriting | `All checks passed!` |
-| `uv run --directory <repo> ruff format --check .` | Formatting check | `187 files already formatted` |
-| `uv run --directory <repo> python -m pytest -m "not integration and not notebook"` | Unit suite, as in CI | 1857 passed, 1 skipped, 13 deselected in 39 s, 99 % coverage of `core` |
-| `uv run --directory <repo> python -m pytest -m integration --no-cov -q` | Integration suite | 13 passed in 87 s |
+| `uv run --directory <repo> ruff format --check .` | Formatting check | `191 files already formatted` |
+| `uv run --directory <repo> python -m pytest -m "not integration and not notebook"` | Unit suite, as in CI | 1925 passed, 1 skipped, 19 deselected in 39 s, 99 % coverage of `core` |
+| `uv run --directory <repo> python -m pytest -m integration --no-cov -q` | Integration suite | 14 passed in 105 s |
 | `uv run --directory <repo> python -m pytest tests/world --no-cov -q` | One layer only | 40 passed in under a second |
 | `uv run --directory <repo> metamarl check examples/bilevel_fishery/config.yaml` | Validate a YAML config | `Config OK: core.optimizers.bilevel.BilevelConfig`, exit 0 |
 | `uv run --directory <repo> python -m examples.bilevel_fishery.debug --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20 --reporter csv` | Smoke run of the full bilevel loop | Exit 0 in 16 s, ending with `[Bilevel] Run finished` and `best_fitness=2.6060` |
 
 `metamarl run|check` exits 0 on success, 2 on a configuration error and 130 on an
 interrupt. The default `pytest` options collect the doctests of `core/` and of the three
-example packages, which is why the collected total (1871) is larger than the number
+example packages, which is why the collected total (1945) is larger than the number
 of test functions.
 
 ## Conventions

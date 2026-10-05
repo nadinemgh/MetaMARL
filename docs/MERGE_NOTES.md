@@ -10,7 +10,7 @@ left for you to decide. Every change is its own commit with its own test, so any
 them can be reverted on its own; the hashes below are those of the branch when it is
 pushed.
 
-The state at the end of the pass is the following. The suite has about 1890 tests,
+The state at the end of the pass is the following. The suite has about 1945 tests,
 including the doctests of `core/` and `examples/`, and covers 99 % of `core/`. The
 three examples run end to end, and two runs with the same seeds give bit-identical
 fitness. `ruff check --no-fix .` and `ruff format --check .` pass on the whole tree
@@ -227,6 +227,22 @@ allowance must read `allowed_frac:<mechanism id>`, for example
 longer has the `agents_cfgs` attribute that held the first regulator agent
 (`a65b543`).
 
+`Trajectory.add` no longer copies the whole tree (`61bba5b`). The result shares
+with the trajectory it was called on every branch and list that no delta writes
+to, and copies the others before writing. The reason is the cost: an environment
+composes one residual per agent per step, so the full copy made an episode cost the
+square of the number of agents times the square of its length. With the 500 farms
+of the fresh-water script, one training iteration took 24 min 12 s and the policy
+reset before it 16 min 30 s; they now take 12.8 s and 1 s, and at 100 farms an
+iteration went from 27.3 s to 2.0 s. A whole generation of the script's 200 training
+iterations at 500 farms now takes 42 minutes, at a rate that stays flat. The fitness at 50 and 100 farms and the first
+iteration at 500 farms are identical to those of the old code. The one consequence
+for your code is that a list read from a trajectory must not be modified in place,
+since another state may share it. The only place that did so,
+`Mechanism.__call__`, which records the decoded action, now goes through the new
+`Trajectory.write`, which copies what it modifies. The other operations of the
+class already returned new trajectories.
+
 ## New errors
 
 Several silent failures now raise. The ES rejects bounds other than `[0, 1]`
@@ -294,9 +310,7 @@ learners or IMPALA's deque queue.
 ## To do together
 
 The Raven path of the fresh-water example is tested only against a stand-in
-executable, since the Raven model is not in the repository, and a run with the 500
-farms of the default configuration did not finish within ten minutes. Both need
-your model.
+executable, since the Raven model is not in the repository. It needs your model.
 
 The plans at the top of `TODO.md` were reconciled with the branch box by box: each
 box now ends with a marker that names the commit doing it, partly doing it or making
@@ -344,7 +358,10 @@ The development tools are a `dev` dependency group (pytest, pytest-cov, ruff,
 nbconvert, ipykernel, nbformat, spacing, TensorBoard), `spacing` is no longer a
 runtime dependency, and TensorBoard is also an optional extra (`9ca215b`,
 `fd7ba11`). `pytest.ini` runs the doctests of `core/` and `examples/`. The whole
-tree complies with your ruff configuration (`e9ea8fc`); the 211 TODO comments of
+tree complies with your ruff configuration (`e9ea8fc`). That configuration gained one
+line, which declares `wandb` a third-party package: the git-ignored run directory
+`wandb/` at the root made isort take it for first-party code in a working copy, so
+the lint passed locally and failed in a clean checkout such as CI (`dbe3463`). The 211 TODO comments of
 the code were moved verbatim to the last section of `TODO.md`, and those that later
 commits resolved say so. Notebooks are no longer git-ignored (`ff67552`). No library
 module configures the root logger at import any more; the entry points do it, before
