@@ -62,14 +62,17 @@ class MDPState:
         delivered, not the one received. Default empty.
     raw_actions : Trajectory or dict or None
         The actions as they were received, before any mechanism decoded them:
-        the policy output of a follower, the candidate of a leader. A mechanism
-        decodes its entry from here, never from ``actions``, so that the action
-        in force of a leader, which is carried forward from step to step, is
-        decoded from the raw value at every step and not from its own previous
-        output. Everything that writes ``actions`` through this class
-        (construction, :meth:`add`, :meth:`advance`, :meth:`update`) writes
-        ``raw_actions`` too. Default ``None``, which starts as a copy of
-        ``actions``.
+        the policy output of a follower, the candidate of a leader. The
+        residuals that :meth:`add` composes are added here as well, so within a
+        step a follower's entry already carries its leaders' residuals (a quota
+        lowers it) when the follower's own mechanism decodes it; the entry is
+        still undecoded. A mechanism decodes its entry from here, never from
+        ``actions``, so that the action in force of a leader, which is carried
+        forward from step to step, is decoded from the raw value at every step
+        and not from its own previous output. Everything that writes
+        ``actions`` through this class (construction, :meth:`add`,
+        :meth:`advance`, :meth:`update`) writes ``raw_actions`` too. Default
+        ``None``, which starts as a copy of ``actions``.
     rewards : FlowTrajectory or dict
         Reward of each agent at each step. Default empty.
     state_space, action_spaces, obs_space : gymnasium.spaces.Dict or None
