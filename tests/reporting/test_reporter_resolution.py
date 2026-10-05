@@ -12,6 +12,7 @@ in ``conftest.py``; tests that need a broken tree copy it and edit the copy.
 from __future__ import annotations
 
 import logging
+from enum import Enum
 
 import pytest
 
@@ -28,6 +29,39 @@ M0_S1 = (("by_mech", "m0"), ("by_seed", "s1"))
 M0_S2 = (("by_mech", "m0"), ("by_seed", "s2"))
 M1_S1 = (("by_mech", "m1"), ("by_seed", "s1"))
 M1_S2 = (("by_mech", "m1"), ("by_seed", "s2"))
+
+
+@pytest.mark.unit
+class TestSeriesLabels:
+    """The label helpers of the base class, shared by every backend."""
+
+    def test_path_name_drops_reduction_tokens_and_unwraps_enums(self):
+        class Axis(Enum):
+            TIME = "time"
+
+        name = Reporter._path_name(("by_mech", SERIES, "by_seed", MEAN, Axis.TIME))
+
+        assert name == "by_mech/by_seed/time"
+
+    def test_series_label_appends_the_group(self):
+        group = (("by_mech", "m0"), ("by_seed", "s1"))
+
+        assert Reporter._series_label(("a", "b"), ()) == "a/b"
+        assert (
+            Reporter._series_label(("a", "b"), group) == "a/b [by_mech=m0, by_seed=s1]"
+        )
+        assert Reporter._series_label(("a", "b"), group, label="L") == (
+            "L [by_mech=m0, by_seed=s1]"
+        )
+
+    def test_the_backends_inherit_the_helpers(self):
+        from core.reporting.csv import CSVReporter
+        from core.reporting.tensor_board import TensorBoardReporter
+        from core.reporting.wandb import WandbReporter
+
+        for backend in (CSVReporter, TensorBoardReporter, WandbReporter):
+            assert "_path_name" not in vars(backend)
+            assert "_series_label" not in vars(backend)
 
 
 @pytest.mark.unit

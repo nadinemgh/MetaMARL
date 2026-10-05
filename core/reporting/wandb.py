@@ -16,7 +16,6 @@ started on the first report, never when the reporter is built.
 from __future__ import annotations
 
 import uuid
-from enum import Enum
 from typing import Any, Optional
 
 import numpy as np
@@ -24,10 +23,9 @@ import plotly.graph_objects as go
 from plotly.colors import qualitative
 
 import wandb
-from core.metrics.enums import ReduceProtocol
-from core.reporting.base import Group, Reporter, Resolved
+from core.reporting.base import Reporter, Resolved
 from core.reporting.config import ReporterConfig
-from core.reporting.query import Path, Query
+from core.reporting.query import Query
 from core.utils import sanitize_key
 
 
@@ -228,29 +226,6 @@ class WandbReporter(Reporter):
                 reinit="create_new",
                 settings=wandb.Settings(**(self._settings or {})),
             )
-
-    @staticmethod
-    def _path_name(path: Path) -> str:
-        return "/".join(
-            str(token.value) if isinstance(token, Enum) else token
-            for token in path
-            if not isinstance(token, ReduceProtocol)
-        )
-
-    @classmethod
-    def _series_label(
-        cls, path: Path, group: Group, label: Optional[str] = None
-    ) -> str:
-        name = label if label is not None else cls._path_name(path)
-
-        if not group:
-            return name
-
-        group_name = ", ".join(
-            f"{junction}={dynamic_id}" for junction, dynamic_id in group
-        )
-
-        return f"{name} [{group_name}]"
 
     @classmethod
     def _series_figure(

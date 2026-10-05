@@ -13,7 +13,6 @@ reach the consistency errors that a real resolution cannot produce.
 from __future__ import annotations
 
 import csv
-from enum import Enum
 
 import pytest
 
@@ -73,26 +72,6 @@ class TestFileNaming:
         query = Query(title="Fitness (mean ± std)", x=("iter",), y=("loss",))
 
         assert reporter.path_for(query) == reporter.output_dir / "Fitness_mean_std_.csv"
-
-    def test_path_name_drops_reduction_tokens_and_unwraps_enums(self):
-        class Axis(Enum):
-            TIME = "time"
-
-        name = CSVReporter._path_name(("by_mech", SERIES, "by_seed", MEAN, Axis.TIME))
-
-        assert name == "by_mech/by_seed/time"
-
-    def test_series_label_appends_the_group(self):
-        group = (("by_mech", "m0"), ("by_seed", "s1"))
-
-        assert CSVReporter._series_label(("a", "b"), ()) == "a/b"
-        assert (
-            CSVReporter._series_label(("a", "b"), group)
-            == "a/b [by_mech=m0, by_seed=s1]"
-        )
-        assert CSVReporter._series_label(("a", "b"), group, label="L") == (
-            "L [by_mech=m0, by_seed=s1]"
-        )
 
 
 class TestReportedRows:

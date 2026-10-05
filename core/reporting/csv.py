@@ -19,14 +19,11 @@ no file.
 from __future__ import annotations
 
 import csv
-from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from core.metrics.enums import ReduceProtocol
-from core.reporting.base import Group, Reporter, Resolved
+from core.reporting.base import Reporter, Resolved
 from core.reporting.config import ReporterConfig
-from core.reporting.query import Path as QueryPath
 from core.reporting.query import Query
 from core.utils import sanitize_key
 
@@ -171,29 +168,6 @@ class CSVReporter(Reporter):
         """
 
         return self._output_dir / f"{sanitize_key(query.title)}.csv"
-
-    @staticmethod
-    def _path_name(path: QueryPath) -> str:
-        return "/".join(
-            str(token.value) if isinstance(token, Enum) else token
-            for token in path
-            if not isinstance(token, ReduceProtocol)
-        )
-
-    @classmethod
-    def _series_label(
-        cls, path: QueryPath, group: Group, label: Optional[str] = None
-    ) -> str:
-        name = label if label is not None else cls._path_name(path)
-
-        if not group:
-            return name
-
-        group_name = ", ".join(
-            f"{junction}={dynamic_id}" for junction, dynamic_id in group
-        )
-
-        return f"{name} [{group_name}]"
 
     def _report(
         self,

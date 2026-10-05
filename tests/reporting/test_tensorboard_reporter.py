@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import sys
-from enum import Enum
 
 import pytest
 
@@ -87,26 +86,6 @@ class TestConfig:
 
     def test_default_log_dir(self):
         assert TensorBoardConfig(project="p").log_dir.as_posix() == "runs"
-
-
-class TestLabels:
-    def test_path_name_drops_reduction_tokens_and_unwraps_enums(self):
-        class Axis(Enum):
-            TIME = "time"
-
-        name = TensorBoardReporter._path_name(("a", SERIES, "b", MEAN, Axis.TIME))
-
-        assert name == "a/b/time"
-
-    def test_series_label_appends_the_group(self):
-        group = (("by_mech", "m0"),)
-
-        assert TensorBoardReporter._series_label(("a",), ()) == "a"
-        assert TensorBoardReporter._series_label(("a",), group) == "a [by_mech=m0]"
-        assert (
-            TensorBoardReporter._series_label(("a",), group, label="L")
-            == "L [by_mech=m0]"
-        )
 
 
 class TestScalarsWithAFakeWriter:

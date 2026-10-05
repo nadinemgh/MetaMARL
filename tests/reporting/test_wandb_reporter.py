@@ -15,7 +15,6 @@ directory, which would test the wandb library rather than this reporter.
 
 from __future__ import annotations
 
-from enum import Enum
 from types import SimpleNamespace
 
 import plotly.graph_objects as go
@@ -214,18 +213,6 @@ class TestRunLifecycle:
 
         with pytest.raises(RuntimeError, match="failed to initialize"):
             wandb_reporter._report(query, {(): [0]}, [{(): [1.0]}], [{}], None)
-
-
-class TestLabels:
-    def test_path_name_drops_reduction_tokens_and_unwraps_enums(self):
-        class Axis(Enum):
-            TIME = "time"
-
-        assert WandbReporter._path_name(("a", SERIES, "b", Axis.TIME)) == "a/b/time"
-
-    def test_series_label_appends_the_group(self):
-        assert WandbReporter._series_label(("a",), M0) == "a [by_mech=m0]"
-        assert WandbReporter._series_label(("a",), (), label="L") == "L"
 
 
 class TestLoggedFigure:

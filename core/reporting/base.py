@@ -19,7 +19,8 @@ when the path crosses no dynamic node.
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias
+from enum import Enum
+from typing import Any, Literal, Optional, TypeAlias
 
 import numpy as np
 
@@ -166,6 +167,43 @@ class Reporter(ABC):
             )
 
         self._schema = schema
+
+    @staticmethod
+    def _path_name(path: Path) -> str:
+        """Return a path as ``/``-joined names, without reduction tokens.
+
+        ``ReduceProtocol`` tokens are dropped and an ``Enum`` token is replaced
+        by its value, so ``("by_mech", SERIES, "fitness")`` is named
+        ``"by_mech/fitness"``. The backends use it as the default label of a
+        series and of an axis.
+        """
+
+        return "/".join(
+            str(token.value) if isinstance(token, Enum) else token
+            for token in path
+            if not isinstance(token, ReduceProtocol)
+        )
+
+    @classmethod
+    def _series_label(
+        cls, path: Path, group: Group, label: Optional[str] = None
+    ) -> str:
+        """Return the label of one series of a query.
+
+        The label is ``label`` when given, else the name of ``path``; for a
+        dynamic group it is followed by ``[junction=id, ...]``.
+        """
+
+        name = label if label is not None else cls._path_name(path)
+
+        if not group:
+            return name
+
+        group_name = ", ".join(
+            f"{junction}={dynamic_id}" for junction, dynamic_id in group
+        )
+
+        return f"{name} [{group_name}]"
 
     def _resolve_path(
         self,
