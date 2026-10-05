@@ -259,7 +259,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Mean normalized fish biomass over training episdoes",
+        title="Mean normalized fish biomass over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -287,7 +287,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Min normalized fish biomass over training episdoes",
+        title="Min normalized fish biomass over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -315,7 +315,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Max normalized fish biomass over training episdoes",
+        title="Max normalized fish biomass over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -343,7 +343,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Terminal rollout normalized fish biomass over training episdoes",
+        title="Terminal rollout normalized fish biomass over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -371,7 +371,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Value loss over training episdoes",
+        title="Value loss over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(

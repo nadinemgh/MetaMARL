@@ -85,9 +85,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
         If ``aggregation_status`` is neither ``"train"`` nor ``"eval"``.
 
     When to use: as the ``env`` of the outer ``ESConfig`` of a fishery
-    experiment, with an ``ecology_cfg`` whose ``K`` matches the inner
-    environment's carrying capacity. The objective depends on the series the
-    inner environment logs, so use it with ``FisheryMetricSchema``.
+    experiment. The objective reads the normalized biomass the inner
+    environment logs, so it needs no carrying capacity of its own; use it with
+    ``FisheryMetricSchema``.
 
     Examples
     --------

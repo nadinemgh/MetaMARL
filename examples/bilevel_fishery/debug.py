@@ -6,10 +6,9 @@ searches one parameter, the ``quota`` mechanism of ``core.mechanism.algorithms``
 (a value in ``[0, 1]`` acting on the fishers' ``harvest``, started from 0.56224),
 with a constant search spread of 0.15. The inner APPO optimizer trains ten
 fishers by default against each candidate, on ``FisheryRegulatedEnv`` with a
-carrying capacity of 5000 that the regulator environment must repeat in its own
-``K``. Every level logs a typed ``MetricSchema`` and renders the queries of
-:mod:`examples.bilevel_fishery.queries` through the configured reporter
-(Weights & Biases by default, CSV with ``--reporter csv``).
+carrying capacity of 5000. Every level logs a typed ``MetricSchema`` and
+renders the queries of :mod:`examples.bilevel_fishery.queries` through the
+configured reporter (Weights & Biases by default, CSV with ``--reporter csv``).
 
 Nothing runs at import. :func:`main` calls ``ensure_hash_seed()`` (which may
 restart the process, before Ray starts), configures the logging, parses the
