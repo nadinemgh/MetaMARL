@@ -125,6 +125,10 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] `docs/MERGE_NOTES.md`: a section on the tutorials, a paragraph on the three behaviour changes and one on the MEAN order fix, plus the renamed quota entry, the removed ES attribute and the new ES errors; every quoted hash checked.
   - [x] measured after `5ec6b4d` with the default command (`WANDB_MODE=offline uv run python -m pytest`): 1893 passed, 1 skipped doctest, no failure, 207 s; `core/` at 99 % (5 of 3656 statements missed, all defensive guards that predate this phase); `ruff check --no-fix .` and `ruff format --check .` pass on the whole tree (188 files).
 - [ ] Phase 6 — validation audit by measurement, then push.
+  - [x] slot doubt re-measured on 10-05 on `4c0929f` (scripts and logs in the session scratchpad, not kept). The doubt holds, with a different cause than the one noted on 10-04. While the quota does not bind, the fitness of a slot depends only on its index: in the shrunk configuration (`--outer-iters 4 --train-iters 2 --num-agents 2 --horizon 20`) generations 0, 2 and 3 give the same four values `[2.597966, 2.599000, 2.597888, 2.606036]` for candidates between 0.36 and 0.57, and in the full configuration (defaults, 4 generations, 4 min 03 s) slot 0 gives 2.522731 for 0.505, 0.496 and 0.500. The quota starts to bind near 0.56, where the minimum stock of the full run lies (0.56 to 0.58 of capacity); above it the signal is real, since the mean climbed to 0.72 and the fitness from 2.52–2.56 to 2.60–2.61. The slot spread at a non-binding candidate is about 0.036 in the full configuration, the same order as the mechanism effect, and the ES standardises fitness before the update, so the spread drives full-size steps. The four training environments share the seed and the RNG state, so the environment is not the source. Two sources are: the pi and vf output layers, which APPO under RLlib 2.53 builds without the seeded initializer (`PPOCatalog` ignores `head_fcnet_*_initializer`), so each slot draws different head weights from torch's global stream, contradicting the docstring of `_seeded_xavier_uniform`; and the exploration draws during training, which differ per slot. With equal weights and `lr=0` the four fitness values are exactly equal (2.602504); with equal weights and learning the full-configuration spread falls only from 0.036 to 0.029, so the exploration draws dominate. Both sources replay identically every generation, so they never average out;
+  - [ ] seeded initialisation of the output layers, test-first (decided 10-05);
+  - [ ] common random numbers for the exploration draws across slots, test-first (decided 10-05);
+  - [ ] re-measure both configurations after the two changes and record the result in `docs/MERGE_NOTES.md`;
 
 ## Baseline measured on `96294f6` (2026-10-04)
 
@@ -256,10 +260,12 @@ is rewritten in phase 4.)
 | 10-05 | Mechanisms acting on the same channel keep composing additively, and that rule is documented; each quota writes its allowed fraction under a state key that carries its mechanism id, so two quotas no longer sum into one entry | Rémy, on Claude's recommendation |
 | 10-05 | Social influence orders the peers by the numeric index of their identifier, falling back to the string order for an identifier without one | Rémy, on Claude's recommendation |
 | 10-05 | The visualisation plan in `TODO.md` is reconciled item by item against the tree, each done item marked with its commit | Rémy, on Claude's recommendation |
+| 10-05 | The pi and vf output layers get the seeded initializer too, so every slot of a policy seed starts from identical weights, as the code already promised | Rémy, on Claude's recommendation |
+| 10-05 | The exploration draws of the slots of one policy seed come from a common stream keyed by the seed and the step, so slots differ only by their candidate (common random numbers) | Rémy, on Claude's recommendation |
 
 ## Waiting on
 
-Nothing. Phase 5 is closed; phase 6 needs no decision until the push.
+Nothing until the push. The two slot decisions of 10-05 are being implemented.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -362,10 +368,9 @@ IMPALA's deque queue, which it does not cover.
 ## Next step
 
 Phase 5 is closed. Phase 6 audits by measurement:
-- re-measure the slot-initialisation doubt of the "To do together" section of
-  `docs/MERGE_NOTES.md` (bit-identical fitness across generations although the candidates
-  differed) on the shrunk and full fishery configurations, with the new dynamics and the
-  tail window, and record the result there;
+- the slot doubt is re-measured (see the status board); implement the seeded output
+  layers, then the common exploration stream, each test-first, re-measure both
+  configurations and record the result in `docs/MERGE_NOTES.md`;
 - time a fresh-water run at full size;
 - just before the push, rewrite the six commit trailers that name Sonnet 5.5 and update
   every cited hash;
