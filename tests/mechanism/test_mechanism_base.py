@@ -5,6 +5,8 @@ action trajectory (not into the raw one) and applies it; ``apply`` is abstract
 and ``observe`` contributes nothing by default.
 """
 
+import typing
+
 import numpy as np
 import pytest
 from gymnasium import spaces
@@ -91,6 +93,27 @@ class TestCall:
         mechanism(mdp, 0.25)
 
         assert mdp.actions["regulator"]["quota"] == [0.0, 0.5]
+
+
+@pytest.mark.unit
+class TestAnnotationsMatchTheBehaviour:
+    def test_acts_on_accepts_none(self):
+        # ``MechanismConfig.acts_on`` defaults to ``None`` and is passed as is.
+        hint = typing.get_type_hints(Mechanism.__init__)["acts_on"]
+
+        assert type(None) in typing.get_args(hint)
+        assert Recorder(acts_on=None).acts_on is None
+
+    def test_add_accepts_a_single_state_as_well_as_a_list(self):
+        hint = typing.get_type_hints(MDPState.add)["ds"]
+        residual = MDPState(rewards={"a": 1.0})
+
+        assert MDPState in typing.get_args(hint)
+        assert (
+            MDPState().add(residual).rewards["a"]
+            == MDPState().add([residual]).rewards["a"]
+            == [1.0]
+        )
 
 
 @pytest.mark.unit

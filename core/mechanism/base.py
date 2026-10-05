@@ -130,7 +130,7 @@ class MDPState:
 
     # Mechanisms may introduce dimensions, but absence means "no change".
     # Deletion is not supported.
-    def add(self, ds: list["MDPState"]) -> MDPState:
+    def add(self, ds: list[MDPState] | MDPState) -> MDPState:
         """Compose this state with residual states, without modifying it.
 
         The trajectories of the residuals are added to this state's at the
@@ -144,8 +144,8 @@ class MDPState:
 
         Parameters
         ----------
-        ds : list of MDPState
-            Residual states. A single ``MDPState`` is also accepted.
+        ds : list of MDPState or MDPState
+            Residual states, or a single residual state.
 
         Returns
         -------
@@ -295,8 +295,12 @@ class Mechanism(ABC):
     id : MechanismID or None
         Identifier of the mechanism, the key of its action under ``aid``.
         Default ``None``.
-    acts_on : tuple[AgentID, MechanismID]
-        Agent type and mechanism that the mechanism acts on. Keyword-only.
+    acts_on : tuple[AgentID, MechanismID] or None
+        Agent type and mechanism that the mechanism acts on, or ``None`` for a
+        mechanism that targets nobody; the configuration passes ``None`` when
+        none is given, and the mechanisms of this package then raise a
+        ``ValueError`` in ``apply`` or ``observe``. Keyword-only, with no
+        default.
     obs_map : dict[str, str] or None
         Names under which the mechanism reads the environment state, for
         example ``{"resource_level": "fish"}``. Default ``None``.
@@ -344,7 +348,7 @@ class Mechanism(ABC):
         *,
         action_space: spaces.Box,
         id: Optional[MechanismID] = None,
-        acts_on: tuple[AgentID, MechanismID],
+        acts_on: Optional[tuple[AgentID, MechanismID]],
         obs_map: Optional[dict[str, str]] = None,
         default: Optional[np.ndarray] = None,
     ) -> None:
