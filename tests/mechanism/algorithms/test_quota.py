@@ -106,12 +106,7 @@ def delivered_of(delta: MDPState, aid: str, z: np.ndarray) -> float:
 @pytest.mark.unit
 class TestValidation:
     @pytest.mark.parametrize(
-        "name",
-        [
-            "quota_transition_width",
-            "usage_transition_width",
-            "violation_transition_width",
-        ],
+        "name", ["quota_transition_width", "usage_transition_width"]
     )
     @pytest.mark.parametrize("value", [0.0, -0.01])
     def test_transition_widths_must_be_positive(self, name, value):
@@ -133,16 +128,11 @@ class TestValidation:
             run(mechanism, requests)
 
     def test_config_forwards_the_widths(self):
-        mechanism = make(
-            quota_transition_width=0.1,
-            usage_transition_width=0.02,
-            violation_transition_width=0.2,
-        )
+        mechanism = make(quota_transition_width=0.1, usage_transition_width=0.02)
 
         assert isinstance(mechanism, QuotaMechanism)
         assert mechanism.quota_transition_width == 0.1
         assert mechanism.usage_transition_width == 0.02
-        assert mechanism.violation_transition_width == 0.2
         assert mechanism.aid == REGULATOR
         assert mechanism.acts_on == ("fisherman", "harvest")
 
@@ -151,7 +141,6 @@ class TestValidation:
 
         assert mechanism.quota_transition_width == QUOTA_WIDTH
         assert mechanism.usage_transition_width == USAGE_WIDTH
-        assert mechanism.violation_transition_width == 0.03
 
 
 @pytest.mark.unit

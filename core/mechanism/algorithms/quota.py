@@ -54,9 +54,6 @@ class QuotaMechanism(Mechanism):
     usage_transition_width : float
         Width of the smooth excess over the allowance, positive, in fraction of
         the effort. Default ``0.005``.
-    violation_transition_width : float
-        Positive, default ``0.03``. It is validated and stored, but ``apply``
-        does not use it.
     **kwargs
         Forwarded to :class:`core.mechanism.base.Mechanism`: ``action_space``
         (a ``Box`` of shape ``(1,)`` in ``[0, 1]``), ``acts_on`` and ``obs_map``
@@ -107,27 +104,22 @@ class QuotaMechanism(Mechanism):
     # Fixed algorithmic parameters.
     quota_transition_width: float = 0.03
     usage_transition_width: float = 0.005
-    violation_transition_width: float = 0.03
 
     def __init__(
         self,
         *,
         quota_transition_width: float = 0.03,
         usage_transition_width: float = 0.005,
-        violation_transition_width: float = 0.03,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.quota_transition_width = quota_transition_width
         self.usage_transition_width = usage_transition_width
-        self.violation_transition_width = violation_transition_width
 
         if self.quota_transition_width <= 0:
             raise ValueError("quota_transition_width must be > 0.")
         if self.usage_transition_width <= 0:
             raise ValueError("usage_transition_width must be > 0.")
-        if self.violation_transition_width <= 0:
-            raise ValueError("violation_transition_width must be > 0.")
 
     @override(Mechanism)
     def decode(self, mdp: MDPState, action: ActType) -> float:
@@ -243,8 +235,6 @@ class Quota(MechanismConfig):
     usage_transition_width : float
         Width of the smooth excess over the allowance, in fraction of the
         effort. Default ``0.005``.
-    violation_transition_width : float
-        Stored by the mechanism but not used by it. Default ``0.03``.
 
     Notes
     -----
@@ -271,4 +261,3 @@ class Quota(MechanismConfig):
     mechanism_cls: ClassVar[type[Mechanism]] = QuotaMechanism
     quota_transition_width: float = 0.03
     usage_transition_width: float = 0.005
-    violation_transition_width: float = 0.03
