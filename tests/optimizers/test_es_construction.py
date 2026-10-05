@@ -30,7 +30,7 @@ class TestESConfig:
         assert (cfg.sigma, cfg.mean_lr, cfg.sigma_lr) == (0.15, 0.1, 0.05)
         assert (cfg.sigma_decay, cfg.min_sigma, cfg.max_sigma) == (0.99, 1e-3, 0.5)
         assert cfg.break_symmetry is False
-        assert (cfg.convergence_eps, cfg.convergence_patience) == (1e-4, 10)
+        assert (cfg.convergence_eps, cfg.convergence_patience) == (0.0, 10)
         assert cfg.initial_mean is None
         assert cfg.episodes is None
 

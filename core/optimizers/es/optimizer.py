@@ -75,10 +75,13 @@ class ESOptimizer(Optimizer):
     In single-candidate mode the mean only moves when a candidate is accepted,
     so a streak of rejected candidates counts as a streak of zero displacement.
     The rule does not apply in fixed mode, where there is nothing to search and
-    every generation is run. ``convergence_eps=0`` disables the rule. This is a
-    heuristic stopping rule of this implementation, not taken from a paper:
+    every generation is run. ``convergence_eps=0``, the default of ``ESConfig``,
+    disables the rule. This is a heuristic stopping rule of this
+    implementation, not taken from a paper:
     a flat fitness (no directional information) or a mean pushed against a
-    bound of ``[0, 1]`` also satisfy it, whether or not the optimum was found.
+    bound of ``[0, 1]`` also satisfy it, whether or not the optimum was found,
+    and in single-candidate mode ``convergence_patience`` rejected candidates
+    in a row stop the run even far from the optimum.
 
     Parameters
     ----------

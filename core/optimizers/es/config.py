@@ -48,7 +48,8 @@ class ESConfig(OptimizerConfig):
         Replace one mirrored sample by an independent one (default ``False``).
     convergence_eps : float
         Displacement threshold of the convergence stop, in the normalized
-        ``[0, 1]^dimension`` space (default 1e-4); ``0`` disables the stop.
+        ``[0, 1]^dimension`` space (default 0, which disables the stop, so a
+        run lasts ``episodes`` generations unless a threshold is set).
     convergence_patience : int
         Number of consecutive generations whose displacement of the search mean
         stays below ``convergence_eps`` before the run stops (default 10).
@@ -83,7 +84,7 @@ class ESConfig(OptimizerConfig):
         self.min_sigma: float = 1e-3
         self.max_sigma: float = 0.5
         self.break_symmetry: bool = False
-        self.convergence_eps: float = 1e-4
+        self.convergence_eps: float = 0.0
         self.convergence_patience: int = 10
         self.initial_mean: Optional[list[float]] = None
 
@@ -133,8 +134,11 @@ class ESConfig(OptimizerConfig):
             Euclidean norm of the change of the search mean between two
             consecutive generations, in the normalized ``[0, 1]^dimension``
             space, stays below ``convergence_eps`` for ``convergence_patience``
-            consecutive generations (``convergence_eps=0`` disables it). This
-            is a heuristic stopping rule, not taken from a paper.
+            consecutive generations (``convergence_eps=0``, the default,
+            disables it). This is a heuristic stopping rule, not taken from a
+            paper. In single-candidate mode a rejected candidate leaves the
+            mean in place, so ``convergence_patience`` rejections in a row stop
+            the run even far from the optimum; use a large patience there.
         initial_mean : list[float], optional
             Starting point in ``[0, 1]^dimension`` (default ``0.5`` everywhere).
         **kwargs : Any

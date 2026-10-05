@@ -317,13 +317,23 @@ class TestConvergenceStop:
     def test_defaults_are_the_documented_ones(self, es_factory):
         opt = es_factory()
 
-        assert (opt.convergence_eps, opt.convergence_patience) == (1e-4, 10)
+        assert (opt.convergence_eps, opt.convergence_patience) == (0.0, 10)
         assert opt.stalled_generations == 0
+
+    def test_the_default_config_runs_every_generation(self, es_factory, scripted_env):
+        # The stop is opt-in: a frozen mean does not end a default run early.
+        opt = es_factory(episodes=12)
+        opt.env = scripted_env(flat_fitness)
+
+        result = opt.train()
+
+        assert result["episodes"] == 12
+        assert result["converged"] is False
 
     def test_a_frozen_mean_stops_the_run_after_patience_generations(
         self, es_factory, scripted_env, caplog
     ):
-        opt = es_factory(episodes=20, convergence_patience=3)
+        opt = es_factory(episodes=20, convergence_eps=1e-4, convergence_patience=3)
         opt.env = scripted_env(flat_fitness)
 
         with caplog.at_level(logging.INFO, logger="core.optimizers.es.optimizer"):
@@ -336,7 +346,9 @@ class TestConvergenceStop:
         assert "Converged | gen=2" in caplog.text
 
     def test_a_moving_mean_never_converges(self, es_factory, scripted_env):
-        opt = es_factory(episodes=15, convergence_patience=2, mean_lr=0.5)
+        opt = es_factory(
+            episodes=15, convergence_eps=1e-4, convergence_patience=2, mean_lr=0.5
+        )
         opt.env = scripted_env(quota_fitness(0.9))
 
         result = opt.train()
@@ -386,7 +398,9 @@ class TestConvergenceStop:
         self, es_factory, scripted_env
     ):
         # A constant fitness is never an improvement: the parent is kept.
-        opt = es_factory(population=1, episodes=20, convergence_patience=4)
+        opt = es_factory(
+            population=1, episodes=20, convergence_eps=1e-4, convergence_patience=4
+        )
         opt.env = scripted_env(flat_fitness)
 
         result = opt.train()
@@ -399,7 +413,9 @@ class TestConvergenceStop:
     ):
         # Every candidate improves on the previous one, so the parent moves.
         counter = iter(range(1, 1000))
-        opt = es_factory(population=1, episodes=12, convergence_patience=3)
+        opt = es_factory(
+            population=1, episodes=12, convergence_eps=1e-4, convergence_patience=3
+        )
         opt.env = scripted_env(lambda actions: np.array([float(next(counter))]))
 
         result = opt.train()
@@ -409,7 +425,11 @@ class TestConvergenceStop:
 
     def test_fixed_mode_runs_every_generation(self, es_factory, scripted_env):
         opt = es_factory(
-            {"penalty": unit_box(0)}, population=2, episodes=12, convergence_patience=2
+            {"penalty": unit_box(0)},
+            population=2,
+            episodes=12,
+            convergence_eps=1e-4,
+            convergence_patience=2,
         )
         opt.env = scripted_env(lambda actions: np.array([1.0, 2.0]))
 
@@ -419,7 +439,7 @@ class TestConvergenceStop:
         assert result["converged"] is False
 
     def test_the_streak_restarts_with_each_train_call(self, es_factory, scripted_env):
-        opt = es_factory(episodes=20, convergence_patience=3)
+        opt = es_factory(episodes=20, convergence_eps=1e-4, convergence_patience=3)
         opt.env = scripted_env(flat_fitness)
 
         assert opt.train()["episodes"] == 3
