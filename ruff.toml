@@ -1,5 +1,3 @@
-extend-exclude = ["legacy_code"]
-
 line-length = 88
 indent-width = 4
 target-version = "py312"

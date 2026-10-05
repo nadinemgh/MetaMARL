@@ -1,7 +1,7 @@
 [project]
-name = "bilevel-fishery"
+name = "metamarl"
 version = "0.1.0"
-description = "Bilevel optimization framework for sustainable fishery management using Evolution Strategies"
+description = "MetaMARL: bilevel mechanism design, where an evolution strategy searches the rules a multi-agent reinforcement learning society is trained under"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = {text = "BSD-3-Clause"}
@@ -37,9 +37,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/deep-introspection/bilevel-fishery"
-Repository = "https://github.com/deep-introspection/bilevel-fishery"
-Issues = "https://github.com/deep-introspection/bilevel-fishery/issues"
+Homepage = "https://github.com/deep-introspection/MetaMARL"
+Repository = "https://github.com/deep-introspection/MetaMARL"
+Issues = "https://github.com/deep-introspection/MetaMARL/issues"
 
 [project.optional-dependencies]
 tensorboard = ["tensorboard>=2.16"]
@@ -61,8 +61,10 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-# Exclude legacy, tests and examples directories from automatic package discovery
-exclude = ["legacy_code*", "tests*", "examples*"]
+# Only the framework is installed. Most directories of core/ are namespace packages
+# (no __init__.py), so discovery without this filter also takes every other
+# top-level directory (docs, tutorials, wandb, ...) as a package name.
+include = ["core*"]
 
 [tool.coverage.report]
 # Most directories of core/ are namespace packages (no __init__.py). Without this
