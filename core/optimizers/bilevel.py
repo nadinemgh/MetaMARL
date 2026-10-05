@@ -326,7 +326,9 @@ class BilevelOptimizer(Optimizer):
     world_name, output_dir : str or None
         Copied from the config.
     converged : bool
-        ``False``; never updated by :meth:`train`.
+        ``False`` until :meth:`train` returns; then the ``converged`` flag of
+        the outer summary (``True`` when the ES stopped on its convergence
+        rule).
     all_trajectories, population_history, es_metrics_history : list
         Empty lists that nothing fills; the ES history is in the dict that
         :meth:`train` returns.
@@ -385,7 +387,8 @@ class BilevelOptimizer(Optimizer):
         """Run the outer optimizer and return its summary dict unchanged.
 
         Both levels are stopped and the reporter is closed in a ``finally``
-        block, then the run is logged.
+        block, then ``converged`` is taken from the summary and the run is
+        logged.
 
         Returns
         -------
@@ -417,6 +420,8 @@ class BilevelOptimizer(Optimizer):
                     level.stop()
             if self.reporting is not None:
                 self.reporting.close()
+
+        self.converged = bool(result["converged"])
 
         logger.info(
             "[Bilevel] Run finished | iters=%d | converged=%s | mechanism=%s"

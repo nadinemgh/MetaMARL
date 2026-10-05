@@ -88,6 +88,36 @@ def test_the_summary_of_the_outer_level_is_returned_unchanged():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("flag", [True, False])
+def test_converged_is_taken_from_the_summary_of_the_outer_level(flag, monkeypatch):
+    journal = []
+    outer = OrderedLevel("outer", journal)
+    monkeypatch.setattr(outer, "train", lambda: {**SUMMARY, "converged": flag})
+    opt = BilevelOptimizer(config(), outer=outer, inner=None, reporter=None)
+    assert opt.converged is False
+
+    opt.train()
+
+    assert opt.converged is flag
+
+
+@pytest.mark.unit
+def test_converged_stays_false_when_training_fails():
+    journal = []
+    opt = BilevelOptimizer(
+        config(),
+        outer=OrderedLevel("outer", journal, fails=True),
+        inner=None,
+        reporter=None,
+    )
+
+    with pytest.raises(RuntimeError):
+        opt.train()
+
+    assert opt.converged is False
+
+
+@pytest.mark.unit
 def test_levels_are_stopped_outer_first_then_the_reporter_is_closed():
     journal = []
     opt = BilevelOptimizer(
