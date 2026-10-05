@@ -54,9 +54,8 @@ class OptimizerConfig(_Config, ABC):
     Contract
     --------
     - *Fluent*: builder methods mutate ``self`` and return it, so calls
-      chain. The base ``training`` only stores ``episodes`` and returns
-      ``None``; subclasses override it with their own hyperparameters and
-      return ``self``.
+      chain. The base ``training`` only stores ``episodes``; subclasses
+      override it with their own hyperparameters.
     - *Freeze*: ``freeze()`` flips ``_is_frozen``; afterwards any attribute
       assignment raises ``AttributeError`` (enforced in ``__setattr__``).
       Freezing is shallow: nested objects such as ``env_config`` stay
@@ -339,9 +338,8 @@ class OptimizerConfig(_Config, ABC):
         agent configurations, the reporting settings and the ``env_config``
         entries. The environment is attached with ``opt.env``.
 
-        With ``world=None`` no identifier is requested, and reading
-        ``opt.id`` while the environment arguments are assembled raises
-        ``RuntimeError``: a World is required in practice.
+        With ``world=None`` no identifier is requested: ``opt.opt_id`` stays
+        ``None`` and the environment receives ``opt_id=None``.
 
         Parameters
         ----------
@@ -363,8 +361,6 @@ class OptimizerConfig(_Config, ABC):
         ------
         ValueError
             If the config has no ``opt_class``.
-        RuntimeError
-            If no ``world`` is given (see above).
         """
 
         cfg = self.copy(copy_frozen=True)
@@ -390,7 +386,7 @@ class OptimizerConfig(_Config, ABC):
 
         env = cfg._env_creator(
             world=world,
-            opt_id=opt.id,
+            opt_id=opt.opt_id,
             optimizer=inner_opt,
             agents_cfgs=self.agents_cfgs,
             reporter_cfg=cfg.reporter_cfg.copy()
@@ -478,17 +474,24 @@ class OptimizerConfig(_Config, ABC):
     def training(self, *, episodes: Optional[int] = None) -> Self:
         """Set the optimizer's training hyperparameters (backend specific).
 
-        The base implementation stores ``episodes`` when given and returns
-        ``None``, so it cannot be chained. Subclasses define further keyword
-        arguments and return ``self``.
+        The base implementation stores ``episodes`` when given. Subclasses
+        define further keyword arguments.
 
         Parameters
         ----------
         episodes : int, optional
             Number of iterations to run; ``None`` keeps the current value.
+
+        Returns
+        -------
+        OptimizerConfig
+            ``self`` for chaining.
         """
+
         if episodes is not None:
             self.episodes = episodes
+
+        return self
 
     def debugging(
         self,

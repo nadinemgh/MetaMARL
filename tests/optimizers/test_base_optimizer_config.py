@@ -4,10 +4,6 @@ The base config is exercised through ``ESConfig`` (a real subclass) and through
 a minimal ``RecordingConfig`` whose optimizer and environment only record how
 they were constructed, so ``build_optimizer`` runs against the in-memory
 ``FakeWorld`` of ``conftest.py`` without Ray.
-
-Three behaviours of ``build_optimizer`` and ``training`` do not match their
-documentation; their tests are strict ``xfail`` and are described in the report
-of the coverage pass.
 """
 
 from types import SimpleNamespace
@@ -113,10 +109,6 @@ class TestInterface:
 
         assert cfg.episodes == 7
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="OptimizerConfig.training is annotated '-> Self' but returns None",
-    )
     def test_training_returns_the_config_for_chaining(self):
         cfg = RecordingConfig()
 
@@ -478,11 +470,6 @@ class TestBuildOptimizer:
         assert opt.reporting is None
         assert opt.env.kwargs["reporter_cfg"] is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="build_optimizer reads opt.id before checking whether a World "
-        + "was given, so world=None raises RuntimeError",
-    )
     def test_a_build_without_a_world_leaves_the_id_unset(self, reporter_config):
         opt = self.make(reporter_config).build_optimizer(world=None)
 
