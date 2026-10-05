@@ -281,14 +281,28 @@ class TestLoggedFigure:
         assert lines["plots/l"].layout.hovermode == "x unified"
         assert lines["plots/l"].data[0].mode == "lines"
 
-    def test_empty_resolution_starts_the_run_but_logs_nothing(
+    def test_empty_resolution_starts_no_run_and_logs_nothing(
         self, fake_wandb, wandb_reporter
     ):
         query = Query(title="t", x=("x",), y=("y",))
 
         wandb_reporter._report(query, {(): [0]}, [{}], [{}], None)
 
-        assert len(fake_wandb.runs) == 1 and fake_wandb.runs[0].logged == []
+        assert fake_wandb.init_calls == [] and fake_wandb.runs == []
+        assert wandb_reporter._run is None
+
+    def test_an_empty_query_does_not_start_a_run_through_report(
+        self, fake_wandb, wandb_reporter, reporting_metrics
+    ):
+        # a dynamic node with no child resolves to no series at all
+        reporting_metrics.by_mech.clear()
+        wandb_reporter.add_query(
+            Query(title="e", x=("iter",), y=("by_mech", SERIES, "fitness"))
+        )
+
+        wandb_reporter.report(reporting_metrics)
+
+        assert fake_wandb.init_calls == []
 
     def test_color_query_widens_legend_margin_and_adds_a_color_bar(
         self, fake_wandb, wandb_reporter, reporting_metrics

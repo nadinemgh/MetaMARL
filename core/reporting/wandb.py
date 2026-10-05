@@ -154,7 +154,7 @@ class WandbReporter(Reporter):
     is a trace, the dash pattern distinguishes groups, a standard deviation
     is a filled band of plus and minus one deviation, and a colour path
     colours the markers on a shared colour axis. A query that resolves to no
-    series logs nothing, but still starts the run. If ``wandb.init`` returns
+    series logs nothing and does not start the run. If ``wandb.init`` returns
     no run, the report raises ``RuntimeError``, which
     :meth:`~core.reporting.base.Reporter.report` logs.
 
@@ -392,13 +392,13 @@ class WandbReporter(Reporter):
         errors: list[Resolved],
         colors: Resolved | None,
     ) -> None:
+        if not any(ys):
+            return
+
         self._init_run()
 
         if self._run is None:
             raise RuntimeError("W&B run failed to initialize.")
-
-        if not any(ys):
-            return
 
         fig = self._series_figure(
             query=query, xs=x, yss=ys, error_yss=errors, color_values=colors
