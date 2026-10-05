@@ -171,8 +171,10 @@ class QuotaMechanism(Mechanism):
             the targeted mechanism, a ``float32`` array of the shape of its
             request, zero except for the first component, which moves the
             request to the delivered effort. It also carries the allowed fraction
-            under the state entry ``allowed_frac``; as every state delta, it is
-            added to the previous value of that entry.
+            under the state entry ``allowed_frac``: the residual is the
+            difference between the allowed fraction and the value that entry
+            already holds at ``mdp.t`` (``0`` when absent), so that adding it to
+            the state leaves the allowed fraction of the step in the entry.
 
         Raises
         ------
@@ -221,7 +223,13 @@ class QuotaMechanism(Mechanism):
             delivered = delivered.reshape(requested.shape)
             da[aid] = {target_mechanism: delivered - requested}
 
-        return MDPState(actions=da, state={"allowed_frac": allowed_frac})
+        # State entries are stocks: a residual is added to the value already in
+        # the state. Return the difference, so that the entry ends up holding the
+        # allowed fraction of this step instead of a running sum of them.
+        history = mdp.state.data.get("allowed_frac")
+        previous = history[min(mdp.t, len(history) - 1)] if history else 0.0
+
+        return MDPState(actions=da, state={"allowed_frac": allowed_frac - previous})
 
 
 @dataclass(frozen=True, kw_only=True)

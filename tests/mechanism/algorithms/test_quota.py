@@ -12,8 +12,8 @@ read back from it:
 with ``b`` the normalised resource level, ``q`` the regulator's quota, ``w``
 the quota transition width, ``s`` the logistic function and ``softplus0`` the
 softplus of width ``usage_transition_width`` shifted to be zero at the origin.
-The allowed fraction is observed through the delivered action, because the
-state entry that carries it is a recorded open point and is not asserted here.
+The allowed fraction is also published in the state entry ``allowed_frac``;
+the entry must hold the fraction of the current step, not a running sum.
 """
 
 import math
@@ -458,4 +458,46 @@ class TestComposition:
 
         np.testing.assert_array_equal(
             after.actions["fisherman:0"]["harvest"][0], raw(0.9)
+        )
+
+
+@pytest.mark.unit
+class TestAllowedFractionEntry:
+    def test_the_entry_holds_the_allowed_fraction_of_a_fresh_state(self):
+        mdp = mdp_with({"fisherman:0": raw(0.9)}, level=0.4, quota=0.5)
+
+        composed = mdp.add(make()(mdp, mdp.actions[REGULATOR]["quota"][0]))
+
+        assert composed.state["allowed_frac"][0] == pytest.approx(
+            allowed_fraction(0.4, 0.5)
+        )
+
+    def test_the_entry_replaces_the_value_already_in_the_state(self):
+        mdp = mdp_with({"fisherman:0": raw(0.9)}, level=0.4, quota=0.5)
+        mdp.state.data["allowed_frac"] = [0.7]
+
+        composed = mdp.add(make()(mdp, mdp.actions[REGULATOR]["quota"][0]))
+
+        assert composed.state["allowed_frac"][0] == pytest.approx(
+            allowed_fraction(0.4, 0.5)
+        )
+
+    def test_the_entry_follows_the_resource_level_over_the_steps(self):
+        # The residual is added to the entry like every state delta, so it
+        # must be the difference with the entry: the values would otherwise
+        # pile up from step to step.
+        regulator = Agent(id=REGULATOR, policy_id="p", mechanisms={"quota": make()})
+        levels = [0.8, 0.5, 0.2, 0.2]
+        mdp = mdp_with({"fisherman:0": raw(0.9)}, level=levels[0], quota=0.5)
+
+        recorded = []
+        for step, level in enumerate(levels):
+            if step:
+                mdp = mdp.advance(state={"fish": level * K})
+                mdp = mdp.update(actions={"fisherman:0": {"harvest": raw(0.9)}})
+            mdp = regulator.action(mdp)
+            recorded.append(mdp.state["allowed_frac"][mdp.t])
+
+        assert recorded == pytest.approx(
+            [allowed_fraction(level, 0.5) for level in levels]
         )
