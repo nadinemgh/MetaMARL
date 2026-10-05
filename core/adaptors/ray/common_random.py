@@ -60,6 +60,10 @@ from ray.rllib.algorithms.ppo.torch.default_ppo_torch_rl_module import (
 )
 from ray.rllib.connectors.connector_v2 import ConnectorV2
 from ray.rllib.core.columns import Columns
+from ray.rllib.core.distribution.torch.torch_distribution import (
+    TorchDiagGaussian,
+    TorchMultiDistribution,
+)
 from ray.rllib.core.models.base import Model
 
 from core.adaptors.ray.utils import parse_learner_id
@@ -300,23 +304,31 @@ class AddExplorationKeys(ConnectorV2):
                 + "cannot key the exploration draws of this env runner."
             )
 
+        # The slot is not part of the key, so the M slots of a seed share each
+        # key: derive it once per (seed, agent) rather than once per episode.
+        keys: dict[tuple[str, Any], np.int64] = {}
+
         for sa_episode in self.single_agent_episode_iterator(
             episodes, agents_that_stepped_only=True
         ):
             _, _, policy_seed = parse_learner_id(sa_episode.module_id)
-            key = exploration_key(
-                policy_seed=self.unseeded_seed
-                if policy_seed == "None"
-                else int(policy_seed),
-                worker_index=self.worker_index,
-                step=self.step,
-                agent_id=sa_episode.agent_id,
-            )
+            identity = (policy_seed, sa_episode.agent_id)
+            key = keys.get(identity)
+
+            if key is None:
+                key = keys[identity] = np.int64(
+                    exploration_key(
+                        policy_seed=self.unseeded_seed
+                        if policy_seed == "None"
+                        else int(policy_seed),
+                        worker_index=self.worker_index,
+                        step=self.step,
+                        agent_id=sa_episode.agent_id,
+                    )
+                )
+
             self.add_batch_item(
-                batch,
-                EXPLORATION_KEY,
-                item_to_add=np.int64(key),
-                single_agent_episode=sa_episode,
+                batch, EXPLORATION_KEY, item_to_add=key, single_agent_episode=sa_episode
             )
 
         self.step += 1
@@ -469,16 +481,78 @@ class SeededHeadsPPOCatalog(PPOCatalog):
         return self.pi_head_config.build(framework=framework)
 
 
+def _gaussian_leaves(dist: Any) -> Optional[list[TorchDiagGaussian]]:
+    """Return the diagonal-Gaussian leaves of ``dist``, or ``None`` if any is not."""
+    if isinstance(dist, TorchDiagGaussian):
+        return [dist]
+
+    if isinstance(dist, TorchMultiDistribution):
+        leaves = dist._flat_child_distributions
+        if all(isinstance(leaf, TorchDiagGaussian) for leaf in leaves):
+            return list(leaves)
+
+    return None
+
+
+def _keyed_gaussian_actions(
+    dist: Any, leaves: list[TorchDiagGaussian], key_list: list[int]
+) -> Any:
+    """Draw ``loc + scale * noise`` with one keyed standard-normal row per key.
+
+    The noise of row ``i`` is ``torch.randn`` over all the action dimensions,
+    in the flattened order of the leaves, from a private generator seeded with
+    ``key_list[i]``; the global generators are not touched.
+    """
+    first = leaves[0]._dist.loc
+    generator = torch.Generator(device=first.device)
+    widths = [leaf._dist.loc[0].numel() for leaf in leaves]
+    noise_rows = []
+
+    for key in key_list:
+        generator.manual_seed(key)
+        noise_rows.append(
+            torch.randn(
+                sum(widths), generator=generator, dtype=first.dtype, device=first.device
+            )
+        )
+
+    noise = torch.stack(noise_rows)
+    actions = []
+    offset = 0
+
+    for leaf, width in zip(leaves, widths):
+        loc, scale = torch.broadcast_tensors(leaf._dist.loc, leaf._dist.scale)
+        leaf_noise = noise[:, offset : offset + width].reshape(loc.shape)
+        actions.append(loc + scale * leaf_noise)
+        offset += width
+
+    if isinstance(dist, TorchMultiDistribution):
+        return tree.unflatten_as(dist._original_struct, actions)
+
+    return actions[0]
+
+
 class CommonRandomExploration:
     """Mixin drawing exploration actions from keyed generators.
 
     ``_forward_exploration`` runs the parent's forward pass, then, when the
     batch carries :data:`EXPLORATION_KEY`, draws the action of each row from
-    the exploration distribution with torch's generator seeded by that row's
-    key, inside ``torch.random.fork_rng`` so that the global stream is left
-    untouched. The actions and their log-probabilities are written to the
-    output, so RLlib's ``GetActions`` connector keeps them. Without the column
-    the output is the parent's, and ``GetActions`` samples as usual.
+    the exploration distribution with a generator seeded by that row's key,
+    leaving the global generators untouched. The actions and their
+    log-probabilities are written to the output, so RLlib's ``GetActions``
+    connector keeps them. Without the column the output is the parent's, and
+    ``GetActions`` samples as usual.
+
+    Two paths draw the rows. When every leaf of the distribution is a
+    diagonal Gaussian (continuous actions, as in the examples), the
+    distribution is built once for the batch, each row receives one keyed
+    standard-normal vector from a private generator, and the actions are
+    ``loc + scale * noise`` for the whole batch. Any other distribution is
+    rebuilt row by row and sampled with torch's generator seeded by the key
+    and restored afterwards. In the env runner every small torch call goes
+    through a device-mode override, so the number of calls per row sets the
+    cost: the row-by-row path made the full fishery's sampling 34 % slower
+    than RLlib's own draws (12.8 s against 9.5 s for 4000 env steps).
 
     When to use: through :class:`CommonRandomPPOTorchRLModule` and
     :class:`CommonRandomAPPOTorchRLModule`.
@@ -494,20 +568,53 @@ class CommonRandomExploration:
 
         logits = output[Columns.ACTION_DIST_INPUTS]
         dist_class = self.get_exploration_action_dist_cls()
-        devices = [logits.device] if logits.device.type == "cuda" else []
-        rows = []
+        dist = dist_class.from_logits(logits)
+        key_list = [int(key) for key in torch.as_tensor(keys).reshape(-1).tolist()]
+        leaves = _gaussian_leaves(dist)
 
-        for index, key in enumerate(torch.as_tensor(keys).reshape(-1).tolist()):
-            with torch.random.fork_rng(devices=devices):
-                torch.manual_seed(int(key))
-                row = dist_class.from_logits(logits[index : index + 1])
-                rows.append(row.sample())
+        if leaves is not None:
+            actions = _keyed_gaussian_actions(dist, leaves, key_list)
+        else:
+            actions = self._keyed_rows(dist_class, logits, key_list)
 
-        actions = tree.map_structure(lambda *parts: torch.cat(parts, dim=0), *rows)
         output[Columns.ACTIONS] = actions
-        output[Columns.ACTION_LOGP] = dist_class.from_logits(logits).logp(actions)
+        output[Columns.ACTION_LOGP] = dist.logp(actions)
 
         return output
+
+    @staticmethod
+    def _keyed_rows(dist_class: Any, logits: torch.Tensor, key_list: list[int]) -> Any:
+        """Sample each row from its own distribution under its seeded generator."""
+
+        def draw_row(index: int) -> Any:
+            return dist_class.from_logits(logits[index : index + 1]).sample()
+
+        rows = []
+
+        if logits.device.type == "cpu":
+            # Seed only the CPU generator, which makes these draws, and save
+            # its state once per call: torch.manual_seed would also seed the
+            # CUDA and XPU generators, whose lazy seeding records a stack
+            # trace on every call (1.11 ms against 0.52 ms for 10 rows).
+            generator = torch.random.default_generator
+            saved = generator.get_state()
+            try:
+                for index, key in enumerate(key_list):
+                    generator.manual_seed(key)
+                    rows.append(draw_row(index))
+            finally:
+                generator.set_state(saved)
+        else:
+            for index, key in enumerate(key_list):
+                # fork_rng saves the CUDA generators unless told the device
+                # type, and fails on any other accelerator.
+                with torch.random.fork_rng(
+                    devices=[logits.device], device_type=logits.device.type
+                ):
+                    torch.manual_seed(key)
+                    rows.append(draw_row(index))
+
+        return tree.map_structure(lambda *parts: torch.cat(parts, dim=0), *rows)
 
 
 class CommonRandomPPOTorchRLModule(CommonRandomExploration, DefaultPPOTorchRLModule):

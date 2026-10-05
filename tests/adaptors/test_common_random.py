@@ -32,16 +32,25 @@ from ray.rllib.connectors.common.agent_to_module_mapping import AgentToModuleMap
 from ray.rllib.connectors.common.batch_individual_items import BatchIndividualItems
 from ray.rllib.connectors.common.numpy_to_tensor import NumpyToTensor
 from ray.rllib.core.columns import Columns
+from ray.rllib.core.distribution.torch.torch_distribution import (
+    TorchCategorical,
+    TorchDiagGaussian,
+)
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 
 from core.adaptors.ray.common_random import (
     EXPLORATION_KEY,
     AddExplorationKeys,
     CommonRandomAPPOTorchRLModule,
+    CommonRandomExploration,
     CommonRandomPPOTorchRLModule,
     SeededHeadsPPOCatalog,
+    SeededXavierUniform,
+    _gaussian_leaves,
+    _keyed_gaussian_actions,
     common_random_module_class,
     exploration_key,
+    with_exploration_keys,
 )
 from core.agents.base import AgentConfig
 from core.mechanism.config import MechanismConfig
@@ -66,9 +75,25 @@ def fisher(count: int = 2) -> AgentConfig:
     )
 
 
-def applied(config_class=PPOptimizerConfig, algo=PPO, *, num_envs=2, seeds=(11,)):
+def discrete_fisher() -> AgentConfig:
+    """A fisher whose two mechanisms take categorical actions."""
+    return AgentConfig(
+        id="fisher",
+        policy_id="fisher",
+        mechanisms=(
+            MechanismConfig(action_space=spaces.Discrete(3), id="harvest"),
+            MechanismConfig(action_space=spaces.Discrete(4), id="restore"),
+        ),
+        count=2,
+        observation_space=OBS,
+    )
+
+
+def applied(
+    config_class=PPOptimizerConfig, algo=PPO, *, num_envs=2, seeds=(11,), agent=None
+):
     """Config whose ops were replayed by hand, then expanded into RLModules."""
-    cfg = config_class().agents(fisher())
+    cfg = config_class().agents(agent if agent is not None else fisher())
     cfg.seeds = list(seeds)
     cfg.rllib_cfg = algo.get_default_config().env_runners(
         num_envs_per_env_runner=num_envs
@@ -243,6 +268,56 @@ def test_exploration_leaves_the_global_torch_stream_untouched():
 
     explore(module, [3, 4, 5])
 
+    assert torch.equal(torch.random.get_rng_state(), before)
+
+
+@pytest.mark.unit
+def test_gaussian_rows_are_mean_plus_scale_times_their_keyed_standard_noise():
+    # Reference: the noise of a row is torch.randn over all action dimensions,
+    # in the flattened order of the action dict, from a generator seeded with
+    # the row's key; the action is loc + scale * noise.
+    module = build(applied(), "fisher_m0_s11")
+    keys = [3, 2**62 + 7, 5]
+    output = explore(module, keys)
+    dist = module.get_exploration_action_dist_cls().from_logits(
+        output[Columns.ACTION_DIST_INPUTS]
+    )
+    leaves = dict(zip(("harvest", "restore"), dist._flat_child_distributions))
+
+    for row, key in enumerate(keys):
+        noise = torch.randn(2, generator=torch.Generator().manual_seed(key))
+        for offset, (name, leaf) in enumerate(leaves.items()):
+            loc, scale = leaf._dist.loc[row], leaf._dist.scale[row]
+            expected = loc + scale * noise[offset : offset + 1]
+            assert torch.equal(output[Columns.ACTIONS][name][row], expected), name
+
+
+@pytest.mark.unit
+def test_other_distributions_draw_each_row_from_its_own_seeded_distribution():
+    # Reference for the generic path: seed torch with the row's key, then
+    # sample that row alone.
+    cfg = applied(agent=discrete_fisher())
+    slot0, slot1 = build(cfg, "fisher_m0_s11"), build(cfg, "fisher_m1_s11")
+    keys = [3, 2**62 + 7, 5, 11, 12]
+    output = explore(slot0, keys)
+    logits = output[Columns.ACTION_DIST_INPUTS]
+    dist_class = slot0.get_exploration_action_dist_cls()
+    before = torch.random.get_rng_state()
+
+    torch.rand(3)
+    again = explore(slot1, keys)
+
+    for row, key in enumerate(keys):
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(key)
+            expected = dist_class.from_logits(logits[row : row + 1]).sample()
+        for name, value in expected.items():
+            assert torch.equal(output[Columns.ACTIONS][name][row : row + 1], value)
+            assert torch.equal(
+                again[Columns.ACTIONS][name], output[Columns.ACTIONS][name]
+            )
+    torch.random.set_rng_state(before)
+    explore(slot0, keys)
     assert torch.equal(torch.random.get_rng_state(), before)
 
 
@@ -441,3 +516,78 @@ def test_env_to_module_connector_puts_the_keys_first_and_keeps_a_user_piece():
 
     assert isinstance(pieces[0], AddExplorationKeys)
     assert pieces[1:] == [user_piece]
+
+
+@pytest.mark.unit
+def test_a_user_connector_returning_one_piece_follows_the_keys():
+    user_piece = object()
+
+    pieces = with_exploration_keys(lambda env, spaces, device: user_piece)(
+        vector_env(0)
+    )
+
+    assert isinstance(pieces[0], AddExplorationKeys)
+    assert pieces[1:] == [user_piece]
+
+
+@pytest.mark.unit
+def test_a_type_error_inside_the_user_connector_is_not_swallowed():
+    def broken(env, spaces, device):
+        raise TypeError("unsupported operand")
+
+    with pytest.raises(TypeError, match="unsupported operand"):
+        with_exploration_keys(broken)(vector_env(0))
+
+
+@pytest.mark.unit
+def test_the_seeded_initializer_names_its_seed_and_stream():
+    assert repr(SeededXavierUniform(11, stream="heads")) == (
+        "SeededXavierUniform(seed=11, stream='heads')"
+    )
+
+
+@pytest.mark.unit
+def test_a_single_gaussian_draws_loc_plus_scale_times_keyed_noise():
+    loc, scale = torch.rand(3, 2), torch.rand(3, 2) + 0.1
+    dist = TorchDiagGaussian(loc=loc, scale=scale)
+    keys = [3, 4, 5]
+
+    actions = _keyed_gaussian_actions(dist, _gaussian_leaves(dist), keys)
+
+    for row, key in enumerate(keys):
+        noise = torch.randn(2, generator=torch.Generator().manual_seed(key))
+        assert torch.equal(actions[row], loc[row] + scale[row] * noise)
+
+
+MPS = pytest.mark.skipif(
+    not torch.backends.mps.is_available(), reason="needs a non-CPU torch device"
+)
+
+
+@pytest.mark.unit
+@MPS
+def test_rows_on_another_device_are_keyed_and_spare_the_cpu_stream():
+    logits = torch.randn(4, 5, device="mps")
+    keys = [3, 4, 3, 9]
+    before = torch.random.get_rng_state()
+
+    first = CommonRandomExploration._keyed_rows(TorchCategorical, logits, keys)
+    second = CommonRandomExploration._keyed_rows(TorchCategorical, logits, keys)
+
+    assert first.device.type == "mps"
+    assert torch.equal(first, second)
+    assert torch.equal(torch.random.get_rng_state(), before)
+
+
+@pytest.mark.unit
+@MPS
+def test_gaussian_rows_on_another_device_are_keyed():
+    loc = torch.rand(3, 2, device="mps")
+    dist = TorchDiagGaussian(loc=loc, scale=torch.ones_like(loc))
+
+    first = _keyed_gaussian_actions(dist, _gaussian_leaves(dist), [3, 4, 3])
+    second = _keyed_gaussian_actions(dist, _gaussian_leaves(dist), [3, 4, 3])
+
+    assert first.device.type == "mps"
+    assert torch.equal(first, second)
+    assert torch.equal(first[0] - loc[0], first[2] - loc[2])
