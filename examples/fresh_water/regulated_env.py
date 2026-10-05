@@ -326,6 +326,43 @@ def crop_demand(
     )
 
 
+def residence_time_days(storage_m3: float, outflow_m3s: float) -> float:
+    """Return the residence time of the reservoir, in days.
+
+    The residence time of a reservoir is its stored volume divided by the
+    flow that leaves it, the time the outflow would take to empty it. The outflow
+    (the release downstream, and the spill when there is one) is the one that
+    carries water out of the reservoir, so it is the flow used here and not the
+    inflow.
+
+    Parameters
+    ----------
+    storage_m3 : float
+        Water stored in the reservoir (cubic metres); a negative value is read
+        as an empty reservoir.
+    outflow_m3s : float
+        Flow released downstream (cubic metres per second).
+
+    Returns
+    -------
+    float
+        ``max(0, storage) / max(EPS, outflow) / 86400`` days. A zero outflow is
+        guarded by ``EPS``, which gives a very large residence time rather than
+        a division by zero.
+
+    When to use: once per simulated day, for the ``residence_time_days`` metric.
+
+    Examples
+    --------
+    A reservoir of 6.048e7 cubic metres that releases 10 cubic metres per second
+    empties in 70 days:
+
+    >>> round(residence_time_days(6.048e7, 10.0), 6)
+    70.0
+    """
+    return max(0.0, storage_m3) / max(EPS, outflow_m3s) / SECONDS_PER_DAY
+
+
 class Utilizer(Agent):
     """Farm agent: sees the reservoir and is paid its crop satisfaction.
 
@@ -553,6 +590,11 @@ class WaterRegulatedEnv(MultiAgentEnv):
         The lake model in use.
     max_farm_area_m2 : float
         Area of every farm (square metres).
+    capacity_m3 : float
+        Volume of the full reservoir (cubic metres): ``lake_area_m2 *
+        max_depth_m`` of ``ecology_cfg``, for both lake models. It converts the
+        filled fraction into the stored volume of the residence time; the
+        reservoir is taken as a vertical-walled tank, as ``level_norm`` does.
     max_daily_need_m3_day : float
         Largest volume all the farms can need in one day (cubic metres per
         day): ``number of farms * max_farm_area_m2 * PEAK_CROP_NEED_MM_DAY /
@@ -601,6 +643,9 @@ class WaterRegulatedEnv(MultiAgentEnv):
 
         ecology = {**DEFAULT_ECOLOGY, **(ecology_cfg or {})}
         self.max_farm_area_m2 = float(ecology["max_farm_area_m2"])
+        self.capacity_m3 = float(ecology["lake_area_m2"]) * float(
+            ecology["max_depth_m"]
+        )
         self.max_daily_need_m3_day = (
             len(self.followers) * self.max_farm_area_m2 * PEAK_CROP_NEED_MM_DAY / 1000.0
         )
@@ -891,12 +936,11 @@ class WaterRegulatedEnv(MultiAgentEnv):
         push(key=("precip_mm_day",), value=reading.precip_mm_day)
         push(key=("temp_c",), value=estimate_temp_c(self._date))
         push(key=("release_pressure",), value=entries["release_pressure"])
-        # Proxy of the first version: filled fraction over the larger of the two
-        # flows, divided by the seconds of a day. Its unit is not a time.
-        reference_flow = max(reading.inflow_m3s, reading.outflow_m3s)
         push(
             key=("residence_time_days",),
-            value=level_norm / max(EPS, reference_flow) / SECONDS_PER_DAY,
+            value=residence_time_days(
+                level_norm * self.capacity_m3, reading.outflow_m3s
+            ),
         )
         push(key=("streamflow_m3s_series",), value=reading.inflow_m3s)
         push(key=("baseline_streamflow_m3s_series",), value=reading.baseline_inflow_m3s)

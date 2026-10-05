@@ -90,6 +90,7 @@ from examples.fresh_water.regulated_env import (
     WaterRegulatedEnv,
     crop_demand,
     crop_stage,
+    residence_time_days,
 )
 from examples.fresh_water.regulator_env import WaterRegulatorEnv, level_deviation
 
@@ -776,6 +777,57 @@ def test_the_logged_level_leaves_its_baseline_once_the_farms_withdraw(build_env)
 
     assert deviation(LOOSE, 0.0) == 0.0
     assert deviation(LOOSE, 1.0) > 0.0
+
+
+@pytest.mark.unit
+def test_residence_time_is_the_stored_volume_over_the_outflow_in_days():
+    # 1e7 m3 released at 10 m3/s empty in 1e6 s, which is 11.574 days.
+    assert residence_time_days(1e7, 10.0) == pytest.approx(1e6 / 86400.0)
+    assert residence_time_days(-5.0, 10.0) == 0.0
+    # A dry release is guarded and gives a huge time, not an error.
+    assert np.isfinite(residence_time_days(1e7, 0.0))
+    assert residence_time_days(1e7, 0.0) > 1e6
+
+
+@pytest.mark.unit
+def test_the_logged_residence_time_is_in_days(build_env):
+    # Capacity 1e6 m2 * 10 m = 1e7 m3; the lake starts half full.
+    env = build_env(
+        farms=2,
+        ecology_cfg={
+            "full_stage_m": 420.0,
+            "max_depth_m": 10.0,
+            "lake_area_m2": 1e6,
+            "inflow_log_sigma": 0.0,
+            "seasonal_amplitude": 0.0,
+            "rain_probability": 0.0,
+            "initial_level_range": (0.5, 0.5),
+        },
+    )
+    assert env.capacity_m3 == pytest.approx(1e7)
+    adapter = RLlibMultiAgentEnvAdapter(env)
+    adapter.reset()
+    adapter.step(requests_for(0, 2))
+    reading = env._reading
+
+    # The stored volume is the water above the empty stage (410 m) over the area.
+    stored_m3 = (reading.stage_m - 410.0) * 1e6
+    expected_days = stored_m3 / reading.outflow_m3s / 86400.0
+    logged = env.logger.reduce().residence_time_days
+    assert logged == pytest.approx(expected_days)
+    assert 5.0 < logged < 15.0
+
+
+@pytest.mark.unit
+def test_the_residence_time_of_the_belwood_setup_is_months_not_microdays(build_env):
+    env = build_env(
+        farms=2,
+        ecology_cfg={"rain_probability": 0.0, "initial_level_range": (0.9, 0.9)},
+    )
+    adapter = RLlibMultiAgentEnvAdapter(env)
+    adapter.reset()
+    adapter.step(requests_for(0, 2))
+    assert 10.0 < env.logger.reduce().residence_time_days < 1000.0
 
 
 @pytest.mark.unit

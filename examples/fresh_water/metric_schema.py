@@ -39,7 +39,8 @@ class WaterMetricSchema(EpisodeRolloutSchema):
     release_pressure : float or None
         Share of the inflow the reservoir releases, in [0, 1].
     residence_time_days : float or None
-        Residence-time proxy of the first version of the example.
+        Residence time of the reservoir after the step (days): the stored volume
+        (filled fraction times the capacity) over the release.
     total_usage_m3s : float or None
         Total irrigation withdrawal of the step (cubic metres per second).
     crop_kc : float or None
