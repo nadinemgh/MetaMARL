@@ -66,7 +66,7 @@ def test_reset_does_not_reseed_the_environment(toy, identity_ray_get):
 def test_reset_requires_a_mechanism_id(toy, identity_ray_get):
     env = toy.make_env(toy.ScriptedWorld(), mechanism_id=None)
 
-    with pytest.raises(RuntimeError, match="no mechanism_id"):
+    with pytest.raises(RuntimeError, match="MultiAgentEnv has no mechanism_id"):
         env.reset(MDPState(aids=AIDS))
 
 

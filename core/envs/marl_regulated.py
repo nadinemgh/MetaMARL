@@ -384,7 +384,7 @@ class MultiAgentEnv(ABC):
 
         if self.mechanism_id is None:
             raise RuntimeError(
-                "RegulatedEnv has no mechanism_id. "
+                "MultiAgentEnv has no mechanism_id. "
                 + "mechanism_id must be injected at env creation."
             )
 
