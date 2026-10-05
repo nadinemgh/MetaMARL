@@ -50,7 +50,7 @@ class MeanMetric(SeriesMetric):
 
         self.values.append(as_number(value, "MeanMetric"))
 
-    def peek(self, compile: bool = True) -> float | list[float]:
+    def peek(self, compile: bool = True) -> float | list[float] | None:
         """Return the arithmetic mean (``None`` when empty).
 
         When ``compile`` is false, the history is returned instead.
@@ -75,7 +75,7 @@ class MeanMetric(SeriesMetric):
 
         return sum(self.values) / len(self.values)
 
-    def reduce(self, compile: bool = True) -> float | MeanMetric:
+    def reduce(self, compile: bool = True) -> float | MeanMetric | None:
         """Return the arithmetic mean and clear the history.
 
         With ``compile`` false a new ``MeanMetric`` holding only that value is

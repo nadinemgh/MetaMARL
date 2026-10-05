@@ -27,7 +27,7 @@ class LastMetric(SeriesMetric):
     True
     """
 
-    def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType]:
+    def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType] | None:
         """Return the last value (``None`` when empty).
 
         When ``compile`` is false, the history is returned instead.
@@ -51,7 +51,7 @@ class LastMetric(SeriesMetric):
 
         return self.values[-1]
 
-    def reduce(self, compile: bool = True) -> float | LastMetric:
+    def reduce(self, compile: bool = True) -> PrimitiveType | LastMetric | None:
         """Return the last value and clear the history.
 
         With ``compile`` false a new ``LastMetric`` holding only that value is

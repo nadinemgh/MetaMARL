@@ -78,7 +78,7 @@ class Node(dict[str, "Node | Metric"]):
     Rollout(iter=None, reward=2.0)
     """
 
-    schema: type[MetricSchema]
+    schema: type[MetricSchema] | None
     dynamic: bool = False
     subtree_reduce: ReduceProtocol | None = None
 

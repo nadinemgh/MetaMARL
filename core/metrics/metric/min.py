@@ -43,7 +43,7 @@ class MinMetric(SeriesMetric):
     """
 
     @override(SeriesMetric)
-    def push(self, value: PrimitiveType) -> PrimitiveType:
+    def push(self, value: PrimitiveType) -> None:
         """Append a number.
 
         Booleans and non-numeric values are rejected with ``TypeError``.
@@ -62,7 +62,7 @@ class MinMetric(SeriesMetric):
 
         self.values.append(as_number(value, "MinMetric"))
 
-    def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType] | None:
+    def peek(self, compile: bool = True) -> int | float | list[int | float] | None:
         """Return the minimum (``None`` when empty).
 
         When ``compile`` is false, the history is returned instead.
@@ -97,7 +97,7 @@ class MinMetric(SeriesMetric):
 
         return min(valid)
 
-    def reduce(self, compile: bool = True) -> PrimitiveType | MinMetric | None:
+    def reduce(self, compile: bool = True) -> int | float | MinMetric | None:
         """Return the minimum and clear the history.
 
         With ``compile`` false a new ``MinMetric`` holding only that value is

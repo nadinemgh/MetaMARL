@@ -44,7 +44,7 @@ class MaxMetric(SeriesMetric):
     """
 
     @override(SeriesMetric)
-    def push(self, value: PrimitiveType) -> PrimitiveType:
+    def push(self, value: PrimitiveType) -> None:
         """Append a number.
 
         Booleans and non-numeric values are rejected with ``TypeError``.
@@ -63,7 +63,7 @@ class MaxMetric(SeriesMetric):
 
         self.values.append(as_number(value, "MaxMetric"))
 
-    def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType] | None:
+    def peek(self, compile: bool = True) -> int | float | list[int | float] | None:
         """Return the maximum (``None`` when empty).
 
         When ``compile`` is false, the history is returned instead.
@@ -98,7 +98,7 @@ class MaxMetric(SeriesMetric):
 
         return max(valid)
 
-    def reduce(self, compile: bool = True) -> PrimitiveType | MaxMetric | None:
+    def reduce(self, compile: bool = True) -> int | float | MaxMetric | None:
         """Return the maximum and clear the history.
 
         With ``compile`` false a new ``MaxMetric`` holding only that value is

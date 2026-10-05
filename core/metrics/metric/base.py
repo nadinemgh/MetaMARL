@@ -130,7 +130,9 @@ class Metric(ABC):
         return type(self)()
 
     @abstractmethod
-    def peek(self, compile: bool = True) -> Union[PrimitiveType, list[PrimitiveType]]:
+    def peek(
+        self, compile: bool = True
+    ) -> Union[PrimitiveType, list[PrimitiveType], None]:
         """Return the reduction of the values without altering them.
 
         Users can call this method to look at the reduced value(s) of the
@@ -153,7 +155,7 @@ class Metric(ABC):
     @abstractmethod
     def reduce(
         self, compile: bool = True
-    ) -> Union[PrimitiveType, list[PrimitiveType], Metric]:
+    ) -> Union[PrimitiveType, list[PrimitiveType], Metric, None]:
         """Reduce the values, clear the history and return the result.
 
         Users do not normally call this method: the logger calls it on every

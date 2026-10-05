@@ -31,7 +31,7 @@ class SumMetric(SeriesMetric):
     """
 
     @override(SeriesMetric)
-    def push(self, value: PrimitiveType) -> PrimitiveType:
+    def push(self, value: PrimitiveType) -> None:
         """Append a number.
 
         Booleans and non-numeric values are rejected with ``TypeError``.
@@ -50,7 +50,7 @@ class SumMetric(SeriesMetric):
 
         self.values.append(as_number(value, "SumMetric"))
 
-    def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType]:
+    def peek(self, compile: bool = True) -> int | float | list[int | float]:
         """Return the sum (``0`` when empty).
 
         When ``compile`` is false, the history is returned instead.
@@ -71,7 +71,7 @@ class SumMetric(SeriesMetric):
 
         return sum(self.values)
 
-    def reduce(self, compile: bool = True) -> PrimitiveType | SumMetric:
+    def reduce(self, compile: bool = True) -> int | float | SumMetric:
         """Return the sum and clear the history.
 
         With ``compile`` false a new ``SumMetric`` holding only the sum is
