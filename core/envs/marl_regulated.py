@@ -282,15 +282,33 @@ class MultiAgentEnv(ABC):
         Each attribute of the new class that carries the ``reset`` or
         ``transition`` mark is recorded by name in ``_reset`` or
         ``_transition``, which :meth:`reset` and :meth:`transition` read to call
-        the hook. Hooks are inherited; when a class body holds several methods
-        with the same mark, the last one wins.
+        the hook (the transition is S_{t+1} = T(S_t, A_t)). Hooks are
+        inherited, and a subclass may mark another method to replace its
+        parent's hook; a class body marks at most one method per hook.
+
+        Raises
+        ------
+        TypeError
+            If two methods of the class body carry the same mark. The message
+            names the class, the hook and both methods.
         """
         super().__init_subclass__(**kwargs)
+
+        marked: dict[str, str] = {}
+
         for name, func in tuple(cls.__dict__.items()):
-            if getattr(func, "reset", False):
-                cls._reset = name
-            if getattr(func, "transition", False):
-                cls._transition = name  # S_{t+1} = T(S_t, A_t)
+            for hook in ("reset", "transition"):
+                if not getattr(func, hook, False):
+                    continue
+
+                if hook in marked:
+                    raise TypeError(
+                        f"{cls.__name__} marks both {marked[hook]!r} and {name!r} "
+                        + f"as the {hook!r} hook; a class can have only one."
+                    )
+
+                marked[hook] = name
+                setattr(cls, f"_{hook}", name)
 
     @property
     def mechanism(self) -> Optional[dict[MechanismID, np.ndarray]]:

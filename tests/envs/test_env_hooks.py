@@ -96,3 +96,20 @@ def test_transition_without_a_hook_returns_the_mdp_unchanged(toy):
     mdp = MDPState(t=2)
 
     assert env.transition(mdp) is mdp
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("hook", ENV_HOOKS)
+def test_two_methods_with_the_same_hook_mark_are_rejected(hook):
+    decorator = getattr(hooks, hook)
+
+    with pytest.raises(TypeError, match=rf"Twice.*'first'.*'second'.*'{hook}'"):
+
+        class Twice(MultiAgentEnv):
+            @decorator
+            def first(self, mdp):
+                return mdp
+
+            @decorator
+            def second(self, mdp):
+                return mdp

@@ -42,9 +42,8 @@ def reset(func: F) -> F:
         The same function, with its ``reset`` attribute set to ``True``.
 
     When to use: on the one method of a ``MultiAgentEnv`` subclass that draws
-    the initial state of an episode, such as the starting fish stock. When two
-    methods of the same class carry the mark, the last one in the class body
-    is recorded.
+    the initial state of an episode, such as the starting fish stock. A class
+    body that marks two methods raises ``TypeError``.
 
     Examples
     --------
@@ -83,8 +82,8 @@ def transition(func: F) -> F:
 
     When to use: on the one method of a ``MultiAgentEnv`` subclass that
     advances the shared state by one step, such as the stock dynamics of a
-    population model. When two methods of the same class carry the mark, the
-    last one in the class body is recorded.
+    population model. A class body that marks two methods raises
+    ``TypeError``.
 
     Examples
     --------
