@@ -1,24 +1,16 @@
 """Shared pytest configuration.
 
-Unit tests run without a Ray runtime. Tests that start one are marked
-``integration`` (or ``notebook``, since every tutorial starts Ray) and share the
-session-scoped ``ray_session`` fixture. The collection hook below runs those
-tests after every other test; see its docstring for why the order matters.
+Unit tests run without a Ray runtime: the Ray actors are replaced by fakes in
+the per-directory ``conftest.py`` files. The tests marked ``integration`` start
+the example scripts in child processes, which start their own Ray runtime; the
+``notebook`` marker is reserved for the tutorials, which do the same through a
+kernel. The collection hook below runs those tests after every other test; see
+its docstring for why the order matters.
 """
 
 from __future__ import annotations
 
 import pytest
-import ray
-
-
-@pytest.fixture(scope="session")
-def ray_session():
-    """Start a small local Ray runtime shared by the integration tests."""
-    if not ray.is_initialized():
-        ray.init(num_cpus=2, ignore_reinit_error=True, include_dashboard=False)
-    yield
-    ray.shutdown()
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -32,7 +24,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     those methods. This was observed on an earlier version of the framework
     (``core.reporting.wandb.WandbReporter``, then a Ray actor). Keeping the
     ``integration`` and ``notebook`` items last removes the order dependency
-    without touching the production classes.
+    without touching the production classes. No test starts Ray in the pytest
+    process today, so the hook is a guard for the first one that does; it also
+    reports unit failures before the slow child-process runs begin.
     """
     ray_items = [
         item
