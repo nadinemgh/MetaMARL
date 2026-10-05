@@ -58,7 +58,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
         ``[0, 1]`` below which an entry counts as collapsed, default 0.1),
         ``K`` (carrying capacity in biomass units, used to denormalize the
         threshold for plots; there is no default, and omitting it raises a
-        ``TypeError``), ``aggregation_status`` (``"train"`` or ``"eval"``,
+        ``ValueError``), ``aggregation_status`` (``"train"`` or ``"eval"``,
         default ``"eval"``) and ``fitness_tail_steps`` (number of trailing
         steps of each episode the fitness is computed on, default 50; an
         episode with fewer steps contributes all of them).
@@ -90,9 +90,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
     Raises
     ------
     ValueError
-        If ``aggregation_status`` is neither ``"train"`` nor ``"eval"``.
-    TypeError
-        If ``ecology_cfg`` has no ``K``.
+        If ``aggregation_status`` is neither ``"train"`` nor ``"eval"``, or if
+        ``ecology_cfg`` has no ``K``.
 
     When to use: as the ``env`` of the outer ``ESConfig`` of a fishery
     experiment, with an ``ecology_cfg`` whose ``K`` matches the inner
@@ -141,7 +140,13 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         self.sustainability_weight = ecology_cfg.get("sustainability_weight", 5.0)
         self.sustainability_threshold = ecology_cfg.get("sustainability_threshold", 0.1)
-        self.K = ecology_cfg.get("K")
+        if "K" not in ecology_cfg:
+            raise ValueError(
+                "ecology_cfg must define 'K', the carrying capacity in biomass "
+                "units: the regulator needs it to denormalize the "
+                "sustainability threshold."
+            )
+        self.K = ecology_cfg["K"]
 
         # Denormalized threshold for visualization
         self.raw_sustainability_threshold = self.sustainability_threshold * self.K
