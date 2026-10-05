@@ -40,13 +40,23 @@ def _get_env(result: dict) -> dict:
     return result.get("env_runners", {}) or {}
 
 
+def _first_present(*values: Optional[float]) -> Optional[float]:
+    """Return the first value that is not ``None``, keeping a ``0.0`` as is.
+
+    ``a or b`` would skip a legitimate ``0.0``; the result getters need to
+    tell a measured zero from a missing key.
+    """
+
+    return next((value for value in values if value is not None), None)
+
+
 def get_episode_return_mean(result: dict) -> float:
     """Extract the mean episode return from an RLlib result.
 
     Looks at ``env_runners/episode_return_mean`` first (new API stack), then
     at the legacy top-level ``episode_reward_mean`` and finally at
-    ``env_runners/episode_reward_mean``. A legacy value of exactly ``0.0`` at
-    the top level is treated as absent and the last key is tried.
+    ``env_runners/episode_reward_mean``. The first key that holds a number
+    wins, a value of ``0.0`` included.
 
     Parameters
     ----------
@@ -78,8 +88,9 @@ def get_episode_return_mean(result: dict) -> float:
     if v is not None:
         return v
 
-    v = to_float(result.get("episode_reward_mean")) or to_float(
-        env.get("episode_reward_mean")
+    v = _first_present(
+        to_float(result.get("episode_reward_mean")),
+        to_float(env.get("episode_reward_mean")),
     )
 
     return v if v is not None else 0.0
@@ -121,11 +132,13 @@ def get_env_steps(result: dict) -> tuple[int, int]:
     """
 
     env = _get_env(result)
-    steps_iter = to_float(env.get("num_env_steps_sampled")) or to_float(
-        result.get("timesteps_this_iter")
+    steps_iter = _first_present(
+        to_float(env.get("num_env_steps_sampled")),
+        to_float(result.get("timesteps_this_iter")),
     )
-    steps_life = to_float(env.get("num_env_steps_sampled_lifetime")) or to_float(
-        result.get("timesteps_total")
+    steps_life = _first_present(
+        to_float(env.get("num_env_steps_sampled_lifetime")),
+        to_float(result.get("timesteps_total")),
     )
 
     return int(steps_iter or 0), int(steps_life or 0)
@@ -402,9 +415,10 @@ def build_performance(results: ResultDict) -> PerformanceSchema:
     throughput = None
 
     if isinstance(throughput_data, dict):
-        throughput = finite(
-            throughput_data.get("throughput_since_last_reduce")
-        ) or finite(throughput_data.get("throughput_since_last_restore"))
+        throughput = _first_present(
+            finite(throughput_data.get("throughput_since_last_reduce")),
+            finite(throughput_data.get("throughput_since_last_restore")),
+        )
 
     agent_steps = env.get("num_agent_steps_sampled")
     agent_steps_lifetime = env.get("num_agent_steps_sampled_lifetime")
@@ -643,8 +657,8 @@ def build_learner(results: ResultDict, module_ids: Iterable[str] = ()) -> Learne
             value_loss=m.get("vf_loss"),
             value_mean=m.get("value_mean"),
             value_target=m.get("value_target"),
-            gradient_norm=(
-                m.get("gradients_default_optimizer_global_norm") or m.get("grad_gnorm")
+            gradient_norm=_first_present(
+                m.get("gradients_default_optimizer_global_norm"), m.get("grad_gnorm")
             ),
             gradient_noise=m.get("gradient_noise"),
         )

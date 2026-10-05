@@ -141,6 +141,19 @@ def test_build_performance_throughput_falls_back_to_since_restore():
 
 
 @pytest.mark.unit
+def test_build_performance_throughput_keeps_a_zero_since_last_reduce():
+    # A zero throughput over the last reduce window is a measurement; it must
+    # not be replaced by the since-restore value.
+    env = {
+        "num_env_steps_sampled_lifetime_throughput": {
+            "throughput_since_last_reduce": 0.0,
+            "throughput_since_last_restore": 11.0,
+        }
+    }
+    assert build_performance({"env_runners": env}).env_steps_throughput == 0.0
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "env",
     [
@@ -362,6 +375,16 @@ def test_build_learner_gradient_norm_falls_back_to_grad_gnorm():
 
     learner = build_learner(_learner_result(grad_gnorm=None))
     assert _only_policy(learner).gradient_norm == 3.0
+
+
+@pytest.mark.unit
+def test_build_learner_gradient_norm_keeps_a_zero_norm():
+    # A zero norm is a measurement, not a missing key.
+    learner = build_learner(
+        _learner_result(gradients_default_optimizer_global_norm=0.0)
+    )
+
+    assert _only_policy(learner).gradient_norm == 0.0
 
 
 @pytest.mark.unit

@@ -75,6 +75,13 @@ def test_episode_return_legacy_top_level():
 
 
 @pytest.mark.unit
+def test_episode_return_legacy_top_level_zero_is_kept():
+    # A genuine zero at the top level must not fall through to the nested key.
+    result = {"episode_reward_mean": 0.0, "env_runners": {"episode_reward_mean": 9.0}}
+    assert get_episode_return_mean(result) == 0.0
+
+
+@pytest.mark.unit
 def test_episode_return_legacy_inside_env_runners():
     assert get_episode_return_mean({"env_runners": {"episode_reward_mean": 3}}) == 3.0
 
@@ -119,6 +126,21 @@ def test_env_steps_mixed_and_missing():
     assert get_env_steps(result) == (5, 50)
     assert get_env_steps({}) == (0, 0)
     assert get_env_steps({"env_runners": {"num_env_steps_sampled": "x"}}) == (0, 0)
+
+
+@pytest.mark.unit
+def test_env_steps_new_stack_zero_is_kept():
+    # Zero steps sampled is a measurement; the legacy counters must not
+    # replace it.
+    result = {
+        "env_runners": {
+            "num_env_steps_sampled": 0,
+            "num_env_steps_sampled_lifetime": 0,
+        },
+        "timesteps_this_iter": 8,
+        "timesteps_total": 80,
+    }
+    assert get_env_steps(result) == (0, 0)
 
 
 @pytest.mark.unit
