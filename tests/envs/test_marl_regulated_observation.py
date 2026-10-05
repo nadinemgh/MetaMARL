@@ -35,7 +35,12 @@ class StockObserver:
 
 
 class PeerSignalLeader:
-    """Leader whose mechanisms write ``t + 1`` into the second entry."""
+    """Leader whose mechanisms write ``t + 1`` into the second entry.
+
+    It declares no mechanism with a default action, so ``reset`` gives it none.
+    """
+
+    mechanisms: dict = {}
 
     def action(self, mdp: MDPState) -> MDPState:
         return mdp

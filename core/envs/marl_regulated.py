@@ -13,7 +13,8 @@ advances the state by one step.
 
 The mechanism in force is fetched from the ``World`` at every ``reset`` by
 ``mechanism_id``, and given to the leaders as their action. Until one is
-published the leaders hold no action, so the mechanisms contribute nothing.
+fetched, each leader plays the ``default`` action of its mechanisms; a mechanism
+without a default holds no action and contributes nothing.
 Each ``step`` lets every agent apply its mechanisms and earn its reward,
 applies the transition, flags the time limit, logs the step and rebuilds the
 observations, to which the leaders' mechanisms add their own contribution.
@@ -359,7 +360,12 @@ class MultiAgentEnv(ABC):
         and returns ``None`` afterwards. A candidate that is returned replaces
         the one kept (``m_ctx`` and ``m``); otherwise the kept one stays in
         force. When a mechanism is held, it is written as the action of every
-        leader at the current step. The ``reset`` hook, when the subclass
+        leader at the current step. Before any candidate has been fetched,
+        each leader is given instead the ``default`` action of each of its
+        mechanisms that has one (logged at INFO); a mechanism without a default
+        holds no action. A default never counts as a published candidate:
+        ``mechanism`` stays ``None`` and ``published_mechanism_assigned``
+        ``False``. The ``reset`` hook, when the subclass
         declares one, is called with the state and its result is added. The
         initial observation is built last, from the followers' ``observation``
         and the leaders' ``mechanism_observations``.
@@ -374,7 +380,8 @@ class MultiAgentEnv(ABC):
         -------
         MDPState
             A new state holding the hook's initial state, the leaders' action
-            when a candidate is in force, and the initial observations.
+            (the candidate in force, else their mechanism defaults) and the
+            initial observations.
 
         Raises
         ------
@@ -424,6 +431,27 @@ class MultiAgentEnv(ABC):
         if self.m is not None:
             # persist action to leaders
             mdp = mdp.add(MDPState(actions={lid: self.m for lid in self.lids}))
+        else:
+            # No candidate fetched yet: each leader plays the default action of
+            # its mechanisms, and a mechanism without a default stays inactive.
+            defaults = {
+                lid: {
+                    mid: mech._u
+                    for mid, mech in leader.mechanisms.items()
+                    if mech._u is not None
+                }
+                for lid, leader in self.leaders.items()
+            }
+            defaults = {lid: acts for lid, acts in defaults.items() if acts}
+            if defaults:
+                logger.info(
+                    "mechanism_id=%s policy_seed=%s: no candidate fetched yet, "
+                    + "leaders play their mechanism defaults %s",
+                    self.mechanism_id,
+                    self.policy_seed,
+                    defaults,
+                )
+                mdp = mdp.add(MDPState(actions=defaults))
 
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:

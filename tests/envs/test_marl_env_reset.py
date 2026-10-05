@@ -116,7 +116,9 @@ def test_leaders_hold_the_candidate_as_their_first_action(toy, identity_ray_get)
 
 
 @pytest.mark.unit
-def test_leaders_hold_no_action_before_a_candidate_is_published(toy, identity_ray_get):
+def test_leaders_without_a_default_hold_no_action_before_a_candidate(
+    toy, identity_ray_get
+):
     env = toy.make_env(toy.ScriptedWorld())
 
     mdp = env.reset(MDPState(aids=AIDS))
@@ -124,6 +126,41 @@ def test_leaders_hold_no_action_before_a_candidate_is_published(toy, identity_ra
     assert mdp.actions.data == {}
     for aid in AIDS:
         np.testing.assert_allclose(mdp.obs[aid][0], [toy.initial_stock, 0.0])
+
+
+@pytest.mark.unit
+def test_leaders_hold_their_mechanism_defaults_before_a_candidate(
+    toy, identity_ray_get
+):
+    env = toy.make_env(
+        toy.ScriptedWorld(), leaders_cfg_dict=toy.regulator_configs(fee_default=0.4)
+    )
+
+    mdp = env.reset(MDPState(aids=AIDS))
+
+    assert list(mdp.actions.data) == ["regulator"]
+    np.testing.assert_allclose(mdp.actions["regulator"]["fee"][0], [0.4])
+    for aid in AIDS:
+        np.testing.assert_allclose(mdp.obs[aid][0], [toy.initial_stock, 0.4])
+    # A default is not a published candidate.
+    assert not env.published_mechanism_assigned
+    assert env.mechanism is None
+
+
+@pytest.mark.unit
+def test_a_fetched_candidate_replaces_the_mechanism_defaults(toy, identity_ray_get):
+    env = toy.make_env(
+        toy.ScriptedWorld([None, toy.candidate(0.25), None]),
+        leaders_cfg_dict=toy.regulator_configs(fee_default=0.4),
+    )
+
+    fees = [
+        float(env.reset(MDPState(aids=AIDS)).actions["regulator"]["fee"][0][0])
+        for _ in range(3)
+    ]
+
+    np.testing.assert_allclose(fees, [0.4, 0.25, 0.25])
+    assert env.published_mechanism_assigned
 
 
 @pytest.mark.unit

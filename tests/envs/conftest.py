@@ -159,12 +159,14 @@ def fisher_configs(count: int = 2) -> dict[str, FisherConfig]:
     }
 
 
-def regulator_configs() -> dict[str, AgentConfig]:
+def regulator_configs(fee_default: float | None = None) -> dict[str, AgentConfig]:
+    """The regulator leader; ``fee_default`` becomes the ``Fee`` default action."""
+    default = None if fee_default is None else np.asarray([fee_default])
     return {
         "regulator": AgentConfig(
             id="regulator",
             policy_id="regulator_policy",
-            mechanisms=FeeConfig(action_space=FEE_SPACE, id="fee"),
+            mechanisms=FeeConfig(action_space=FEE_SPACE, id="fee", default=default),
         )
     }
 

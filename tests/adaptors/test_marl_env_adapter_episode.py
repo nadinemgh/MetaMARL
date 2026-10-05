@@ -62,7 +62,13 @@ class Follower:
 
 
 class Regulator:
-    """Leader whose mechanism writes ``t + 1`` into the second entry."""
+    """Leader whose mechanism writes ``t + 1`` into the second entry.
+
+    Its mechanism has no default action, so it is inactive until a candidate
+    is fetched.
+    """
+
+    mechanisms: dict = {}
 
     def action(self, mdp: MDPState) -> MDPState:
         return mdp

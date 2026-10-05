@@ -306,7 +306,10 @@ class Mechanism(ABC):
         example ``{"resource_level": "fish"}``. Default ``None``.
     default : numpy.ndarray or None
         Default action, kept unchanged as the private attribute ``_u``, whatever
-        its size or value. Default ``None``.
+        its size or value. When the mechanism belongs to a leader,
+        ``MultiAgentEnv.reset`` gives it this action until the first candidate
+        is fetched from the ``World``; ``None`` leaves the mechanism inactive
+        until then. Default ``None``.
 
     Attributes
     ----------

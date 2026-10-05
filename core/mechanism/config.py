@@ -75,7 +75,9 @@ class MechanismConfig:
         ``{"resource_level": "fish"}`` maps the resource level to the ``"fish"``
         state entry. Defaults to ``None``.
     default : numpy.ndarray or None
-        Default action of the mechanism. Defaults to ``None``.
+        Default action of the mechanism. A leader plays it from the first
+        ``reset`` until a candidate is fetched from the ``World``; with
+        ``None`` the mechanism stays inactive until then. Defaults to ``None``.
     mechanism_cls : type[Mechanism]
         Class variable, not a field: the mechanism class that :meth:`build`
         instantiates.
