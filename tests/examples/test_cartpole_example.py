@@ -440,6 +440,31 @@ def test_regulator_reward_averages_seeds_and_scores_missing_mechanisms(monkeypat
 
 
 @pytest.mark.unit
+def test_regulator_reward_weighs_every_logged_episode_equally(monkeypatch):
+    import ray
+
+    from examples.cartpole.regulator_env import CartpoleRegulatorEnv
+
+    world = SimpleNamespace(append_context=SimpleNamespace(remote=lambda ctx: None))
+    monkeypatch.setattr(ray, "get", lambda ref, *a, **k: ref)
+    env = CartpoleRegulatorEnv(
+        world=world, optimizer=None, horizon=1, agents_cfgs={}, seeds=[0]
+    )
+    # Key n=0 logged an episode in both inner iterations, key n=1 only in the
+    # second one; its first entry is the logger's gap.
+    by_episode = {
+        "env=0|n=0": SimpleNamespace(reward_mean=[1.0, 1.0]),
+        "env=0|n=1": SimpleNamespace(reward_mean=[None, 0.4]),
+    }
+    by_seed = {"0": SimpleNamespace(by_episode=by_episode)}
+    rollout = SimpleNamespace(by_mechanism={"0": SimpleNamespace(by_seed=by_seed)})
+
+    fitness = env.reward(SimpleNamespace(eval=SimpleNamespace(rollout=rollout)))
+
+    assert fitness == [pytest.approx(0.8)]
+
+
+@pytest.mark.unit
 def test_regulator_reward_refuses_an_unknown_split_and_empty_metrics():
     from examples.cartpole.regulator_env import CartpoleRegulatorEnv
 
@@ -554,14 +579,6 @@ def test_appo_run_reports_the_fitness_of_a_balancing_agent(appo_run):
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "PPO finishes many episodes per training step and "
-        + "core.callbacks.log_and_report_episode_metrics logs each as an 'item' under "
-        + "the same key; RLlib's ItemStats.merge accepts one incoming value."
-    ),
-)
 def test_debug_script_runs_to_completion_with_ppo(tmp_path):
     result = run_child(
         "examples.cartpole.debug",

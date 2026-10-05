@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core.annotations import override
 from core.metrics.metric.base import Metric, PrimitiveType
 
 
@@ -14,10 +15,16 @@ class SeriesMetric(Metric):
     base of the scalar metrics, which reuse its ``values`` list and only
     override the reduction.
 
+    A gap (``None``, appended by :meth:`push_gap`) marks a push of the logger in
+    which this leaf had no value, so that entry ``i`` of every leaf below a
+    dynamic node belongs to the same push. The history keeps the gaps; the
+    scalar metrics skip them when they compile.
+
     Attributes
     ----------
-    values : list[int or float or bool or str]
-        The pushed values, in order. Any primitive type is accepted.
+    values : list[int or float or bool or str or None]
+        The pushed values, in order, with ``None`` for a gap. Any primitive
+        type is accepted.
 
     When to use: for values you want to plot against an x axis (a curve per
     iteration, the fitness of every candidate); reporters expect series
@@ -36,10 +43,14 @@ class SeriesMetric(Metric):
     [0.5, 0.7]
     >>> len(metric)
     0
+    >>> metric.push(0.5)
+    >>> metric.push_gap()
+    >>> metric.peek(), metric.present_values()
+    ([0.5, None], [0.5])
     """
 
     def __init__(self) -> None:
-        self.values: list[PrimitiveType] = []
+        self.values: list[PrimitiveType | None] = []
 
     def __len__(self) -> int:
         return len(self.values)
@@ -58,7 +69,24 @@ class SeriesMetric(Metric):
 
         self.values.append(value)
 
-    def peek(self, compile: bool = True) -> list[PrimitiveType]:
+    @override(Metric)
+    def push_gap(self) -> None:
+        """Append a gap (``None``): this push had no value for the leaf."""
+
+        self.values.append(None)
+
+    def present_values(self) -> list[PrimitiveType]:
+        """Return the pushed values without the gaps, in order.
+
+        Returns
+        -------
+        list[int or float or bool or str]
+            A new list of the values that are not gaps.
+        """
+
+        return [value for value in self.values if value is not None]
+
+    def peek(self, compile: bool = True) -> list[PrimitiveType | None]:
         """Return a copy of the history; ``compile`` is ignored.
 
         Parameters
@@ -68,14 +96,14 @@ class SeriesMetric(Metric):
 
         Returns
         -------
-        list[int or float or bool or str]
-            A new list of the pushed values; changing it does not change the
-            metric.
+        list[int or float or bool or str or None]
+            A new list of the pushed values, gaps included; changing it does
+            not change the metric.
         """
 
         return list(self.values)
 
-    def reduce(self, compile: bool = True) -> list[PrimitiveType] | SeriesMetric:
+    def reduce(self, compile: bool = True) -> list[PrimitiveType | None] | SeriesMetric:
         """Return the history and clear it.
 
         With ``compile`` false the history is returned inside a new

@@ -61,6 +61,10 @@ class Node(dict[str, "Node | Metric"]):
         Whether the children are keyed by runtime ids.
     subtree_reduce : ReduceProtocol or None
         The protocol forced on the leaves below the node, if any.
+    pushes : int
+        For a dynamic node, the number of pushes it has received since the
+        last reduction or reset, gaps included. A child created later is
+        back-filled with that many gaps.
 
     When to use: you normally get nodes from :class:`MetricLogger`, which
     builds the tree; create one by hand only to test tree-walking code.
@@ -81,6 +85,7 @@ class Node(dict[str, "Node | Metric"]):
     schema: type[MetricSchema] | None
     dynamic: bool = False
     subtree_reduce: ReduceProtocol | None = None
+    pushes: int = 0
 
     def __init__(
         self,
@@ -95,6 +100,7 @@ class Node(dict[str, "Node | Metric"]):
         self.schema = schema
         self.dynamic = dynamic
         self.subtree_reduce = subtree_reduce
+        self.pushes = 0
 
     def construct(self, data: dict[str, Any]) -> MetricSchema | dict[str, Any]:
         """Rebuild a schema instance from values laid out like this node.
@@ -159,6 +165,15 @@ class MetricLogger(ABC):
     A path is a tuple of field names, with the runtime id after each dynamic
     node, for example ``("by_mechanism", "quota", "fitness")``. Ids are
     created the first time a value is pushed under them.
+
+    The ids of a dynamic node can vary from one :meth:`push_data` call to the
+    next (an inner iteration in which an environment finished no episode has no
+    entry for it). So that entry ``i`` of every child belongs to push ``i``,
+    the logger appends a gap (``None``) to every leaf of a child that a push
+    leaves out, and back-fills a child created after earlier pushes with one gap
+    per missed push. The raw histories keep the gaps; the compiled values skip
+    them. A field pushed as ``None`` is skipped, not gap-filled, and
+    :meth:`push` adds no gap.
 
     When to use: wherever values are produced piecemeal during an iteration
     (per step, per episode, per candidate) and must be reduced once before
@@ -377,7 +392,8 @@ class MetricLogger(ABC):
         ``node[field_name]``. Every value already held under ``path`` is pushed
         again into the matching metric of the new sub-tree, in its original
         order, creating the dynamic ids that were already bound, so that
-        nothing pushed before the specialisation is lost.
+        nothing pushed before the specialisation is lost. Gaps are carried as
+        gaps, and the push counts of the dynamic nodes are carried over.
         """
 
         old_node = node[field_name]
@@ -406,7 +422,12 @@ class MetricLogger(ABC):
                 )
 
             for value in old_metric.peek(compile=False):
-                new_metric.push(value)
+                if value is None:
+                    new_metric.push_gap()
+                else:
+                    new_metric.push(value)
+
+        self._copy_pushes(old_node, new_node)
 
         return new_node
 
@@ -416,7 +437,10 @@ class MetricLogger(ABC):
         """Push every non-``None`` leaf of a schema instance into its metric.
 
         Nested schemas and dynamic nodes are walked recursively, and the
-        children of a dynamic node are created on first use. A nested schema
+        children of a dynamic node are created on first use. Every child of a
+        dynamic node that ``data`` leaves out receives a gap, and a child
+        created now is first back-filled with one gap per earlier push of its
+        node (see the class docstring). A nested schema
         that is a subclass of the declared one specialises that sub-tree at
         runtime (the sub-tree is rebuilt, and the values pushed earlier under the
         declared schema are carried over to it). ``prefix`` and ``node`` are the
@@ -532,6 +556,10 @@ class MetricLogger(ABC):
                         child_node[dynamic_id] = runtime_node
 
                         self._refs.update(refs)
+
+                        # The new child missed the earlier pushes of its node.
+                        for _ in range(child_node.pushes):
+                            self._push_gap(runtime_node)
                     elif not isinstance(runtime_node, Node):
                         raise TypeError(
                             f"Expected runtime Node at {runtime_path}, got "
@@ -548,6 +576,11 @@ class MetricLogger(ABC):
                         dynamic_child, prefix=runtime_path, node=runtime_node
                     )
 
+                for dynamic_id, runtime_node in child_node.items():
+                    if dynamic_id not in value:
+                        self._push_gap(runtime_node)
+
+                child_node.pushes += 1
                 continue
 
             if not isinstance(child_node, Metric):
@@ -556,6 +589,49 @@ class MetricLogger(ABC):
                 )
 
             child_node.push(value)
+
+    @classmethod
+    def _push_gap(cls, node: Node) -> None:
+        """Append one gap to every leaf below ``node``.
+
+        Every dynamic node crossed counts the gap as one of its pushes, so a
+        child it creates later is back-filled to the same length.
+        """
+
+        if node.dynamic:
+            node.pushes += 1
+
+        for child in node.values():
+            if isinstance(child, Metric):
+                child.push_gap()
+            else:
+                cls._push_gap(child)
+
+    @classmethod
+    def _clear_pushes(cls, node: Node) -> None:
+        """Set the push count of every dynamic node below ``node`` to zero."""
+
+        node.pushes = 0
+
+        for child in node.values():
+            if isinstance(child, Node):
+                cls._clear_pushes(child)
+
+    @classmethod
+    def _copy_pushes(cls, source: Node, target: Node) -> None:
+        """Copy the push counts of ``source`` onto the matching nodes of ``target``.
+
+        Nodes are matched by their key path; a node of ``target`` with no
+        counterpart keeps its count.
+        """
+
+        target.pushes = source.pushes
+
+        for key, source_child in source.items():
+            target_child = target.get(key)
+
+            if isinstance(source_child, Node) and isinstance(target_child, Node):
+                cls._copy_pushes(source_child, target_child)
 
     def push(self, key: Path, value: Any) -> None:
         """Push one value under a path.
@@ -652,9 +728,9 @@ class MetricLogger(ABC):
         """Reduce every leaf, clear the accumulators and return the result.
 
         Each leaf collapses its values according to its protocol (a mean, a
-        sum, the last value, the history of a series...), and an empty leaf
-        gives ``None`` (or ``0`` for a sum). The next push starts a new
-        accumulation cycle.
+        sum, the last value, the history of a series...), skipping gaps except
+        in a series, and an empty leaf gives ``None`` (or ``0`` for a sum). The
+        next push starts a new accumulation cycle, whose gaps count from zero.
 
         Returns
         -------
@@ -677,6 +753,7 @@ class MetricLogger(ABC):
                 ) from e
 
         reduced = tree.map_structure_with_path(_reduce, self._tree)
+        self._clear_pushes(self._tree)
 
         return self._tree.construct(reduced)
 
@@ -698,7 +775,7 @@ class MetricLogger(ABC):
         """Clear every accumulator without reducing it.
 
         The tree keeps its shape: dynamic ids already created stay, with
-        empty metrics.
+        empty metrics, and the gaps of the next pushes count from zero.
 
         Raises
         ------
@@ -714,6 +791,8 @@ class MetricLogger(ABC):
                 raise ValueError(
                     f"Error flushing metrics {metric} at path {path}."
                 ) from e
+
+        self._clear_pushes(self._tree)
 
     def flush(self, key: Path) -> None:
         """Clear the accumulated values of the leaf at ``key``.

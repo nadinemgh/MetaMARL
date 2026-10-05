@@ -203,7 +203,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
             ``rollout.by_mechanism[id].by_seed[id].by_episode[id]`` records
             with ``reward_series``, ``fish_norm_next_series``,
             ``H_realized_series`` (each a list holding one list of steps per
-            logged episode) and ``MSY`` (one value per logged episode).
+            logged episode) and ``MSY`` (one value per logged episode); an
+            entry is ``None`` where the metric logger recorded a gap, and gaps
+            are skipped.
             Mechanism and seed identifiers must be convertible to
             ``int``.
 
@@ -243,6 +245,11 @@ class FisheryRegulatorEnv(RegulatorEnv):
                         strict=True,
                     )
                     for reward_steps, fish_steps, harvest_steps, msy in logged_episodes:
+                        # A gap of the metric logger: no episode under this key
+                        # in that inner iteration.
+                        if reward_steps is None:
+                            continue
+
                         rewards = np.asarray(reward_steps, dtype=np.float64)
                         fish = np.asarray(fish_steps, dtype=np.float64)
                         realized_harvest = np.asarray(harvest_steps, dtype=np.float64)

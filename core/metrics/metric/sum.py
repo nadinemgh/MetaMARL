@@ -12,7 +12,7 @@ class SumMetric(SeriesMetric):
 
     Only numbers are accepted (``int``, ``float`` and NumPy numeric scalars;
     ``bool`` and ``np.bool_`` are rejected). Unlike the other scalar metrics an
-    empty sum compiles to ``0``, not ``None``.
+    empty sum compiles to ``0``, not ``None``, and gaps are skipped.
 
     When to use: for quantities accumulated over an iteration (total catch,
     number of episodes, environment steps).
@@ -69,7 +69,7 @@ class SumMetric(SeriesMetric):
         if not compile:
             return list(self.values)
 
-        return sum(self.values)
+        return sum(self.present_values())
 
     def reduce(self, compile: bool = True) -> int | float | SumMetric:
         """Return the sum and clear the history.

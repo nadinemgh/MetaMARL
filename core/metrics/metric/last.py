@@ -9,7 +9,8 @@ from core.metrics.metric.series import SeriesMetric
 class LastMetric(SeriesMetric):
     """Metric reducing to the most recently pushed value.
 
-    Any primitive type is accepted; ``peek`` returns ``None`` while empty.
+    Any primitive type is accepted; ``peek`` returns the last value that is
+    not a gap, and ``None`` while there is none.
 
     When to use: for counters and state where only the latest value matters
     (``iter``, a generation index, the current best fitness).
@@ -40,16 +41,19 @@ class LastMetric(SeriesMetric):
         Returns
         -------
         int or float or bool or str or list or None
-            The last pushed value, ``None`` while empty, or the history.
+            The last pushed value that is not a gap, ``None`` while there
+            is none, or the history.
         """
 
         if not compile:
             return list(self.values)
 
-        if not self.values:
+        present = self.present_values()
+
+        if not present:
             return None
 
-        return self.values[-1]
+        return present[-1]
 
     def reduce(self, compile: bool = True) -> PrimitiveType | LastMetric | None:
         """Return the last value and clear the history.

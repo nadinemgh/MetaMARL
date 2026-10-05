@@ -121,6 +121,23 @@ def test_the_tail_statistics_are_averaged_over_episodes_and_seeds():
 
 
 @pytest.mark.unit
+def test_the_gaps_of_the_metric_logger_are_skipped():
+    env = make_env(fitness_tail_steps=2)
+    # The key logged an episode in the second inner iteration only; the first
+    # entry of every leaf is the logger's gap.
+    gapped = SimpleNamespace(
+        reward_series=[None, [0.0] * 3],
+        fish_norm_next_series=[None, [0.9, 0.2, 0.2]],
+        H_realized_series=[None, [0.0] * 3],
+        MSY=[None, MSY],
+    )
+
+    fitness = env.reward(metrics_of({0: {0: [gapped]}}))
+
+    assert fitness == pytest.approx([0.0 + WEIGHT * 0.2])
+
+
+@pytest.mark.unit
 def test_collapse_rate_counts_the_tail_steps_below_the_threshold():
     env = make_env(fitness_tail_steps=4)
     fish = [0.05, 0.5, 0.05, 0.05, 0.5, 0.5]

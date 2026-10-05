@@ -12,6 +12,7 @@ in ``conftest.py``; tests that need a broken tree copy it and edit the copy.
 from __future__ import annotations
 
 import logging
+import math
 from enum import Enum
 
 import pytest
@@ -275,6 +276,51 @@ class TestResolvePathMean:
             backendless_reporter._resolve_path(
                 ("by_mech", MEAN, "fitness"), reporting_metrics
             )
+
+    def test_mean_and_std_skip_the_gap_entries(
+        self, backendless_reporter, reporting_metrics
+    ):
+        # A gap (None) is a push in which the logger had no value for that id.
+        reporting_metrics.by_mech["m0"].fitness = [10.0, None, 12.0]
+
+        result = backendless_reporter._resolve_path(
+            ("by_mech", MEAN, "fitness"),
+            reporting_metrics,
+            error="std",
+            error_path=("by_mech",),
+        )
+
+        assert result.values == {(): [15.0, 21.0, 17.0]}
+        assert result.errors == {(): [5.0, 0.0, 5.0]}
+
+    def test_a_point_where_every_branch_is_a_gap_is_nan(
+        self, backendless_reporter, reporting_metrics
+    ):
+        reporting_metrics.by_mech["m0"].fitness = [10.0, None, 12.0]
+        reporting_metrics.by_mech["m1"].fitness = [20.0, None, 22.0]
+
+        result = backendless_reporter._resolve_path(
+            ("by_mech", MEAN, "fitness"),
+            reporting_metrics,
+            error="std",
+            error_path=("by_mech",),
+        )
+
+        mean, std = result.values[()], result.errors[()]
+        assert (mean[0], mean[2]) == (15.0, 17.0) and math.isnan(mean[1])
+        assert (std[0], std[2]) == (5.0, 5.0) and math.isnan(std[1])
+
+    def test_a_nan_value_still_propagates_through_the_mean(
+        self, backendless_reporter, reporting_metrics
+    ):
+        # NaN is a value (a statistic RLlib did not report), not a gap.
+        reporting_metrics.by_mech["m0"].fitness = [10.0, float("nan"), 12.0]
+
+        result = backendless_reporter._resolve_path(
+            ("by_mech", MEAN, "fitness"), reporting_metrics
+        )
+
+        assert math.isnan(result.values[()][1])
 
     def test_error_below_another_mean_is_rejected(
         self, backendless_reporter, reporting_metrics

@@ -72,8 +72,8 @@ class Metric(ABC):
     Each subclass implements one reduction protocol (see
     :class:`~core.metrics.enums.ReduceProtocol`). ``float()`` and ``int()``
     on a metric return its compiled value and raise ``ValueError`` when that
-    value is a list. The class is abstract: ``len``, ``push``, ``peek``,
-    ``reduce`` and ``flush`` are implemented by the subclasses.
+    value is a list. The class is abstract: ``len``, ``push``, ``push_gap``,
+    ``peek``, ``reduce`` and ``flush`` are implemented by the subclasses.
 
     When to use: you rarely instantiate a metric yourself; the logger creates
     one per schema field through
@@ -187,6 +187,16 @@ class Metric(ABC):
         """
 
         ...
+
+    @abstractmethod
+    def push_gap(self) -> None:
+        """Append a gap: a push of the logger with no value for this leaf.
+
+        The logger calls it on every leaf of a dynamic child that a push leaves
+        out, and once per missed push on a child created late, so that the
+        histories of the children stay aligned with the pushes. A gap is kept
+        in the raw history and skipped by the compiled value.
+        """
 
     @abstractmethod
     def flush(self) -> None:

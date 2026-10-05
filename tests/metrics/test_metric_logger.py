@@ -262,7 +262,8 @@ class TestSpecialisationKeepsPushedValues:
         peeked = logger.peek().inner
         assert type(peeked) is RichInner
         assert peeked.by_id["a"].value == [1.0, 3.0]
-        assert peeked.by_id["b"].value == [10.0]
+        # "b" is left out of the push_data call, so it receives a gap.
+        assert peeked.by_id["b"].value == [10.0, None]
         assert logger.peek_value(("inner", "by_id", "b", "value")) == 10.0
 
     def test_the_iteration_counter_of_an_open_slot_survives(self, metric_schemas):

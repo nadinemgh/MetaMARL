@@ -65,8 +65,8 @@ class CartpoleRegulatorEnv(RegulatorEnv):
     Examples
     --------
     The environment is built with a stand-in World and no inner optimizer, and
-    scores one candidate whose two episodes have a mean step reward of 1.0 and
-    0.5:
+    scores one candidate whose two episodes, logged in two different inner
+    iterations, have a mean step reward of 1.0 and 0.5:
 
     >>> from types import SimpleNamespace
     >>> from unittest import mock
@@ -78,8 +78,8 @@ class CartpoleRegulatorEnv(RegulatorEnv):
     ...     world=world, optimizer=None, horizon=1, agents_cfgs={}, seeds=[0]
     ... )
     >>> episodes = {
-    ...     "0": SimpleNamespace(reward_mean=[1.0]),
-    ...     "1": SimpleNamespace(reward_mean=[0.5]),
+    ...     "0": SimpleNamespace(reward_mean=[1.0, None]),
+    ...     "1": SimpleNamespace(reward_mean=[None, 0.5]),
     ... }
     >>> seed = SimpleNamespace(by_episode=episodes)
     >>> rollout = SimpleNamespace(
@@ -123,8 +123,9 @@ class CartpoleRegulatorEnv(RegulatorEnv):
     def reward(self, metrics: MetricSchema) -> list[float]:
         """Compute one fitness per candidate from the inner optimizer's metrics.
 
-        For every candidate the method averages the ``reward_mean`` of each
-        episode of each seed, then averages over the seeds, appends a ``done``
+        For every candidate the method averages the ``reward_mean`` of every
+        logged episode of each seed (skipping the gaps of the metric logger),
+        then averages over the seeds, appends a ``done``
         ``MechanismContext`` that carries the ``FitnessContext`` to the World
         (blocking on the Ray call) and logs one summary line.
 
@@ -133,8 +134,9 @@ class CartpoleRegulatorEnv(RegulatorEnv):
         metrics : MetricSchema
             Inner metrics with a ``train`` or ``eval`` branch (the one named by
             ``aggregation_status``), each holding
-            ``rollout.by_mechanism[id].by_seed[id].by_episode[id].reward_mean``.
-            Mechanism identifiers must be convertible to ``int``.
+            ``rollout.by_mechanism[id].by_seed[id].by_episode[id].reward_mean``
+            (one entry per inner iteration, ``None`` for a gap). Mechanism
+            identifiers must be convertible to ``int``.
 
         Returns
         -------
@@ -155,11 +157,18 @@ class CartpoleRegulatorEnv(RegulatorEnv):
         per_mechanism: dict[int, list[float]] = defaultdict(list)
         for mechanism_id, mechanism_metrics in branch.rollout.by_mechanism.items():
             for seed_metrics in mechanism_metrics.by_seed.values():
-                seed_means = [
-                    float(np.mean(np.atleast_1d(np.asarray(e.reward_mean, np.float32))))
+                # Each leaf holds one entry per inner iteration, None where the
+                # logger recorded a gap (no episode under that key). Every
+                # logged episode of the seed weighs the same in its mean.
+                episode_means = [
+                    float(reward_mean)
                     for e in seed_metrics.by_episode.values()
+                    for reward_mean in np.atleast_1d(e.reward_mean)
+                    if reward_mean is not None
                 ]
-                per_mechanism[int(mechanism_id)].append(float(np.mean(seed_means)))
+                per_mechanism[int(mechanism_id)].append(
+                    float(np.mean(np.asarray(episode_means, np.float32)))
+                )
 
         fitness = np.full(max(per_mechanism) + 1, -np.inf, dtype=np.float32)
         summaries: list[dict[str, float]] = []

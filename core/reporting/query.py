@@ -5,7 +5,8 @@ A :class:`Query` names an x path and one or several y paths inside a
 are tuples of field names. At a *dynamic* node (``dict[ID, MetricSchema]``) a
 path continues with a :class:`~core.metrics.enums.ReduceProtocol` token:
 ``SERIES`` keeps one series per runtime key (in sorted key order) and ``MEAN``
-averages the keys pointwise. A reporter resolves each query against the
+averages the keys pointwise, skipping the gaps that the logger records for a key
+absent from a push. A reporter resolves each query against the
 populated schema of an iteration and renders the result, so a query is the
 only place where the shape of a plot is decided::
 

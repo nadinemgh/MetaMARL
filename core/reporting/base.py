@@ -188,10 +188,12 @@ class Reporter(ABC):
         Each token of ``path`` is a field name (an attribute of a schema, a key
         of a dynamic node) or a :class:`~core.metrics.enums.ReduceProtocol`.
         ``SERIES`` on a dynamic node expands one group per runtime id, in
-        sorted order of the ids; ``MEAN`` averages the branches pointwise. The
-        walk ends when ``path`` is exhausted, where ``metrics`` must be a flat
-        list of values. ``index``, ``group`` and ``junction`` are the
-        recursion state and keep their defaults on the first call.
+        sorted order of the ids; ``MEAN`` averages the branches pointwise,
+        skipping their gaps (``None``, a push in which the logger had no value
+        for that branch). The walk ends when ``path`` is exhausted, where
+        ``metrics`` must be a flat list of values. ``index``, ``group`` and
+        ``junction`` are the recursion state and keep their defaults on the
+        first call.
 
         Parameters
         ----------
@@ -317,12 +319,31 @@ class Reporter(ABC):
                             + f"{sorted(lengths)}."
                         )
 
-                    values = np.asarray(series, dtype=np.float64)
-                    reduced[branch_group] = np.mean(values, axis=0).tolist()
+                    # A gap (None) is a push in which the logger had no value for
+                    # that branch, so the mean and the standard deviation at each
+                    # point run over the branches that have one; a point where
+                    # every branch is a gap is NaN. A NaN value is not a gap and
+                    # still propagates.
+                    present = np.asarray(
+                        [[value is not None for value in values] for values in series]
+                    )
+                    values = np.where(
+                        present, np.asarray(series, dtype=np.float64), 0.0
+                    )
+                    counts = present.sum(axis=0)
+                    observed = counts > 0
+                    mean = np.full(values.shape[1], np.nan)
+                    mean[observed] = values.sum(axis=0)[observed] / counts[observed]
+                    reduced[branch_group] = mean.tolist()
 
                     if capture_error:
                         if error == "std":
-                            errors[branch_group] = np.std(values, axis=0).tolist()
+                            deviations = np.where(present, values - mean, 0.0)
+                            std = np.full(values.shape[1], np.nan)
+                            std[observed] = np.sqrt(
+                                (deviations**2).sum(axis=0)[observed] / counts[observed]
+                            )
+                            errors[branch_group] = std.tolist()
 
                 return PathResolution(values=reduced, errors=errors)
 

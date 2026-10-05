@@ -215,8 +215,9 @@ class WaterRegulatorEnv(RegulatorEnv):
             ``rollout.by_mechanism[id].by_seed[id].by_episode[id]`` records
             with ``reward_mean`` (one value per logged episode) and the pair of
             series selected by ``deviation_series`` (each a list holding one
-            list of days per logged episode). Mechanism identifiers must be
-            convertible to ``int``.
+            list of days per logged episode); an entry is ``None`` where the
+            metric logger recorded a gap, and gaps are skipped. Mechanism
+            identifiers must be convertible to ``int``.
 
         Returns
         -------
@@ -248,6 +249,11 @@ class WaterRegulatorEnv(RegulatorEnv):
                         strict=True,
                     )
                     for mean_reward, flow, baseline in logged_episodes:
+                        # A gap of the metric logger: no episode under this key
+                        # in that inner iteration.
+                        if mean_reward is None:
+                            continue
+
                         rewards[idx].append(float(mean_reward))
                         deviations[idx].append(streamflow_deviation(flow, baseline))
 

@@ -840,6 +840,28 @@ def test_regulator_reward_averages_episodes_and_seeds(monkeypatch):
 
 
 @pytest.mark.unit
+def test_regulator_reward_skips_the_gaps_of_the_metric_logger(monkeypatch):
+    env = regulator([], monkeypatch)
+    gapped = SimpleNamespace(
+        reward_mean=[None, 0.5],
+        streamflow_m3s_series=[None, [12.0]],
+        baseline_streamflow_m3s_series=[None, [10.0]],
+    )
+    by_seed = {"0": SimpleNamespace(by_episode={"0": gapped})}
+    rollout = SimpleNamespace(by_mechanism={"0": SimpleNamespace(by_seed=by_seed)})
+    metrics = SimpleNamespace(train=SimpleNamespace(rollout=rollout))
+
+    reference = regulator([], monkeypatch)
+    single = episode(0.5, [12.0], [10.0])
+    by_seed = {"0": SimpleNamespace(by_episode={"0": single})}
+    rollout = SimpleNamespace(by_mechanism={"0": SimpleNamespace(by_seed=by_seed)})
+
+    assert env.reward(metrics) == pytest.approx(
+        reference.reward(SimpleNamespace(train=SimpleNamespace(rollout=rollout)))
+    )
+
+
+@pytest.mark.unit
 def test_regulator_reads_the_series_named_by_the_option(monkeypatch):
     env = regulator([], monkeypatch, deviation_series="outflow")
     branch = episode(0.5, [1.0], [1.0])

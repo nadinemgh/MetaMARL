@@ -13,10 +13,11 @@ class MaxMetric(SeriesMetric):
     """Metric reducing to the maximum of the pushed numbers.
 
     Only numbers are accepted (``int``, ``float`` and NumPy numeric scalars;
-    ``bool`` and ``np.bool_`` are rejected); ``peek``
-    returns ``None`` while empty. A NaN is ignored, because the Ray adaptor
-    logs NaN for the learner statistics RLlib did not report and a missing
-    value has no rank; the result therefore does not depend on the push order.
+    ``bool`` and ``np.bool_`` are rejected); ``peek`` returns ``None`` while
+    empty or holding only gaps, which it skips. A NaN is ignored, because the
+    Ray adaptor logs NaN for the learner statistics RLlib did not report and a
+    missing value has no rank; the result therefore does not depend on the push
+    order.
     A window holding only NaN reduces to NaN.
 
     When to use: for peak values over an iteration, such as the best reward of a
@@ -83,7 +84,9 @@ class MaxMetric(SeriesMetric):
         if not compile:
             return list(self.values)
 
-        if not self.values:
+        present = self.present_values()
+
+        if not present:
             return None
 
         # NaN is how the Ray adaptor marks a statistic that RLlib did not report,
@@ -91,10 +94,10 @@ class MaxMetric(SeriesMetric):
         # ``>``, which is false against NaN, and would then return
         # NaN or a number depending on the push order. NaN values are skipped
         # instead; a window holding nothing but NaN stays NaN.
-        valid = [value for value in self.values if not math.isnan(value)]
+        valid = [value for value in present if not math.isnan(value)]
 
         if not valid:
-            return self.values[0]
+            return present[0]
 
         return max(valid)
 

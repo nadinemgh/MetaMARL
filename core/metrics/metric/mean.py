@@ -12,7 +12,7 @@ class MeanMetric(SeriesMetric):
 
     Only numbers are accepted (``int``, ``float`` and NumPy numeric scalars;
     ``bool`` and ``np.bool_`` are rejected); ``peek``
-    returns ``None`` while empty.
+    returns ``None`` while empty or holding only gaps, which it skips.
 
     When to use: the default protocol, for per-step quantities averaged over an
     iteration (rewards, catches, losses).
@@ -63,17 +63,20 @@ class MeanMetric(SeriesMetric):
         Returns
         -------
         float or list[float] or None
-            The mean of the pushed values, ``None`` while empty, or the
+            The mean of the pushed values (gaps skipped), ``None`` while
+            empty, or the
             history.
         """
 
         if not compile:
             return list(self.values)
 
-        if not self.values:
+        present = self.present_values()
+
+        if not present:
             return None
 
-        return sum(self.values) / len(self.values)
+        return sum(present) / len(present)
 
     def reduce(self, compile: bool = True) -> float | MeanMetric | None:
         """Return the arithmetic mean and clear the history.
