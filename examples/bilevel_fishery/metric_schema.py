@@ -24,16 +24,20 @@ AgentID: TypeAlias = str
 class FisheryAgentMetricSchema(AgentEnvStepSchema):
     """Per-fisher harvest metrics, one value per step.
 
-    ``FisheryRegulatedEnv`` does not push these fields: they are declared for
-    environments that log the harvest request of each fisher, and they stay
-    ``None`` (an empty series) in the fishery of this package.
+    ``FisheryRegulatedEnv`` pushes ``requested_harvest`` and
+    ``delivered_harvest`` for every fisher at every step; the other fields are
+    declared for environments that log more and stay ``None`` in the fishery of
+    this package.
 
     Attributes
     ----------
     requested_harvest : float or None
-        Harvest the fisher asked for (biomass units per step).
+        Harvest the fisher asked for, after the regulation of the leaders'
+        mechanisms (biomass units per step).
     delivered_harvest : float or None
-        Harvest actually delivered after regulation (biomass units per step).
+        Harvest the fisher actually received: its request, or its pro-rata
+        share of the stock when the total request exceeds the stock (biomass
+        units per step).
     requested_frac : float or None
         Requested harvest as a fraction of the fisher's maximal request, in
         ``[0, 1]``.
@@ -83,10 +87,10 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     reward statistics and the empty ``by_agent`` mapping of
     ``EpisodeRolloutSchema``. ``FisheryRegulatedEnv`` pushes ``B_msy``,
     ``MSY``, ``F_msy``, ``fish_stock``, ``fish_stock_next``, the four
-    ``fish_norm_next_*`` fields, ``growth``, ``growth_noise``, ``H_realized``
-    and ``total_usage_norm`` at every step. It does not push ``quota_stress``,
-    ``allowed_harvest``, ``H_attempted``, ``fish_norm`` or any ``by_agent``
-    value, so those stay ``None`` or empty.
+    ``fish_norm_next_*`` fields, ``growth``, ``growth_noise``, ``H_attempted``,
+    ``H_realized``, ``total_usage_norm`` and the two harvest fields of each
+    fisher in ``by_agent`` at every step. It does not push ``quota_stress``,
+    ``allowed_harvest`` or ``fish_norm``, so those stay ``None``.
 
     Attributes
     ----------
@@ -96,22 +100,20 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     allowed_harvest : float or None
         Total harvest the quota permits (biomass units per step). Not pushed.
     fish_stock : float or None
-        Biomass read by the transition at the current step, after the
-        fishers' harvest and restoration of that step (biomass units).
+        Biomass ``B(t)`` the step starts with, before the catches and the
+        restoration of that step (biomass units).
     growth : float or None
-        Surplus production plus process noise computed by the transition
-        (biomass units per step). Restoration is not part of it.
+        Surplus production ``g(B(t))`` plus process noise computed by the
+        transition (biomass units per step). Restoration is not part of it.
     growth_noise : float or None
         The process-noise part of ``growth`` (biomass units per step).
     H_attempted : float or None
-        Total requested harvest (biomass units per step). Not pushed.
+        Total harvest the fishers requested (biomass units per step).
     H_realized : float or None
-        Logged harvest of the step (biomass units per step). It is obtained as
-        the difference between the stock one time index earlier and the current
-        stock, capped at the available biomass, and is ``0`` at the first
-        step. Because that difference also contains the previous step's growth
-        and the restoration, it is not the sum of the fishers' catches and it
-        can be negative.
+        Total catch ``C(t)`` actually delivered to the fishers (biomass units
+        per step): the total request, or the whole stock ``B(t)`` when the
+        request exceeds it. It is the sum of the per-fisher
+        ``delivered_harvest`` and is never negative.
     total_usage_norm : float or None
         ``H_realized`` divided by the carrying capacity ``K`` (dimensionless).
     B_msy : float or None
@@ -124,7 +126,7 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
         Harvest rate at maximum sustainable yield, ``MSY / B_msy`` (per step),
         a constant of the ecology.
     fish_stock_next : float or None
-        Biomass after the transition (biomass units).
+        Biomass ``B(t + 1)`` after the transition (biomass units).
     fish_norm : float or None
         Normalized biomass (fraction of ``K``). Not pushed.
     fish_norm_next_mean, fish_norm_next_min, fish_norm_next_max : float or None
@@ -135,7 +137,8 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
         Normalized biomass after the last transition of the episode
         (fraction of ``K``). Required, with no default.
     by_agent : dict[str, FisheryAgentMetricSchema]
-        Per-fisher metrics keyed by agent id; empty in this fishery.
+        Per-fisher metrics keyed by agent id (requested and delivered harvest
+        in this fishery).
 
     All the stock-level fields are reduced with ``MEAN`` except the four
     ``fish_norm_next_*`` fields, which use ``MEAN``, ``MIN``, ``MAX`` and

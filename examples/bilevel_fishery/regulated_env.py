@@ -1,18 +1,22 @@
 """Single-stock fishery benchmark: fishers, harvest and restoration, stock dynamics.
 
-``N`` fishers share one fish stock ``B`` (biomass). The stock has a
-Pella-Tomlinson-type production function (Pella & Tomlinson, 1969) in the
-parametrization with an intrinsic growth rate ``r`` and a shape parameter
-``p``:
+``N`` fishers share one fish stock ``B`` (biomass). The stock follows the
+standard discrete-time surplus-production model (Schaefer, 1954; Hilborn &
+Walters, 1992), here with the Pella-Tomlinson production function
+(Pella & Tomlinson, 1969) in the parametrization with an intrinsic growth rate
+``r`` and a shape parameter ``p``:
+
+    B(t + 1) = max(B(t) + g(B(t)) + R(t) + noise(t) - C(t), 0)
 
     g(B) = (r / p) * B * (1 - (B / K)^p)
 
-where ``K`` is the carrying capacity; ``p = 1`` gives the Schaefer logistic
-model ``r * B * (1 - B / K)``. The maximum sustainable yield reference points
-follow from ``g'(B) = 0``: ``B_msy = K * (1 / (p + 1))^(1 / p)``,
-``MSY = r * K / (p + 1)^((p + 1) / p)`` and ``F_msy = MSY / B_msy``. The
-environment adds Gaussian process noise proportional to the stock,
-``sigma * N(0, 1) * B``, to the production.
+where ``K`` is the carrying capacity, ``R(t)`` the total restoration of the
+fishers, ``C(t)`` the total catch actually delivered and
+``noise(t) = sigma * N(0, 1) * B(t)`` Gaussian process noise proportional to
+the stock. ``p = 1`` gives the Schaefer logistic model ``r * B * (1 - B / K)``.
+The maximum sustainable yield reference points follow from ``g'(B) = 0``:
+``B_msy = K * (1 / (p + 1))^(1 / p)``, ``MSY = r * K / (p + 1)^((p + 1) / p)``
+and ``F_msy = MSY / B_msy``.
 
 Each fisher is a ``Fisherman`` agent holding two mechanisms, ``Fishing`` and
 ``Restore``. Their raw policy outputs ``z`` are unbounded and are mapped to a
@@ -28,23 +32,34 @@ The environment itself applies no regulation, no fine and no restoration cost.
 The leaders' mechanisms of ``core.mechanism.algorithms`` (quota, subsidy,
 penalty, social influence) act on the fishers' actions and rewards through the
 ``MultiAgentEnv`` step, which runs the leaders before the fishers. A fisher's
-reward is its delivered harvest fraction, plus whatever the leaders' mechanisms
+reward is the harvest fraction it chose, plus whatever the leaders' mechanisms
 add.
 
-Within one step the fishers act one after the other: each reads the stock that
-the previous fisher left, removes its harvest and adds its restoration. Then
-the ``pella_tomlinson`` transition recovers the step's harvest as the
-difference between the stock one time index earlier and the current stock,
-computes the production and the noise from the stock of that earlier index,
-and caps the harvest at the available biomass. Every step pushes the series of
-``FisheryMetricSchema`` (stock, growth, realized harvest, reference points)
-into the environment's metric logger. The observation of each fisher is the
-vector ``[stock / K, 0, usage / K, 0, 0]``, where the usage is the logged
-harvest of the previous step; the entries left at zero are filled by the
-leaders' mechanisms, for example social influence.
+Within one step all the fishers act at the same time on the stock ``B(t)``
+that the step starts with. A fisher's ``Fishing`` mechanism records the catch
+it requests, computed from ``B(t)``, and its ``Restore`` mechanism records the
+biomass it restores; neither touches the stock, so the order of the fishers
+does not matter. The ``pella_tomlinson`` transition then adds up the requests.
+If their total exceeds ``B(t)``, every fisher receives the same fraction of its
+request (a pro-rata share), so that the catch never exceeds the stock; the
+delivered total is ``C(t)``. The transition computes ``B(t + 1)`` from the
+equation above, with the production and the noise evaluated on ``B(t)``. Every
+step pushes the series of ``FisheryMetricSchema`` (stock, growth, requested and
+delivered catches, reference points) into the environment's metric logger. The
+observation of each fisher is the vector ``[stock / K, 0, usage / K, 0, 0]``,
+where the usage is the catch ``C`` of the previous step; the entries left at
+zero are filled by the leaders' mechanisms, for example social influence.
 
 References
 ----------
+Schaefer, M. B. (1954). Some aspects of the dynamics of populations important
+to the management of the commercial marine fisheries. Bulletin of the
+Inter-American Tropical Tuna Commission, 1(2), 27-56.
+https://www.iattc.org/BulletinsENG.htm
+
+Hilborn, R., & Walters, C. J. (1992). Quantitative Fisheries Stock Assessment:
+Choice, Dynamics and Uncertainty. Chapman and Hall, New York.
+
 Pella, J. J., & Tomlinson, P. K. (1969). A generalized stock production
 model. Bulletin of the Inter-American Tropical Tuna Commission, 13(3),
 421-458. https://www.iattc.org/BulletinsENG.htm
@@ -70,15 +85,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 EPS = 1e-8
-# These four indices are not used by any code and do not match the observation that
-# ``Fisherman.observation`` builds: that vector has five entries, the normalized
-# fish stock at index 0, the normalized usage at index 2 and zeros elsewhere
-# (the leaders' mechanisms fill indices 3 and 4, for example the social
-# influence on the harvest and on the restoration).
-FISH_NORM = 0
-USAGE_NORM = 1
-HARVEST = 2
-RESTORATION = 3
+
+# Keys of the state under which the fishers' mechanisms leave what they want to
+# do at the current step; the transition consumes and resets them every step.
+CATCH_REQUEST = "catch_request"
+RESTORATION = "restoration"
 
 
 class Fisherman(Agent):
@@ -199,16 +210,17 @@ class FishermanConfig(AgentConfig):
 
 
 class Fishing(Mechanism):
-    """Harvest mechanism of a fisher: removes a share of its maximal catch.
+    """Harvest mechanism of a fisher: requests a share of its maximal catch.
 
     The mechanism turns the raw policy output ``z`` into a harvest fraction
-    ``sigmoid(z / 4)`` and removes ``fraction * m * F_msy * B / N`` biomass from
-    the stock, where ``B`` is the stock at the current step, ``N`` the number of
-    agents in ``mdp.aids``, ``F_msy`` the harvest rate at maximum sustainable
-    yield (per step) and ``m`` the ``unregulated_f_multiplier`` (dimensionless;
-    a value above 1 lets the fishers harvest above the sustainable rate). The
-    stock is read from the state each fisher receives, so the fishers harvest
-    one after the other, each from what the previous one left.
+    ``sigmoid(z / 4)`` and requests ``fraction * m * F_msy * B / N`` biomass,
+    where ``B`` is the stock at the current step, ``N`` the number of agents in
+    ``mdp.aids``, ``F_msy`` the harvest rate at maximum sustainable yield (per
+    step) and ``m`` the ``unregulated_f_multiplier`` (dimensionless; a value
+    above 1 lets the fishers harvest above the sustainable rate). The request
+    is recorded in the state under the fisher's identifier and does not change
+    the stock, so every fisher reads the same ``B`` whatever the order in which
+    the fishers act; the ``pella_tomlinson`` transition delivers the catches.
 
     When to use: as the ``harvest`` mechanism of ``FishermanConfig``, through
     ``FishingConfig``; the ``Quota`` mechanism of the regulator targets it with
@@ -228,11 +240,11 @@ class Fishing(Mechanism):
     ...     params={"unregulated_f_multiplier": 2.0, "F_msy": 0.15},
     ...     aids={"fisherman:0", "fisherman:1"},
     ... )
-    >>> fishing.apply(mdp, 0.5).state["fish"]
-    [-60.0]
+    >>> fishing.apply(mdp, 0.5).state["catch_request"]["fisherman:0"]
+    [60.0]
     """
 
-    def decode(self, mdp: MDPState, action: ActType) -> ActType:
+    def decode(self, mdp: MDPState, action: ActType) -> float:
         """Map the raw policy output to a harvest fraction.
 
         Parameters
@@ -245,8 +257,8 @@ class Fishing(Mechanism):
 
         Returns
         -------
-        ActType
-            The fraction ``sigmoid(z / 4)`` in ``(0, 1)``, as a ``float``.
+        float
+            The fraction ``sigmoid(z / 4)`` in ``(0, 1)``.
         """
 
         z = np.asarray(action, dtype=np.float32).reshape(-1)
@@ -254,7 +266,7 @@ class Fishing(Mechanism):
         return sigmoid(float(z[0]) / temperature)
 
     def apply(self, mdp: MDPState, harvest_frac: ActType) -> MDPState:
-        """Remove the harvest from the stock, as a negative residual.
+        """Record the catch this fisher requests from the current stock.
 
         Parameters
         ----------
@@ -269,8 +281,9 @@ class Fishing(Mechanism):
         Returns
         -------
         MDPState
-            A residual whose ``state["fish"]`` is minus the harvest (biomass
-            units), to be added to the stock by the caller.
+            A residual whose ``state["catch_request"][aid]`` is the requested
+            catch (biomass units, ``aid`` being the owning fisher). The stock
+            is left untouched.
         """
 
         # Must apply DLETA
@@ -281,18 +294,19 @@ class Fishing(Mechanism):
         ]  # allow unsustainable
         catch_capacity = max_harvest_multiplier * mdp.params["F_msy"] * fish / n_fishers
         harvest = harvest_frac * catch_capacity
-        return MDPState(state={"fish": -harvest})
+        return MDPState(state={CATCH_REQUEST: {self.aid: harvest}})
 
 
 class Restore(Mechanism):
-    """Restoration mechanism of a fisher: adds biomass to the stock.
+    """Restoration mechanism of a fisher: restores biomass to the stock.
 
     The mechanism turns the raw policy output ``z`` into an effort
-    ``sigmoid(z / 4)`` in ``(0, 1)`` and adds ``effort * e * K / N`` biomass to
-    the stock, where ``e`` is ``restoration_effectiveness`` (dimensionless),
-    ``K`` the carrying capacity and ``N`` the number of agents in ``mdp.aids``.
-    With the default effectiveness of 0.05 and ``N`` fishers at full effort the
-    stock gains ``0.05 * K`` per step. The effort has no cost in the
+    ``sigmoid(z / 4)`` in ``(0, 1)`` and restores ``effort * e * K / N`` biomass,
+    which the transition adds to the stock, where ``e`` is
+    ``restoration_effectiveness`` (dimensionless), ``K`` the carrying capacity
+    and ``N`` the number of agents in ``mdp.aids``. With the default
+    effectiveness of 0.05 and ``N`` fishers at full effort the stock gains
+    ``0.05 * K`` per step. The effort has no cost in the
     environment: a cost and a reward for it come from the regulator's
     ``Subsidy`` mechanism, which targets this one with
     ``acts_on=("fisherman", "restore")``.
@@ -311,11 +325,11 @@ class Restore(Mechanism):
     ...     params={"restoration_effectiveness": 0.01, "K": 1000.0},
     ...     aids={"fisherman:0", "fisherman:1"},
     ... )
-    >>> restore.apply(mdp, 1.0).state["fish"]
+    >>> restore.apply(mdp, 1.0).state["restoration"]
     [5.0]
     """
 
-    def decode(self, mdp: MDPState, action: ActType) -> ActType:
+    def decode(self, mdp: MDPState, action: ActType) -> float:
         """Map the raw policy output to a restoration effort.
 
         Parameters
@@ -327,8 +341,8 @@ class Restore(Mechanism):
 
         Returns
         -------
-        ActType
-            The effort ``sigmoid(z / 4)`` in ``(0, 1)``, as a ``float``.
+        float
+            The effort ``sigmoid(z / 4)`` in ``(0, 1)``.
         """
 
         z = np.asarray(action, dtype=np.float32).reshape(-1)
@@ -336,7 +350,7 @@ class Restore(Mechanism):
         return sigmoid(float(z[0]) / temperature)
 
     def apply(self, mdp: MDPState, restoration_frac: ActType) -> MDPState:
-        """Add the restored biomass to the stock, as a positive residual.
+        """Record the biomass this fisher restores at the current step.
 
         Parameters
         ----------
@@ -349,15 +363,16 @@ class Restore(Mechanism):
         Returns
         -------
         MDPState
-            A residual whose ``state["fish"]`` is the restored biomass
-            (biomass units), to be added to the stock by the caller.
+            A residual whose ``state["restoration"]`` is the restored biomass
+            (biomass units), summed over the fishers by the shared state and
+            added to the stock by the transition.
         """
 
         # Must apply DLETA
         n_fishers = len(mdp.aids)
         restoration_power = mdp.params["restoration_effectiveness"]
         restoration = restoration_power * mdp.params["K"] * restoration_frac / n_fishers
-        return MDPState(state={"fish": restoration})
+        return MDPState(state={RESTORATION: restoration})
 
 
 class FishingConfig(MechanismConfig):
@@ -594,41 +609,53 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         return MDPState(state={"fish": fish_init, "usage": 0.0}, params=self.ecology)
 
     @transition
-    def pella_tomlinson(self, mdp: MDPState) -> dict[str, float]:
-        """Advance the stock one step and log the step's dynamics.
+    def pella_tomlinson(self, mdp: MDPState) -> MDPState:
+        """Advance the stock one step with the surplus-production equation.
 
-        The fishers have already acted on ``mdp.state["fish"][t]``. At ``t = 0``
-        the stock ``B`` is that value and the harvest ``H`` is 0. From ``t = 1``
-        on, ``B`` is the stock of the previous index and ``H`` is the difference
-        between it and the current stock. The transition then computes the
-        production ``(r / p) * B * (1 - (B / K)^p)`` plus the process noise
-        ``sigma * N(0, 1) * B``, forms the available biomass ``max(B + growth,
-        0)``, takes the realized harvest ``min(H, available)`` and leaves
-        ``available - realized`` as the next stock. Because ``H`` is a stock
-        difference, it also contains the growth of the previous step and the
-        restoration, and it is negative when the restoration exceeds the
-        removal.
+        The fishers have already recorded what they request and restore at
+        step ``t = mdp.t``; the stock ``B = mdp.state["fish"][t]`` is untouched.
+        The transition adds up the requests. When their total exceeds ``B``,
+        every fisher receives the same fraction ``B / total`` of its request
+        (a pro-rata share), otherwise every request is delivered in full; the
+        delivered total is the catch ``C``. It then computes the production
+        ``g = (r / p) * B * (1 - (B / K)^p)`` and the process noise
+        ``sigma * N(0, 1) * B``, both on ``B``, and the next stock
+        ``max(B + g + restoration + noise - C, 0)``. The step records the
+        catch as the ``usage`` that the next observation reads, so
+        ``H_realized`` is exactly ``C``.
 
-        The method pushes ``B_msy``, ``MSY``, ``F_msy``, ``fish_stock``,
-        ``fish_stock_next``, the four ``fish_norm_next_*`` fields, ``growth``,
-        ``growth_noise``, ``H_realized`` and ``total_usage_norm`` into the
-        environment's metric logger.
+        The method pushes ``B_msy``, ``MSY``, ``F_msy``, ``fish_stock`` (the
+        stock ``B``), ``fish_stock_next``, the four ``fish_norm_next_*``
+        fields, ``growth`` (production plus noise), ``growth_noise``,
+        ``H_attempted`` (the total request), ``H_realized``,
+        ``total_usage_norm`` and, for every fisher,
+        ``by_agent[aid].requested_harvest`` and
+        ``by_agent[aid].delivered_harvest`` into the environment's metric
+        logger.
 
         Parameters
         ----------
         mdp : MDPState
-            Shared state with the ``fish`` trajectory (biomass units) and the
+            Shared state with the ``fish`` trajectory (biomass units), the
+            ``catch_request`` of each fisher and the total ``restoration`` of
+            the step (both recorded by the fishers' mechanisms), and the
             ``ecology`` parameters in ``params``.
 
         Returns
         -------
         MDPState
             The state advanced by one time index, with the next stock appended
-            to ``state["fish"]`` (biomass units) and the realized harvest to
-            ``state["usage"]`` (biomass units per step).
+            to ``state["fish"]`` (biomass units) and the delivered catch to
+            ``state["usage"]`` (biomass units per step). The requests and the
+            restoration restart from zero at the new index.
 
         Examples
         --------
+        Two fishers request 600 each from a stock of 800. The total request of
+        1200 exceeds the stock, so each receives two thirds of its request (400)
+        and the catch is 800. With a production of ``0.3 * 800 * (1 - 0.8) =
+        48`` the next stock is ``800 + 48 - 800 = 48``:
+
         >>> from core.mechanism.base import MDPState
         >>> from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
         >>> env = FisheryRegulatedEnv(
@@ -641,51 +668,70 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         ...                  "sigma": 0.0, "initial_stock_log_sigma": 0.0},
         ... )
         >>> mdp = MDPState().add(env.reset_fishery(MDPState()))
+        >>> mdp = mdp.add(MDPState(state={"catch_request": {"a": 600.0, "b": 600.0}}))
         >>> advanced = env.pella_tomlinson(mdp)
         >>> [round(value, 3) for value in advanced.state["fish"]]
-        [800.0, 848.0]
+        [800.0, 48.0]
+        >>> advanced.state["usage"]
+        [0.0, 800.0]
         """
 
         # intervention already happened
         r = mdp.params["r"]
         p = mdp.params["p"]
+        t = mdp.t
 
-        if mdp.t == 0:
-            B = mdp.state["fish"][mdp.t]
-            H = 0.0
-        else:
-            B = mdp.state["fish"][mdp.t - 1]
-            H = B - mdp.state["fish"][mdp.t]
+        B = mdp.state["fish"][t]
+        requests = {
+            aid: float(history[t])
+            for aid, history in mdp.state.data.get(CATCH_REQUEST, {}).items()
+        }
+        restoration = float(mdp.state.data.get(RESTORATION, [0.0] * (t + 1))[t])
+
+        # Every fisher asked at the same time from the same stock: when the
+        # total request exceeds the stock, each one receives a pro-rata share.
+        H_attempted = sum(requests.values())
+        delivered_share = min(1.0, B / H_attempted) if H_attempted > 0.0 else 1.0
+        delivered = {
+            aid: request * delivered_share for aid, request in requests.items()
+        }
+        H_realized = sum(delivered.values())
 
         noise = mdp.params["sigma"] * self.rng.normal() * B
-
         biological_growth = (r / p) * B * (1.0 - (B / self.K) ** p)
         growth = biological_growth + noise
-        available = max(B + growth, 0.0)
 
-        H_realized = min(H, available)
-        fish_next = available - H_realized
+        fish_next = max(B + growth + restoration - H_realized, 0.0)
 
         self.logger.push(key=("B_msy",), value=mdp.params["B_msy"])
         self.logger.push(key=("MSY",), value=mdp.params["MSY"])
         self.logger.push(key=("F_msy",), value=mdp.params["F_msy"])
-        self.logger.push(key=("fish_stock",), value=mdp.state["fish"][mdp.t])
+        self.logger.push(key=("fish_stock",), value=B)
         self.logger.push(key=("fish_stock_next",), value=fish_next)
-        self.logger.push(
-            key=("fish_norm_next_mean",), value=fish_next / max(self.K, EPS)
-        )
-        self.logger.push(
-            key=("fish_norm_next_min",), value=fish_next / max(self.K, EPS)
-        )
-        self.logger.push(
-            key=("fish_norm_next_max",), value=fish_next / max(self.K, EPS)
-        )
-        self.logger.push(
-            key=("fish_norm_next_last",), value=fish_next / max(self.K, EPS)
-        )
+        fish_norm_next = fish_next / max(self.K, EPS)
+        for field in (
+            "fish_norm_next_mean",
+            "fish_norm_next_min",
+            "fish_norm_next_max",
+            "fish_norm_next_last",
+        ):
+            self.logger.push(key=(field,), value=fish_norm_next)
         self.logger.push(key=("growth",), value=growth)
         self.logger.push(key=("growth_noise",), value=noise)
+        self.logger.push(key=("H_attempted",), value=H_attempted)
         self.logger.push(key=("H_realized",), value=H_realized)
         self.logger.push(key=("total_usage_norm",), value=H_realized / max(EPS, self.K))
+        for aid, request in requests.items():
+            self.logger.push(key=("by_agent", aid, "requested_harvest"), value=request)
+            self.logger.push(
+                key=("by_agent", aid, "delivered_harvest"), value=delivered[aid]
+            )
 
-        return mdp.advance(state={"fish": fish_next, "usage": H_realized})
+        # The requests and the restoration are per-step flows stored in a stock
+        # trajectory: restart them from zero so they do not leak to the next step.
+        next_state = {"fish": fish_next, "usage": H_realized}
+        if requests:
+            next_state[CATCH_REQUEST] = {aid: 0.0 for aid in requests}
+        if RESTORATION in mdp.state.data:
+            next_state[RESTORATION] = 0.0
+        return mdp.advance(state=next_state)
