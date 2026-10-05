@@ -5,10 +5,10 @@ the weather, the crop model and the quota quantities of the irrigation game.
 The environment pushes one value per step (the farm-level quantities are
 averaged over the farms first) and the inner optimizer reduces each field to
 one value per episode. The regulator environment reads the reduced
-``streamflow_m3s_series`` and ``outflow_m3s_series`` together with their
-baselines, which keep every step of the episode, to measure how far the
-irrigation moved the river from its natural regime, and ``reward_mean`` of the
-generic schema for the economic part of the fitness.
+``reservoir_level_norm_series`` together with its no-withdrawal baseline
+``baseline_reservoir_level_norm_series``, which keep every step of the episode,
+to measure how far the irrigation moved the lake from its natural level, and
+``reward_mean`` of the generic schema for the economic part of the fitness.
 """
 
 from typing import Optional
@@ -104,6 +104,9 @@ class WaterMetricSchema(EpisodeRolloutSchema):
     reservoir_level_norm_series : list[float] or None
         Filled fraction of the reservoir at every step, kept as a series.
         Reduced with ``SERIES``.
+    baseline_reservoir_level_norm_series : list[float] or None
+        Filled fraction of the reservoir that receives no withdrawal, at every
+        step. Reduced with ``SERIES``.
     streamflow_m3s_series : list[float] or None
         Reservoir inflow at every step (cubic metres per second), kept as a
         series. Reduced with ``SERIES``.
@@ -241,6 +244,9 @@ class WaterMetricSchema(EpisodeRolloutSchema):
         default=None, json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
     reservoir_level_norm_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    baseline_reservoir_level_norm_series: Optional[list[float]] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
     )
     streamflow_m3s_series: Optional[list[float]] = Field(

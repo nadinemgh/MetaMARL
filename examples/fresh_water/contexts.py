@@ -20,14 +20,14 @@ class FitnessContext(ContextSchema):
     economic_score : float
         Mean over episodes and seeds of the mean per-step reward of the farms
         (crop satisfaction minus policy penalty, reward units).
-    streamflow_deviation : float
-        Mean over episodes and seeds of the relative change of the river flow
-        that the farms' withdrawals cause with respect to a world without
-        withdrawals, ``sum|q - q0| / sum|q0|`` (dimensionless, zero for no
+    level_deviation : float
+        Mean over episodes and seeds of the relative change of the lake's filled
+        level that the farms' withdrawals cause with respect to a world without
+        withdrawals, ``sum|L - L0| / sum|L0|`` (dimensionless, zero for no
         change).
     sustainability_score : float
-        ``1 / (1 + streamflow_deviation)``, in ``(0, 1]``; 1 means the
-        withdrawals leave the flow untouched.
+        ``1 / (1 + level_deviation)``, in ``(0, 1]``; 1 means the withdrawals
+        leave the lake level untouched.
 
     When to use: as the ``metrics`` payload of the ``done`` context that
     ``WaterRegulatorEnv`` publishes for a candidate; build it with
@@ -37,7 +37,7 @@ class FitnessContext(ContextSchema):
     --------
     >>> context = FitnessContext.from_scores(
     ...     economic_score=0.6,
-    ...     streamflow_deviation=0.25,
+    ...     level_deviation=0.25,
     ...     economic_weight=1.0,
     ...     sustainability_weight=2.0,
     ... )
@@ -47,7 +47,7 @@ class FitnessContext(ContextSchema):
 
     objective_score: float
     economic_score: float
-    streamflow_deviation: float
+    level_deviation: float
     sustainability_score: float
 
     @classmethod
@@ -55,7 +55,7 @@ class FitnessContext(ContextSchema):
         cls,
         *,
         economic_score: float,
-        streamflow_deviation: float,
+        level_deviation: float,
         economic_weight: float = 1.0,
         sustainability_weight: float = 1.0,
     ) -> "FitnessContext":
@@ -65,8 +65,8 @@ class FitnessContext(ContextSchema):
         ----------
         economic_score : float
             Mean per-step reward of the farms (reward units).
-        streamflow_deviation : float
-            Relative change of the river flow, at least 0 (dimensionless).
+        level_deviation : float
+            Relative change of the lake level, at least 0 (dimensionless).
         economic_weight, sustainability_weight : float, optional
             Weights of the two terms of the objective (default 1.0 each).
 
@@ -75,7 +75,7 @@ class FitnessContext(ContextSchema):
         FitnessContext
             The populated context.
         """
-        sustainability_score = 1.0 / (1.0 + float(streamflow_deviation))
+        sustainability_score = 1.0 / (1.0 + float(level_deviation))
         objective = (
             economic_weight * float(economic_score)
             + sustainability_weight * sustainability_score
@@ -83,6 +83,6 @@ class FitnessContext(ContextSchema):
         return cls(
             objective_score=float(objective),
             economic_score=float(economic_score),
-            streamflow_deviation=float(streamflow_deviation),
+            level_deviation=float(level_deviation),
             sustainability_score=sustainability_score,
         )

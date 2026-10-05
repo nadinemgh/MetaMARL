@@ -91,7 +91,7 @@ from examples.fresh_water.regulated_env import (
     crop_demand,
     crop_stage,
 )
-from examples.fresh_water.regulator_env import WaterRegulatorEnv, streamflow_deviation
+from examples.fresh_water.regulator_env import WaterRegulatorEnv, level_deviation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REGULATOR = "water_regulator"
@@ -715,6 +715,34 @@ def test_the_logger_reduces_the_crop_and_lake_series_of_an_episode(build_env):
 
 
 @pytest.mark.unit
+def test_the_logged_level_leaves_its_baseline_once_the_farms_withdraw(build_env):
+    def deviation(rules: np.ndarray, request: float) -> float:
+        env = build_env(
+            rules=rules,
+            farms=2,
+            ecology_cfg={"rain_probability": 0.0, "initial_level_range": (0.6, 0.6)},
+        )
+        adapter = RLlibMultiAgentEnvAdapter(env)
+        adapter.reset()
+        for _ in range(HORIZON):
+            adapter.step(
+                {aid: {IRRIGATE_ID: np.asarray([request])} for aid in farm_ids(2)}
+            )
+        reduced = env.logger.reduce()
+        level = reduced.reservoir_level_norm_series
+        baseline = reduced.baseline_reservoir_level_norm_series
+        assert len(level) == len(baseline) == HORIZON
+        # The flows cannot tell the two worlds apart, the level can.
+        assert reduced.streamflow_m3s_series == pytest.approx(
+            reduced.baseline_streamflow_m3s_series
+        )
+        return level_deviation(level, baseline)
+
+    assert deviation(LOOSE, 0.0) == 0.0
+    assert deviation(LOOSE, 1.0) > 0.0
+
+
+@pytest.mark.unit
 def test_episodes_after_a_reset_start_on_a_new_planting_day(build_env):
     env = build_env(horizon=3)
     adapter = RLlibMultiAgentEnvAdapter(env)
@@ -752,27 +780,31 @@ def test_the_raven_lake_runs_inside_the_environment(build_env, tmp_path):
     )
     # The stand-in stage is 420 minus the withdrawal in m3/s.
     assert env._reading.stage_m == pytest.approx(420.0 - delivered / SECONDS_PER_DAY)
-    reduced_gauge = env.logger.reduce().gauge_west_montrose_m3s
-    assert reduced_gauge == 9.0
+    reduced = env.logger.reduce()
+    assert reduced.gauge_west_montrose_m3s == 9.0
+    # The stand-in baseline never loses water, so its level is that of 420 m.
+    assert reduced.baseline_reservoir_level_norm_series == [
+        pytest.approx(env.lake.level_norm(420.0))
+    ]
 
 
 # --- Regulator environment -------------------------------------------------------
 
 
 @pytest.mark.unit
-def test_streamflow_deviation_is_the_relative_absolute_change():
-    assert streamflow_deviation([9.0, 12.0], [10.0, 10.0]) == pytest.approx(0.15)
-    assert streamflow_deviation([5.0, 5.0], [5.0, 5.0]) == 0.0
-    assert streamflow_deviation([1.0], [0.0]) == pytest.approx(1.0 / 1e-8)
+def test_level_deviation_is_the_relative_absolute_change():
+    assert level_deviation([0.9, 1.2], [1.0, 1.0]) == pytest.approx(0.15)
+    assert level_deviation([0.5, 0.5], [0.5, 0.5]) == 0.0
+    assert level_deviation([1.0], [0.0]) == pytest.approx(1.0 / 1e-8)
     with pytest.raises(ValueError, match="shape"):
-        streamflow_deviation([1.0, 2.0], [1.0])
+        level_deviation([1.0, 2.0], [1.0])
 
 
 @pytest.mark.unit
 def test_fitness_context_combines_the_scores_with_the_weights():
     context = FitnessContext.from_scores(
         economic_score=0.6,
-        streamflow_deviation=0.25,
+        level_deviation=0.25,
         economic_weight=2.0,
         sustainability_weight=3.0,
     )
@@ -797,13 +829,12 @@ def regulator(published: list, monkeypatch, **ecology: Any) -> WaterRegulatorEnv
     )
 
 
-def episode(reward: float, flow: list[float], baseline: list[float]) -> Any:
+def episode(reward: float, level: list[float], baseline: list[float]) -> Any:
+    """Logged leaf of one episode: its reward and its level with the baseline."""
     return SimpleNamespace(
         reward_mean=[reward],
-        streamflow_m3s_series=[flow],
-        baseline_streamflow_m3s_series=[baseline],
-        outflow_m3s_series=[flow],
-        baseline_outflow_m3s_series=[baseline],
+        reservoir_level_norm_series=[level],
+        baseline_reservoir_level_norm_series=[baseline],
     )
 
 
@@ -836,7 +867,7 @@ def test_regulator_reward_averages_episodes_and_seeds(monkeypatch):
     (context,) = published
     assert context.payload.status is MechanismStatus.done
     assert context.payload.index == 2
-    assert context.payload.metrics.streamflow_deviation == pytest.approx(mean_deviation)
+    assert context.payload.metrics.level_deviation == pytest.approx(mean_deviation)
 
 
 @pytest.mark.unit
@@ -844,8 +875,8 @@ def test_regulator_reward_skips_the_gaps_of_the_metric_logger(monkeypatch):
     env = regulator([], monkeypatch)
     gapped = SimpleNamespace(
         reward_mean=[None, 0.5],
-        streamflow_m3s_series=[None, [12.0]],
-        baseline_streamflow_m3s_series=[None, [10.0]],
+        reservoir_level_norm_series=[None, [12.0]],
+        baseline_reservoir_level_norm_series=[None, [10.0]],
     )
     by_seed = {"0": SimpleNamespace(by_episode={"0": gapped})}
     rollout = SimpleNamespace(by_mechanism={"0": SimpleNamespace(by_seed=by_seed)})
@@ -862,23 +893,25 @@ def test_regulator_reward_skips_the_gaps_of_the_metric_logger(monkeypatch):
 
 
 @pytest.mark.unit
-def test_regulator_reads_the_series_named_by_the_option(monkeypatch):
-    env = regulator([], monkeypatch, deviation_series="outflow")
-    branch = episode(0.5, [1.0], [1.0])
-    branch.outflow_m3s_series = [[15.0]]
-    branch.baseline_outflow_m3s_series = [[10.0]]
+def test_regulator_scores_the_lake_level_and_ignores_the_flows(monkeypatch):
+    env = regulator([], monkeypatch)
+    # The flows are identical to their baselines, as the inflow always is: only
+    # the level, 15 % below its baseline, can move the score.
+    branch = episode(0.5, [0.85, 0.85], [1.0, 1.0])
+    branch.streamflow_m3s_series = [[10.0, 10.0]]
+    branch.baseline_streamflow_m3s_series = [[10.0, 10.0]]
+    branch.outflow_m3s_series = [[6.0, 6.0]]
+    branch.baseline_outflow_m3s_series = [[6.0, 6.0]]
     by_seed = {"0": SimpleNamespace(by_episode={"0": branch})}
     rollout = SimpleNamespace(by_mechanism={"0": SimpleNamespace(by_seed=by_seed)})
     metrics = SimpleNamespace(train=SimpleNamespace(rollout=rollout))
-    assert env.reward(metrics) == [pytest.approx(0.5 + 1.0 / 1.5)]
+    assert env.reward(metrics) == [pytest.approx(0.5 + 1.0 / 1.15)]
 
 
 @pytest.mark.unit
 def test_regulator_refuses_bad_options_and_empty_metrics(monkeypatch):
     with pytest.raises(ValueError, match="aggregation_status"):
         regulator([], monkeypatch, aggregation_status="done")
-    with pytest.raises(ValueError, match="deviation_series"):
-        regulator([], monkeypatch, deviation_series="rain")
     env = regulator([], monkeypatch)
     empty = SimpleNamespace(
         train=SimpleNamespace(rollout=SimpleNamespace(by_mechanism={}))

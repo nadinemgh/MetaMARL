@@ -7,11 +7,15 @@ class) and then calls :meth:`WaterRegulatorEnv.reward`, which turns the inner
 metrics into one fitness per candidate:
 
     fitness = economic_weight * mean reward
-              + sustainability_weight / (1 + streamflow deviation),
+              + sustainability_weight / (1 + level deviation),
 
-where the deviation is the relative change of the river flow caused by the
-withdrawals, ``sum|q - q0| / sum|q0|``, against the world with no withdrawals
-that the lake model runs in lockstep (see :mod:`examples.fresh_water.hydrology`).
+where the deviation is the relative change of the lake's filled level caused by
+the withdrawals, ``sum|L - L0| / sum|L0|``, against the world with no
+withdrawals that the lake model runs in lockstep (see
+:mod:`examples.fresh_water.hydrology`). The level is the measure because it is
+the one quantity the irrigation moves in both lake models: the inflow is
+upstream of the reservoir and the release only changes when the reservoir spills
+or runs dry.
 """
 
 import logging
@@ -32,27 +36,29 @@ logger = logging.getLogger(__name__)
 
 EPS = 1e-8
 
-DEVIATION_SERIES = {
-    "inflow": ("streamflow_m3s_series", "baseline_streamflow_m3s_series"),
-    "outflow": ("outflow_m3s_series", "baseline_outflow_m3s_series"),
-}
-"""Flow series (and their no-withdrawal baseline) the deviation can be read from."""
+LEVEL_FIELD = "reservoir_level_norm_series"
+"""Metric field holding the filled fraction of the lake at every step."""
+
+BASELINE_LEVEL_FIELD = "baseline_reservoir_level_norm_series"
+"""Metric field holding the filled fraction of the lake with no withdrawal."""
 
 
-def streamflow_deviation(flow: Any, baseline: Any) -> float:
-    """Return the relative change of a flow series against its baseline.
+def level_deviation(level: Any, baseline: Any) -> float:
+    """Return the relative change of the lake level against its baseline.
 
     Parameters
     ----------
-    flow : array_like
-        Flow with the withdrawals, shape ``(T,)``, cubic metres per second.
+    level : array_like
+        Filled fraction of the lake with the withdrawals, shape ``(T,)``,
+        dimensionless (``0`` empty, ``1`` full).
     baseline : array_like
-        Flow without withdrawals on the same days, shape ``(T,)``.
+        Filled fraction of the lake without withdrawals on the same days, shape
+        ``(T,)``.
 
     Returns
     -------
     float
-        ``sum|flow - baseline| / max(EPS, sum|baseline|)``; 0 when the two
+        ``sum|level - baseline| / max(EPS, sum|baseline|)``; 0 when the two
         series are equal.
 
     Raises
@@ -60,23 +66,23 @@ def streamflow_deviation(flow: Any, baseline: Any) -> float:
     ValueError
         If the two series have different lengths.
 
-    When to use: to score how much the farms change the river, once per episode.
+    When to use: to score how far the farms lower the lake, once per episode.
 
     Examples
     --------
-    >>> streamflow_deviation([9.0, 12.0], [10.0, 10.0])
-    0.15
-    >>> streamflow_deviation([5.0], [5.0])
+    >>> level_deviation([0.5, 0.75], [1.0, 1.0])
+    0.375
+    >>> level_deviation([0.5], [0.5])
     0.0
     """
-    flow_array = np.asarray(flow, dtype=np.float64)
+    level_array = np.asarray(level, dtype=np.float64)
     baseline_array = np.asarray(baseline, dtype=np.float64)
-    if flow_array.shape != baseline_array.shape:
+    if level_array.shape != baseline_array.shape:
         raise ValueError(
-            f"flow has shape {flow_array.shape} but its baseline has shape "
+            f"level has shape {level_array.shape} but its baseline has shape "
             + f"{baseline_array.shape}."
         )
-    numerator = float(np.abs(flow_array - baseline_array).sum())
+    numerator = float(np.abs(level_array - baseline_array).sum())
     return numerator / max(EPS, float(np.abs(baseline_array).sum()))
 
 
@@ -87,14 +93,12 @@ class WaterRegulatorEnv(RegulatorEnv):
     ----------
     ecology_cfg : dict, optional
         Options of the score, read with these keys: ``economic_weight`` (1.0),
-        ``sustainability_weight`` (1.0), ``aggregation_status`` (``"train"`` or
-        ``"eval"``, default ``"train"``, the split of the inner metrics the
-        fitness is computed from) and ``deviation_series`` (``"inflow"``, the
-        default and the choice of the first version, or ``"outflow"``).
-        With the Raven lake and with the surrogate the inflow is upstream of
-        the reservoir, so the withdrawals cannot change it and its deviation is
-        about zero by construction; ``"outflow"`` measures the river below the
-        dam and is the series on which the policy has an effect.
+        ``sustainability_weight`` (1.0) and ``aggregation_status`` (``"train"``
+        or ``"eval"``, default ``"train"``, the split of the inner metrics the
+        fitness is computed from). The deviation is always read on the lake
+        level: the inflow is upstream of the reservoir, so the withdrawals
+        cannot change it, and the release moves only when the reservoir spills
+        or runs dry, whereas the level moves with every withdrawal.
     **kwargs : Any
         Forwarded to :class:`core.envs.regulator.RegulatorEnv`: ``world``,
         ``optimizer``, ``horizon``, ``agents_cfgs``, ``seeds``, ``schema``,
@@ -106,8 +110,6 @@ class WaterRegulatorEnv(RegulatorEnv):
         Weights of the two terms of the fitness.
     aggregation_status : MechanismStatus
         Split of the inner metrics the fitness is computed from.
-    deviation_series : str
-        ``"inflow"`` or ``"outflow"``.
     last_metrics : list[dict[str, float]]
         One summary dictionary per scored candidate from the latest call of
         :meth:`reward`.
@@ -115,16 +117,15 @@ class WaterRegulatorEnv(RegulatorEnv):
     Raises
     ------
     ValueError
-        If ``aggregation_status`` is neither ``"train"`` nor ``"eval"``, or if
-        ``deviation_series`` is unknown.
+        If ``aggregation_status`` is neither ``"train"`` nor ``"eval"``.
 
     When to use: as the ``env`` of the outer ``ESConfig`` of the fresh-water
     experiment, with the inner environment logging ``WaterMetricSchema``.
 
     Examples
     --------
-    One candidate whose single episode has a mean reward of 0.5 and an outflow
-    that is 10 % above its baseline on every day (so ``sum|q - q0| / sum|q0|``
+    One candidate whose single episode has a mean reward of 0.5 and a lake level
+    that is 10 % below its baseline on every day (so ``sum|L - L0| / sum|L0|``
     is 0.1, the sustainability score ``1 / 1.1`` and the fitness
     ``0.5 + 1 / 1.1``):
 
@@ -140,12 +141,11 @@ class WaterRegulatorEnv(RegulatorEnv):
     ...     horizon=1,
     ...     agents_cfgs={},
     ...     seeds=[0],
-    ...     ecology_cfg={"deviation_series": "outflow"},
     ... )
     >>> episode = SimpleNamespace(
     ...     reward_mean=[0.5],
-    ...     outflow_m3s_series=[[11.0, 22.0]],
-    ...     baseline_outflow_m3s_series=[[10.0, 20.0]],
+    ...     reservoir_level_norm_series=[[0.45, 0.9]],
+    ...     baseline_reservoir_level_norm_series=[[0.5, 1.0]],
     ... )
     >>> seed = SimpleNamespace(by_episode={"0": episode})
     >>> rollout = SimpleNamespace(
@@ -172,12 +172,6 @@ class WaterRegulatorEnv(RegulatorEnv):
                 "aggregation_status must be 'train' or 'eval', "
                 + f"got {self.aggregation_status.value!r}."
             )
-        self.deviation_series = options.get("deviation_series", "inflow")
-        if self.deviation_series not in DEVIATION_SERIES:
-            raise ValueError(
-                f"deviation_series must be one of {sorted(DEVIATION_SERIES)}, "
-                + f"got {self.deviation_series!r}."
-            )
         self.last_metrics: list[dict[str, float]] = []
 
     @override(RegulatorEnv)
@@ -201,7 +195,7 @@ class WaterRegulatorEnv(RegulatorEnv):
         """Compute one fitness per candidate from the inner optimizer's metrics.
 
         For every logged episode the method takes the mean per-step reward and
-        the flow deviation against the baseline; both are averaged over the
+        the level deviation against the baseline; both are averaged over the
         episodes and seeds of the candidate and combined by
         :meth:`FitnessContext.from_scores`. A ``done`` ``MechanismContext`` that
         carries the ``FitnessContext`` is appended to the World (blocking on the
@@ -214,7 +208,8 @@ class WaterRegulatorEnv(RegulatorEnv):
             ``aggregation_status``), each holding
             ``rollout.by_mechanism[id].by_seed[id].by_episode[id]`` records
             with ``reward_mean`` (one value per logged episode) and the pair of
-            series selected by ``deviation_series`` (each a list holding one
+            series ``reservoir_level_norm_series`` and
+            ``baseline_reservoir_level_norm_series`` (each a list holding one
             list of days per logged episode); an entry is ``None`` where the
             metric logger recorded a gap, and gaps are skipped. Mechanism
             identifiers must be convertible to ``int``.
@@ -232,7 +227,6 @@ class WaterRegulatorEnv(RegulatorEnv):
             score; the message names the split.
         """
         branch = getattr(metrics, self.aggregation_status.value)
-        flow_field, baseline_field = DEVIATION_SERIES[self.deviation_series]
 
         rewards: dict[int, list[float]] = defaultdict(list)
         deviations: dict[int, list[float]] = defaultdict(list)
@@ -244,18 +238,18 @@ class WaterRegulatorEnv(RegulatorEnv):
                     # reward, or the list of its days.
                     logged_episodes = zip(
                         np.atleast_1d(episode.reward_mean),
-                        getattr(episode, flow_field),
-                        getattr(episode, baseline_field),
+                        getattr(episode, LEVEL_FIELD),
+                        getattr(episode, BASELINE_LEVEL_FIELD),
                         strict=True,
                     )
-                    for mean_reward, flow, baseline in logged_episodes:
+                    for mean_reward, level, baseline in logged_episodes:
                         # A gap of the metric logger: no episode under this key
                         # in that inner iteration.
                         if mean_reward is None:
                             continue
 
                         rewards[idx].append(float(mean_reward))
-                        deviations[idx].append(streamflow_deviation(flow, baseline))
+                        deviations[idx].append(level_deviation(level, baseline))
 
         if not rewards:
             raise ValueError(
@@ -269,7 +263,7 @@ class WaterRegulatorEnv(RegulatorEnv):
         for idx in rewards:
             context = FitnessContext.from_scores(
                 economic_score=float(np.mean(rewards[idx])),
-                streamflow_deviation=float(np.mean(deviations[idx])),
+                level_deviation=float(np.mean(deviations[idx])),
                 economic_weight=self.economic_weight,
                 sustainability_weight=self.sustainability_weight,
             )
@@ -297,7 +291,7 @@ class WaterRegulatorEnv(RegulatorEnv):
                     "idx": float(idx),
                     "objective": context.objective_score,
                     "economic_score": context.economic_score,
-                    "streamflow_deviation": context.streamflow_deviation,
+                    "level_deviation": context.level_deviation,
                     "sustainability_score": context.sustainability_score,
                 }
             )
@@ -308,7 +302,7 @@ class WaterRegulatorEnv(RegulatorEnv):
             float(np.mean([s["objective"] for s in summaries])),
             max(s["objective"] for s in summaries),
             min(s["objective"] for s in summaries),
-            float(np.mean([s["streamflow_deviation"] for s in summaries])),
+            float(np.mean([s["level_deviation"] for s in summaries])),
         )
         self.last_metrics = summaries
         return fitness.tolist()

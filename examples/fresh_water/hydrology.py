@@ -18,8 +18,9 @@ and its release rule are the simplest ones that make the reservoir react to the
 irrigation withdrawals, and its numbers are not those of the Raven model.
 
 Both models also advance a second, parallel reservoir that receives no
-withdrawal (the "baseline"). The regulator compares the flows of the two to
-measure how far the irrigation moved the river away from its natural regime.
+withdrawal (the "baseline"). The regulator compares the filled levels of the
+two to measure how far the irrigation lowered the lake away from its natural
+level.
 
 References
 ----------

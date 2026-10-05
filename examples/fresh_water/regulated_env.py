@@ -815,6 +815,10 @@ class WaterRegulatedEnv(MultiAgentEnv):
         push(key=("reservoir_level_norm",), value=level_norm)
         push(key=("reservoir_level_norm_min",), value=level_norm)
         push(key=("reservoir_level_norm_series",), value=level_norm)
+        push(
+            key=("baseline_reservoir_level_norm_series",),
+            value=self.lake.level_norm(reading.baseline_stage_m),
+        )
         push(key=("streamflow_m3s",), value=reading.inflow_m3s)
         push(key=("outflow_m3s",), value=reading.outflow_m3s)
         push(key=("precip_mm_day",), value=reading.precip_mm_day)

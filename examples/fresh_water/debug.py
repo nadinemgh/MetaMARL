@@ -7,7 +7,7 @@ is an Evolution Strategies optimizer over the eight rules of the
 ``water_policy`` mechanism (a quota that tightens as the lake falls, fines for
 requests above it and a penalty on large requests when the river depends on the
 release, see :mod:`examples.fresh_water.mechanism`). The fitness of a candidate
-mixes the farms' reward with how little the withdrawals change the river (see
+mixes the farms' reward with how little the withdrawals lower the lake (see
 :mod:`examples.fresh_water.regulator_env`). Every level logs a typed metric
 schema and renders the queries of :mod:`examples.fresh_water.queries` through
 the configured reporter.
@@ -394,10 +394,6 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                     "ecology_cfg": {
                         "economic_weight": 1.0,
                         "sustainability_weight": 1.0,
-                        # The inflow is upstream of the reservoir: the farms
-                        # cannot change it, so the deviation is read on the
-                        # outflow, the river below the dam.
-                        "deviation_series": "outflow",
                         "aggregation_status": "train",
                     }
                 },
