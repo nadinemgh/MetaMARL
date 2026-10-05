@@ -74,7 +74,9 @@ def fisher_ids(n: int) -> list[str]:
     return [f"fisherman:{i}" for i in range(n)]
 
 
-def make_env(n: int = 1, drop: tuple[str, ...] = (), **ecology) -> FisheryRegulatedEnv:
+def make_env(
+    n: int = 1, drop: tuple[str, ...] = (), schema=FisheryMetricSchema, **ecology
+) -> FisheryRegulatedEnv:
     agents = {
         aid: FishermanConfig(
             id=aid,
@@ -98,7 +100,7 @@ def make_env(n: int = 1, drop: tuple[str, ...] = (), **ecology) -> FisheryRegula
         agents_cfg_dict=agents,
         leaders_cfg_dict={},
         reporter_cfg=SilentReporterConfig(project="p"),
-        schema=FisheryMetricSchema,
+        schema=schema,
         ecology_cfg={
             key: value
             for key, value in {**ECOLOGY, **ecology}.items()
@@ -256,6 +258,16 @@ def test_the_first_step_already_delivers_its_catch():
 
     # Two fishers, each requests 0.5 * 2 * 0.15 * 800 / 2 = 60.
     assert env.logger.peek().H_realized == pytest.approx([120.0])
+
+
+@pytest.mark.unit
+def test_an_env_without_a_schema_steps_without_logging():
+    env = make_env(n=2, schema=None)
+
+    mdp = play(env, n=2, steps=3, harvest=0.0)
+
+    assert env.logger is None
+    assert len(mdp.state["fish"]) == 4
 
 
 @pytest.mark.unit

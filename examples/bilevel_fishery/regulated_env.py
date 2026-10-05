@@ -45,8 +45,8 @@ request (a pro-rata share), so that the catch never exceeds the stock; the
 delivered total is ``C(t)``. The transition computes ``B(t + 1)`` from the
 equation above, with the production and the noise evaluated on ``B(t)``. Every
 step pushes the series of ``FisheryMetricSchema`` (stock, growth, requested and
-delivered catches, reference points) into the environment's metric logger. The
-observation of each fisher is the vector ``[stock / K, 0, usage / K, 0, 0]``,
+delivered catches, reference points) into the environment's metric logger, when
+it was built with a schema. The observation of each fisher is the vector ``[stock / K, 0, usage / K, 0, 0]``,
 where the usage is the catch ``C`` of the previous step; the entries left at
 zero are filled by the leaders' mechanisms, for example social influence.
 
@@ -606,8 +606,9 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         """Play one step and log the step's reward in ``reward_series``.
 
         The step is that of :class:`core.envs.marl_regulated.MultiAgentEnv`.
-        Afterwards the mean over the fishers of the reward they received at
-        this step is pushed to ``reward_series``, the series that the regulator
+        Afterwards, when the environment has a metric logger (it has none
+        without a schema), the mean over the fishers of the reward they
+        received at this step is pushed to ``reward_series``, the series that the regulator
         environment reads to average the reward over the last steps of an
         episode (the base class only logs the episode-level reductions of the
         same value).
@@ -625,10 +626,11 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         """
 
         mdp = super().step(mdp)
-        step_reward = float(
-            np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
-        )
-        self.logger.push(key=("reward_series",), value=step_reward)
+        if self.logger is not None:
+            step_reward = float(
+                np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
+            )
+            self.logger.push(key=("reward_series",), value=step_reward)
         return mdp
 
     @transition
@@ -655,7 +657,7 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         for every fisher,
         ``by_agent[aid].requested_harvest`` and
         ``by_agent[aid].delivered_harvest`` into the environment's metric
-        logger.
+        logger, when it has one; without a schema it only advances the stock.
 
         Parameters
         ----------
@@ -727,31 +729,36 @@ class FisheryRegulatedEnv(MultiAgentEnv):
 
         fish_next = max(B + growth + restoration - H_realized, 0.0)
 
-        self.logger.push(key=("B_msy",), value=mdp.params["B_msy"])
-        self.logger.push(key=("MSY",), value=mdp.params["MSY"])
-        self.logger.push(key=("F_msy",), value=mdp.params["F_msy"])
-        self.logger.push(key=("fish_stock",), value=B)
-        self.logger.push(key=("fish_stock_next",), value=fish_next)
-        fish_norm_next = fish_next / max(self.K, EPS)
-        for field in (
-            "fish_norm_next_mean",
-            "fish_norm_next_min",
-            "fish_norm_next_max",
-            "fish_norm_next_last",
-        ):
-            self.logger.push(key=(field,), value=fish_norm_next)
-        self.logger.push(key=("fish_norm_next_series",), value=fish_norm_next)
-        self.logger.push(key=("growth",), value=growth)
-        self.logger.push(key=("growth_noise",), value=noise)
-        self.logger.push(key=("H_attempted",), value=H_attempted)
-        self.logger.push(key=("H_realized",), value=H_realized)
-        self.logger.push(key=("H_realized_series",), value=H_realized)
-        self.logger.push(key=("total_usage_norm",), value=H_realized / max(EPS, self.K))
-        for aid, request in requests.items():
-            self.logger.push(key=("by_agent", aid, "requested_harvest"), value=request)
+        if self.logger is not None:
+            self.logger.push(key=("B_msy",), value=mdp.params["B_msy"])
+            self.logger.push(key=("MSY",), value=mdp.params["MSY"])
+            self.logger.push(key=("F_msy",), value=mdp.params["F_msy"])
+            self.logger.push(key=("fish_stock",), value=B)
+            self.logger.push(key=("fish_stock_next",), value=fish_next)
+            fish_norm_next = fish_next / max(self.K, EPS)
+            for field in (
+                "fish_norm_next_mean",
+                "fish_norm_next_min",
+                "fish_norm_next_max",
+                "fish_norm_next_last",
+            ):
+                self.logger.push(key=(field,), value=fish_norm_next)
+            self.logger.push(key=("fish_norm_next_series",), value=fish_norm_next)
+            self.logger.push(key=("growth",), value=growth)
+            self.logger.push(key=("growth_noise",), value=noise)
+            self.logger.push(key=("H_attempted",), value=H_attempted)
+            self.logger.push(key=("H_realized",), value=H_realized)
+            self.logger.push(key=("H_realized_series",), value=H_realized)
             self.logger.push(
-                key=("by_agent", aid, "delivered_harvest"), value=delivered[aid]
+                key=("total_usage_norm",), value=H_realized / max(EPS, self.K)
             )
+            for aid, request in requests.items():
+                self.logger.push(
+                    key=("by_agent", aid, "requested_harvest"), value=request
+                )
+                self.logger.push(
+                    key=("by_agent", aid, "delivered_harvest"), value=delivered[aid]
+                )
 
         # The requests and the restoration are per-step flows stored in a stock
         # trajectory: restart them from zero so they do not leak to the next step.
