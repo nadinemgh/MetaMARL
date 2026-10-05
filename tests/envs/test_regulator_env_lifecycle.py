@@ -79,7 +79,6 @@ def test_construction_builds_agents_logger_and_reporter(toy, inner):
     assert env.seeds == [7] and env.horizon == 5 and env._t == 0
     assert env.logger.peek().iter == []
     assert env.reporter.label == "FitnessEnv"
-    assert env.reporter.schema is EpisodeRolloutSchema
 
 
 @pytest.mark.unit

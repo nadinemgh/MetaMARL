@@ -450,7 +450,6 @@ class TestBuildOptimizer:
 
         (reporter,) = reporter_config.built
         assert reporter.label == "RecordingOptimizer"
-        assert reporter.schema is dict
         assert reporter.queries == ["q"]
 
     def test_the_built_reporter_is_attached_to_the_optimizer(

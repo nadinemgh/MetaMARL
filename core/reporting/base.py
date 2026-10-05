@@ -77,9 +77,8 @@ class Reporter(ABC):
     registered queries against them and passes the resolved series to the
     backend-specific ``_report`` hook, which a subclass implements to draw or
     write them. A subclass must also implement ``close``. Queries are added
-    after construction with :meth:`add_query`, and the schema the queries
-    refer to may be recorded once through :attr:`schema` (the reporter stores
-    it; resolution walks the object passed to :meth:`report`).
+    after construction with :meth:`add_query`; resolution walks the object
+    passed to :meth:`report`.
 
     Reporters are built by a :class:`~core.reporting.config.ReporterConfig`
     rather than directly, one per owner (an optimizer or an environment).
@@ -88,9 +87,6 @@ class Reporter(ABC):
     ----------
     queries : tuple[Query, ...]
         The registered queries, in registration order (read-only property).
-    schema : type[MetricSchema] or None
-        The metric schema class the queries target; ``None`` until set, and
-        write-once afterwards.
 
     When to use: subclass it to add a reporting backend. To report with an
     existing backend, build a reporter from its config and call
@@ -117,7 +113,6 @@ class Reporter(ABC):
     """
 
     _queries: tuple[Query, ...] = ()
-    _schema: type[MetricSchema] | None = None
 
     @property
     def queries(self) -> tuple[Query, ...]:
@@ -139,34 +134,6 @@ class Reporter(ABC):
         """
 
         self._queries += queries
-
-    @property
-    def schema(self) -> type[MetricSchema] | None:
-        """Return the metric schema class set on this reporter, or ``None``."""
-
-        return self._schema
-
-    @schema.setter
-    def schema(self, schema: type[MetricSchema]) -> None:
-        """Record the metric schema class the queries target (write-once).
-
-        Parameters
-        ----------
-        schema : type[MetricSchema]
-            The schema class of the metrics that will be reported.
-
-        Raises
-        ------
-        AttributeError
-            If a schema has already been set on this reporter.
-        """
-
-        if self._schema is not None:
-            raise AttributeError(
-                "Reporter schema has already been set and cannot be changed."
-            )
-
-        self._schema = schema
 
     @staticmethod
     def _path_name(path: Path) -> str:

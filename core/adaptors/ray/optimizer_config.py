@@ -1141,7 +1141,6 @@ class RayOptimizerConfig(OptimizerConfig):
 
         if self._reporter_cfg is not None:
             reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
-            reporter.schema = self._reporting_schema
             reporter.add_query(*(self._reporting_queries or ()))
 
         opt = RayOptimizer(world=world, reporting=reporter, config=cfg)

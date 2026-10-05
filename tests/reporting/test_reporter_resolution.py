@@ -1,4 +1,4 @@
-"""``Reporter`` base class: schema, query registry, path and query resolution.
+"""``Reporter`` base class: query registry, path and query resolution.
 
 Ported from the August ``test_query_and_reporter.py`` and ``test_reporter_edges.py``.
 The wildcard ``"*"`` of that version is now the ``ReduceProtocol.SERIES`` token
@@ -65,19 +65,7 @@ class TestSeriesLabels:
 
 
 @pytest.mark.unit
-class TestSchemaAndQueryRegistry:
-    def test_schema_defaults_to_none(self, backendless_reporter):
-        assert backendless_reporter.schema is None
-
-    def test_schema_is_write_once(self, backendless_reporter):
-        backendless_reporter.schema = dict
-        assert backendless_reporter.schema is dict
-
-        with pytest.raises(AttributeError, match="already been set"):
-            backendless_reporter.schema = list
-
-        assert backendless_reporter.schema is dict
-
+class TestQueryRegistry:
     def test_queries_accumulate_in_order(self, backendless_reporter):
         first = Query(title="a", x=("iter",), y=("loss",))
         second = Query(title="b", x=("iter",), y=("loss",))

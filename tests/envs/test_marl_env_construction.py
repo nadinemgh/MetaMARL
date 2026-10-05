@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 
 from core.envs.marl_regulated import MultiAgentEnv
-from core.envs.schema import EpisodeRolloutSchema
 from core.mechanism.base import MDPState
 from core.metrics.logger import MetricLogger
 from core.reporting.query import Query
@@ -77,7 +76,6 @@ def test_reporter_receives_the_schema_and_the_queries(toy):
     )
     env = toy.make_env(toy.ScriptedWorld(), queries=queries)
 
-    assert env.reporter.schema is EpisodeRolloutSchema
     assert env.reporter.queries == queries
 
 

@@ -181,7 +181,6 @@ class RegulatorEnv(gym.Env):
 
         if reporter_cfg is not None:
             self.reporter = reporter_cfg.build(label=reporting_env_id)
-            self.reporter.schema = schema
             self.reporter.add_query(*(queries or ()))
 
     @property

@@ -590,7 +590,6 @@ def test_the_optimizer_level_reporter_is_built_once_and_loaded_with_the_declarat
     reporter = opt.kwargs["reporting"]
     assert RecordingReporterConfig.built == [reporter]
     assert reporter.label == "StubOptimizer"
-    assert reporter.schema is OptSchema
     assert reporter.queries == (OPT_QUERY,)
 
 
