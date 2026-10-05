@@ -74,6 +74,15 @@ class QuotaMechanism(Mechanism):
     ``acts_on`` and ``obs_map``; ``apply`` raises a ``ValueError`` when they are
     missing.
 
+    Two quotas held by the same regulator and aimed at the same target compose
+    additively, like every residual of :meth:`core.agents.base.Agent.action`.
+    Each quota reads the same raw request and returns the full correction to
+    its own allowance, so the two corrections are summed and the delivered
+    effort falls below what the stricter quota alone would deliver. To cap a
+    target by the stricter of two rules, compute that rule in one mechanism.
+    Each quota publishes its allowance under its own state entry,
+    ``allowed_frac:<id>``.
+
     Examples
     --------
     >>> import numpy as np
@@ -162,10 +171,12 @@ class QuotaMechanism(Mechanism):
             the targeted mechanism, a ``float32`` array of the shape of its
             request, zero except for the first component, which moves the
             request to the delivered effort. It also carries the allowed fraction
-            under the state entry ``allowed_frac``: the residual is the
-            difference between the allowed fraction and the value that entry
-            already holds at ``mdp.t`` (``0`` when absent), so that adding it to
-            the state leaves the allowed fraction of the step in the entry.
+            under the state entry ``allowed_frac:<id>``, named after this
+            mechanism so that two quotas keep one entry each: the residual is
+            the difference between the allowed fraction and the value that
+            entry already holds at ``mdp.t`` (``0`` when absent), so that adding
+            it to the state leaves the allowed fraction of the step in the
+            entry.
 
         Raises
         ------
@@ -218,10 +229,11 @@ class QuotaMechanism(Mechanism):
         # State entries are stocks: a residual is added to the value already in
         # the state. Return the difference, so that the entry ends up holding the
         # allowed fraction of this step instead of a running sum of them.
-        history = mdp.state.data.get("allowed_frac")
+        entry = f"allowed_frac:{self.id}"
+        history = mdp.state.data.get(entry)
         previous = history[min(mdp.t, len(history) - 1)] if history else 0.0
 
-        return MDPState(actions=da, state={"allowed_frac": allowed_frac - previous})
+        return MDPState(actions=da, state={entry: allowed_frac - previous})
 
 
 @dataclass(frozen=True, kw_only=True)

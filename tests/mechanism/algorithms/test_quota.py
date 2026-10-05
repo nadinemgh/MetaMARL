@@ -12,8 +12,11 @@ read back from it:
 with ``b`` the normalised resource level, ``q`` the regulator's quota, ``w``
 the quota transition width, ``s`` the logistic function and ``softplus0`` the
 softplus of width ``usage_transition_width`` shifted to be zero at the origin.
-The allowed fraction is also published in the state entry ``allowed_frac``;
-the entry must hold the fraction of the current step, not a running sum.
+The allowed fraction is also published in the state entry
+``allowed_frac:<mechanism id>``, one entry per quota, and the entry must hold
+the fraction of the current step, not a running sum. Two quotas on the same
+target compose additively: each corrects the same raw request, and the
+corrections are summed.
 """
 
 import math
@@ -34,6 +37,7 @@ USAGE_WIDTH = 0.005
 # Single-precision residuals: the mechanism stores the delivered action in a
 # float32 array.
 FLOAT32_ATOL = 1e-5
+ENTRY = "allowed_frac:quota"
 
 
 def logistic(x: float) -> float:
@@ -61,11 +65,13 @@ def delivered_fraction(requested: float, allowed: float) -> float:
     return requested - softplus0(requested - allowed)
 
 
-def make(acts_on=("fisherman", "harvest"), obs_map=None, **widths) -> QuotaMechanism:
+def make(
+    acts_on=("fisherman", "harvest"), obs_map=None, mechanism_id="quota", **widths
+) -> QuotaMechanism:
     if obs_map is None:
         obs_map = {"resource_level": "fish"}
     return Quota(
-        id="quota",
+        id=mechanism_id,
         action_space=spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32),
         acts_on=acts_on,
         obs_map=obs_map,
@@ -84,6 +90,34 @@ def mdp_with(
         actions={
             REGULATOR: {"quota": np.array([quota], dtype=np.float32)},
             **{aid: {"harvest": z} for aid, z in requests.items()},
+        },
+    )
+
+
+def two_quota_regulator() -> Agent:
+    """Regulator holding the quotas ``quota`` and ``strict`` on the same target."""
+    return Agent(
+        id=REGULATOR,
+        policy_id="p",
+        mechanisms={"quota": make(), "strict": make(mechanism_id="strict")},
+    )
+
+
+def two_quota_mdp(z: np.ndarray) -> MDPState:
+    """Stock at half the capacity; ``quota`` holds 0.5 and ``strict`` 0.55.
+
+    Both quotas bind on a request of 0.9: they allow about 0.50 and 0.16.
+    """
+    return MDPState(
+        aids={"fisherman:0"},
+        params={"K": K},
+        state={"fish": 0.5 * K},
+        actions={
+            REGULATOR: {
+                "quota": np.array([0.5], dtype=np.float32),
+                "strict": np.array([0.55], dtype=np.float32),
+            },
+            "fisherman:0": {"harvest": z},
         },
     )
 
@@ -458,19 +492,15 @@ class TestAllowedFractionEntry:
 
         composed = mdp.add(make()(mdp, mdp.actions[REGULATOR]["quota"][0]))
 
-        assert composed.state["allowed_frac"][0] == pytest.approx(
-            allowed_fraction(0.4, 0.5)
-        )
+        assert composed.state[ENTRY][0] == pytest.approx(allowed_fraction(0.4, 0.5))
 
     def test_the_entry_replaces_the_value_already_in_the_state(self):
         mdp = mdp_with({"fisherman:0": raw(0.9)}, level=0.4, quota=0.5)
-        mdp.state.data["allowed_frac"] = [0.7]
+        mdp.state.data[ENTRY] = [0.7]
 
         composed = mdp.add(make()(mdp, mdp.actions[REGULATOR]["quota"][0]))
 
-        assert composed.state["allowed_frac"][0] == pytest.approx(
-            allowed_fraction(0.4, 0.5)
-        )
+        assert composed.state[ENTRY][0] == pytest.approx(allowed_fraction(0.4, 0.5))
 
     def test_the_entry_follows_the_resource_level_over_the_steps(self):
         # The residual is added to the entry like every state delta, so it
@@ -486,8 +516,40 @@ class TestAllowedFractionEntry:
                 mdp = mdp.advance(state={"fish": level * K})
                 mdp = mdp.update(actions={"fisherman:0": {"harvest": raw(0.9)}})
             mdp = regulator.action(mdp)
-            recorded.append(mdp.state["allowed_frac"][mdp.t])
+            recorded.append(mdp.state[ENTRY][mdp.t])
 
         assert recorded == pytest.approx(
             [allowed_fraction(level, 0.5) for level in levels]
+        )
+
+    def test_two_quotas_keep_one_entry_each(self):
+        after = two_quota_regulator().action(two_quota_mdp(raw(0.9)))
+
+        assert after.state[ENTRY][0] == pytest.approx(allowed_fraction(0.5, 0.5))
+        assert after.state["allowed_frac:strict"][0] == pytest.approx(
+            allowed_fraction(0.5, 0.55)
+        )
+
+
+@pytest.mark.unit
+class TestTwoQuotasOnOneTarget:
+    def test_the_corrections_are_summed(self):
+        # Both quotas read the same raw request, so each returns the full
+        # correction to its own allowance and the corrections add: the
+        # delivered effort is below what the stricter quota alone delivers.
+        z = raw(0.9)
+        loose_alone = run(make(), {"fisherman:0": z}, level=0.5, quota=0.5)
+        strict_alone = run(make(), {"fisherman:0": z}, level=0.5, quota=0.55)
+
+        after = two_quota_regulator().action(two_quota_mdp(z))
+
+        combined = after.actions["fisherman:0"]["harvest"][0]
+        expected = (
+            z
+            + loose_alone.actions["fisherman:0"]["harvest"][0]
+            + strict_alone.actions["fisherman:0"]["harvest"][0]
+        )
+        np.testing.assert_allclose(combined, expected, atol=FLOAT32_ATOL)
+        assert logistic(float(combined.item()) / TEMPERATURE) < delivered_fraction(
+            0.9, allowed_fraction(0.5, 0.55)
         )
