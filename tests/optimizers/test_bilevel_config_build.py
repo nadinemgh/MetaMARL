@@ -134,7 +134,6 @@ class TestBuilders:
         assert cfg.opt_class is BilevelOptimizer
         assert cfg.inner_cfg is None and cfg.outer_cfg is None
         assert cfg.world_name is None and cfg.ray_cfg is None
-        assert cfg.default_mechanism is None and cfg.output_dir is None
         assert cfg.reporter_cfg is None
         assert cfg.env is None  # inherited fields are present
 

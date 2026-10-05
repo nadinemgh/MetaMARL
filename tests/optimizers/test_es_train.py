@@ -72,7 +72,7 @@ def test_train_reports_generations_run_and_convergence(episodes):
 @pytest.mark.unit
 def test_bilevel_train_accepts_the_es_summary():
     es = make_es(episodes=2)
-    config = SimpleNamespace(episodes=None, env=None, world_name="w", output_dir=None)
+    config = SimpleNamespace(episodes=None, env=None, world_name="w")
     bilevel = BilevelOptimizer(config, outer=es, inner=None, reporter=None)
 
     result = bilevel.train()

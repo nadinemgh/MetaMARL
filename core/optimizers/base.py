@@ -106,8 +106,6 @@ class Optimizer(ABC):
         reporting: Optional[Reporter] = None,
         **kwargs: Any,
     ):
-        from core.optimizers.config import OptimizerConfig
-
         self.episodes: Optional[int] = config.episodes if config else None
         self.config: OptimizerConfig = config
         self.world = world

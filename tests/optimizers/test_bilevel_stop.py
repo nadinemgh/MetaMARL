@@ -32,7 +32,7 @@ class RecordingLevel:
 
 
 def make_bilevel(outer: RecordingLevel, inner: RecordingLevel) -> BilevelOptimizer:
-    config = SimpleNamespace(episodes=None, env=None, world_name="w", output_dir=None)
+    config = SimpleNamespace(episodes=None, env=None, world_name="w")
     return BilevelOptimizer(config, outer=outer, inner=inner, reporter=None)
 
 

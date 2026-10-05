@@ -52,7 +52,7 @@ class OrderedReporter:
 
 
 def config(**overrides):
-    values = {"episodes": None, "env": None, "world_name": "w1", "output_dir": "out"}
+    values = {"episodes": None, "env": None, "world_name": "w1"}
 
     return SimpleNamespace(**{**values, **overrides})
 
@@ -66,11 +66,8 @@ def test_constructor_copies_the_config_and_starts_empty():
 
     assert opt.config is cfg
     assert (opt.outer, opt.inner, opt.reporting) == (outer, inner, reporter)
-    assert (opt.world_name, opt.output_dir) == ("w1", "out")
+    assert opt.world_name == "w1"
     assert opt.converged is False
-    assert opt.all_trajectories == []
-    assert opt.population_history == []
-    assert opt.es_metrics_history == []
     assert opt.env is None and opt.world is None
 
 

@@ -42,7 +42,6 @@ from typing import Any, Optional, Self
 
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
-from core.mechanism.base import Mechanism
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 from core.reporting.base import Reporter
@@ -82,10 +81,6 @@ class BilevelConfig(OptimizerConfig):
     ray_cfg : RayRuntimeConfig or None
         Ray runtime configuration, set by :meth:`ray`; ``None`` means the
         defaults of ``RayRuntimeConfig``.
-    default_mechanism : Mechanism or None
-        ``None`` unless set by the caller; nothing in the framework reads it.
-    output_dir : str or None
-        ``None`` unless set by the caller; copied onto ``BilevelOptimizer``.
 
     When to use: to describe a full bilevel run (outer search plus inner
     learner) before building it with ``build_optimizer``; the levels themselves
@@ -107,8 +102,6 @@ class BilevelConfig(OptimizerConfig):
         self.inner_cfg = None
         self.world_name: Optional[str] = None
         self.ray_cfg = None
-        self.default_mechanism: Optional[Mechanism] = None
-        self.output_dir: str | None = None
 
     def society(self, cfg: Optional[OptimizerConfig] = None) -> Self:
         """Set the inner (policy learning) config, typically an ``APPOptimizerConfig``.
@@ -339,8 +332,7 @@ class BilevelOptimizer(Optimizer):
     Parameters
     ----------
     config : BilevelConfig
-        Configuration of the run; ``world_name`` and ``output_dir`` are read
-        from it.
+        Configuration of the run; ``world_name`` is read from it.
     outer : Optimizer
         Optimizer whose ``train()`` returns a dict with ``episodes``,
         ``converged``, ``best_mechanism`` and ``best_fitness`` (the ES). Its
@@ -353,15 +345,12 @@ class BilevelOptimizer(Optimizer):
 
     Attributes
     ----------
-    world_name, output_dir : str or None
+    world_name : str or None
         Copied from the config.
     converged : bool
         ``False`` until :meth:`train` returns; then the ``converged`` flag of
         the outer summary (``True`` when the ES stopped on its convergence
         rule).
-    all_trajectories, population_history, es_metrics_history : list
-        Empty lists that nothing fills; the ES history is in the dict that
-        :meth:`train` returns.
 
     When to use: it is what ``BilevelConfig.build_optimizer`` returns, so call
     :meth:`train` on it to run the experiment. Build one directly only to test
@@ -381,9 +370,7 @@ class BilevelOptimizer(Optimizer):
     ...                 "best_mechanism": [0.5]}
     ...     def stop(self):
     ...         self.stopped = True
-    >>> config = SimpleNamespace(
-    ...     episodes=None, env=None, world_name="w", output_dir=None
-    ... )
+    >>> config = SimpleNamespace(episodes=None, env=None, world_name="w")
     >>> outer, inner = Level(), Level()
     >>> bilevel = BilevelOptimizer(config, outer=outer, inner=inner, reporter=None)
     >>> bilevel.train()["best_fitness"]
@@ -404,11 +391,7 @@ class BilevelOptimizer(Optimizer):
         self.world_name = config.world_name
         self.outer = outer
         self.inner = inner
-        self.output_dir = config.output_dir
         self.converged = False
-        self.all_trajectories: list[tuple[int, float, list[dict]]] = []
-        self.population_history: list[tuple[int, list]] = []
-        self.es_metrics_history: list[dict] = []
 
         # reporter
         self.reporting = reporter
