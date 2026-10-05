@@ -13,10 +13,9 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 import numpy as np
-from gym.core import ActType
 from gymnasium import Space
 
-from core.mechanism.base import MDPState, Mechanism
+from core.mechanism.base import ActType, MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
 from core.types import AgentID, MechanismID, PolicyID
 from core.utils import sigmoid
@@ -61,7 +60,7 @@ class Agent:
     --------
     >>> import numpy as np
     >>> from gymnasium import spaces
-    >>> from core.mechanism.base import MDPState, Mechanism
+    >>> from core.mechanism.base import ActType, MDPState, Mechanism
     >>> class Harvest(Mechanism):
     ...     def apply(self, mdp, action):
     ...         return MDPState(state={"stock": -float(np.asarray(action)[0])})

@@ -11,6 +11,8 @@ by ``build``, which always returns one agent.
 """
 
 import dataclasses
+import subprocess
+import sys
 from typing import ClassVar
 
 import numpy as np
@@ -286,3 +288,18 @@ def test_a_mechanism_can_be_built_with_a_default_of_several_entries():
 
     assert isinstance(agent.mechanisms["m"], Adder)
     np.testing.assert_array_equal(agent.mechanisms["m"]._u, default)
+
+
+@pytest.mark.unit
+def test_importing_the_agents_does_not_import_the_unmaintained_gym_package():
+    # ``gym`` prints a deprecation notice when it is imported; the framework
+    # uses ``gymnasium``. A fresh interpreter is needed: this process may have
+    # imported ``gym`` through another module.
+    code = "import sys, core.agents.base; print('gym' in sys.modules)"
+
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout.strip() == "False"
+    assert "unmaintained" not in result.stderr
