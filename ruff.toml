@@ -34,6 +34,10 @@ allow-multiline = false
 # so isort must not split on them either, or the two would disagree.
 [lint.isort]
 split-on-trailing-comma = false
+# The git-ignored run directory `wandb/` at the root would otherwise make isort
+# take the wandb package for first-party code in a working copy, and sort its
+# import differently there than in a clean checkout such as CI.
+known-third-party = ["wandb"]
 
 [format]
 quote-style = "double"

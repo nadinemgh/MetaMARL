@@ -20,9 +20,9 @@ from typing import Any, Optional
 
 import numpy as np
 import plotly.graph_objects as go
+import wandb
 from plotly.colors import qualitative
 
-import wandb
 from core.reporting.base import Reporter, Resolved
 from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
