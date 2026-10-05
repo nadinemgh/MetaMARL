@@ -44,3 +44,16 @@ jobs:
       - run: uv run python -m pytest -m integration --no-cov
         env:
           WANDB_MODE: offline
+
+  notebook:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run python -m pytest -m notebook --no-cov
+        env:
+          WANDB_MODE: offline
