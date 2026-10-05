@@ -42,6 +42,8 @@ True
 >>> world.flush(status=MechanismStatus.train)
 >>> world.get_mechanism_registry()
 {}
+>>> world.get_opt_ctx_ids("opt"), world.get_context(ctx_id)
+([], None)
 """
 
 from __future__ import annotations
@@ -468,7 +470,7 @@ class World:
         self._contexts[ctx.id] = ctx
 
     def flush(self, status: Optional[MechanismStatus] = None) -> None:
-        """Drop mechanisms from the mechanism registry.
+        """Drop mechanisms, and the contexts that carried them, from the World.
 
         Parameters
         ----------
@@ -479,8 +481,13 @@ class World:
 
         Notes
         -----
-        Only ``_mechanism_registry`` is touched. The ``Context`` objects that
-        carried the mechanisms stay in ``_contexts`` and in ``_opt_ctx_map``.
+        The three registries stay in sync. Each removed mechanism leaves
+        ``_mechanism_registry``, its ``Context`` leaves ``_contexts`` and its ID
+        leaves the list of the owning optimizer in ``_opt_ctx_map``, so
+        ``get_opt_ctx_ids`` never lists an ID that no longer resolves. The
+        optimizer entry itself stays, even when its list becomes empty: the ID
+        was reserved by ``build_optimizer`` and must not be drawn again.
+        Contexts with a payload that is not a mechanism are not touched.
         """
 
         to_delete = []
@@ -493,3 +500,11 @@ class World:
 
         for ctx_id in to_delete:
             del self._mechanism_registry[ctx_id]
+
+            ctx = self._contexts.pop(ctx_id, None)
+
+            if ctx is not None and ctx.opt_id in self._opt_ctx_map:
+                ids = self._opt_ctx_map[ctx.opt_id]
+
+                if ctx_id in ids:
+                    ids.remove(ctx_id)

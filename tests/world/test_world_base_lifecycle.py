@@ -202,22 +202,52 @@ def test_flush_by_status_keeps_the_other_entries(world, make_context, make_mecha
     world.flush(status=MechanismStatus.eval)
 
     assert set(world.get_mechanism_registry()) == {published, trained}
-    # Only the mechanism registry is touched: the contexts stay registered.
-    assert world.get_ctx_ids() == {published, evaluated, trained}
+    assert world.get_ctx_ids() == {published, trained}
+    assert world.get_context(evaluated) is None
+    assert world.get_opt_ctx_ids("opt") == [published, trained]
 
 
 @pytest.mark.unit
-def test_flush_without_status_empties_the_mechanism_registry(
+def test_flush_without_status_empties_every_registry_but_keeps_the_optimizer(
     world, make_context, make_mechanism
 ):
-    ids = {
-        world.append_context(make_context(make_mechanism(index=i))) for i in range(3)
-    }
+    for i in range(3):
+        world.append_context(make_context(make_mechanism(index=i)))
 
     world.flush()
 
     assert world.get_mechanism_registry() == {}
-    assert world.get_ctx_ids() == ids
+    assert world.get_ctx_ids() == set()
+    # The optimizer ID stays registered: ``build_optimizer`` reserved it and
+    # ``generate_uuid`` must not hand it out again.
+    assert world.get_opt_ids() == {"opt"}
+    assert world.get_opt_ctx_ids("opt") == []
+
+
+@pytest.mark.unit
+def test_flush_keeps_every_listed_context_id_resolvable(
+    world, make_context, make_mechanism, make_other
+):
+    """The three registries agree after a partial flush."""
+    world.append_context(make_context(make_other(), opt_id="a"))
+    world.append_context(
+        make_context(make_mechanism(index=0, status=MechanismStatus.eval), opt_id="a")
+    )
+    world.append_context(make_context(make_mechanism(index=1), opt_id="b"))
+    world.append_context(
+        make_context(make_mechanism(index=2, status=MechanismStatus.eval), opt_id="b")
+    )
+    world.append_context(
+        make_context(make_mechanism(index=3, status=MechanismStatus.eval), opt_id=None)
+    )
+
+    world.flush(status=MechanismStatus.eval)
+
+    listed = [cid for opt in world.get_opt_ids() for cid in world.get_opt_ctx_ids(opt)]
+
+    assert all(world.get_context(cid) is not None for cid in listed)
+    assert set(world.get_mechanism_registry()) <= world.get_ctx_ids()
+    assert len(world.get_ctx_ids()) == 2
 
 
 @pytest.mark.unit
