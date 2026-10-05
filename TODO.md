@@ -1,5 +1,7 @@
 # Visualization feature branch — handoff TODO
 
+Reconciliation of 2026-10-05: every box of the visualization plan and of the mechanism plan below was compared with the code of the branch `feature/social-influence-testing-v2`, and only markers were appended. A ticked box ends with `done in <hash>` and the symbol that exists now ("realised differently" means the goal was met another way, for example with reduction tokens instead of "*"); an unticked box ending with `partly done in <hash>` says what is missing, `obsolete` gives the reason and the commit, and no marker means the item is still open. "Already checked" qualifies a box the plan author had ticked, and "answered" closes a question asked in the text.
+
 This document is the implementation handoff for the visualization/metrics
 feature branch.
 
@@ -67,7 +69,6 @@ core/types.py
 The first goal is **not new features**. The first goal is to make this complete
 abstraction run end-to-end, cover the concerned modules with tests, and verify
 that the new abstraction preserves benchmark behavior.
->>>>>>> c9c15fb (feat: TODO and tutorial notebooks)
 
 ---
 
@@ -77,19 +78,19 @@ that the new abstraction preserves benchmark behavior.
 - [ ] Inner optimizer plots reproduce the dev plots/data.
 - [ ] ES plots reproduce the dev plots/data.
 - [ ] Mechanism IDs, seed IDs, episode IDs, policy IDs, agent IDs, and ES
-      parameter names do not need to be hard-coded into user queries.
-- [ ] `Query` supports runtime dict keys with `"*"`.
-- [ ] Mean ±1 std across seeds works per mechanism.
-- [ ] Train-vs-eval shaded plots work per mechanism.
-- [ ] ES cumulative parameter scatter plots work across every candidate and
-      generation.
+      parameter names do not need to be hard-coded into user queries. — partly done in `bd4728b`: the example queries reach mechanism, seed, episode and policy IDs through the `ReduceProtocol.SERIES` and `ReduceProtocol.MEAN` tokens; the searched ES parameter `quota` is still named in its query, and no per-agent query exists
+- [x] `Query` supports runtime dict keys with `"*"`. — done in `fdd2567`: realised with reduction tokens instead of "*": `ReduceProtocol.SERIES` expands a dynamic dict node into one group per key and `ReduceProtocol.MEAN` averages over it, both in `Reporter._resolve_path`
+- [x] Mean ±1 std across seeds works per mechanism. — done in `bd4728b`: `Query.error="std"` with an `error_path` ending at `by_seed` gives the per-mechanism std band, as used by `INNER_QUERIES`; resolution is tested by `test_std_per_mechanism_over_seeds` in `70c5244`
+- [ ] Train-vs-eval shaded plots work per mechanism. — partly done in `bd4728b`: the ES-level query "Final train vs eval episode return" draws train and eval in one figure with one curve per mechanism, but `error_path` names one branch, so only the eval path carries the std band
+- [x] ES cumulative parameter scatter plots work across every candidate and
+      generation. — done in `cd28820`: the query "Candidate fitness vs quota" (final form in `34ae6f6`) plots every candidate of every generation in one scatter, coloured by outer iteration through `Query.color`
 - [ ] ES parallel-coordinates plot is supported.
 - [ ] Unit tests cover MetricLogger, schema polymorphism, Query resolution,
-      reporters, environment/Ray/ES integration, and dynamic wildcards.
-- [ ] CSV export is implemented and tested.
-- [ ] TensorBoard reporting is implemented and tested.
+      reporters, environment/Ray/ES integration, and dynamic wildcards. — partly done in `7e4b2de`: unit suites exist for the metric logger (`7e4b2de`), `Query` and the reporters (`70c5244`), the ES payload (`1cdf19f`) and the Ray payload (`9c22690`), plus a debug-script smoke test (`7dccabd`); there is no dev-parity test and no test of a real Ray run that checks the IDs
+- [x] CSV export is implemented and tested. — done in `f863b4e`: `CSVReporter` writes one long-form file per query; tested in `tests/reporting/test_csv_reporter.py` (`70c5244`)
+- [x] TensorBoard reporting is implemented and tested. — done in `63bce35`: `TensorBoardReporter` writes one scalar tag per series; tested in `tests/reporting/test_tensorboard_reporter.py` (`70c5244`)
 - [ ] Legacy dev W&B plotting utilities can be removed only after parity is
-      proven.
+      proven. — partly done in `c02db47`: the stale W&B plotting utilities were removed, but no dev-versus-branch parity comparison has been run
 
 ---
 
@@ -245,17 +246,17 @@ def fishery_agent_queries(agent_id: str) -> list[Query]:
 
 ### Environment acceptance checks
 
-- [ ] `env.logger.peek()` produces a horizon-length x series and aligned y
-      series before `reduce()`.
-- [ ] `env.reporter.report(env.logger.peek())` does not mutate or clear the
-      logger.
-- [ ] After reporting, `env.logger.reduce()` still returns the correct compiled
-      episode metrics.
+- [x] `env.logger.peek()` produces a horizon-length x series and aligned y
+      series before `reduce()`. — done in `9c74d85`: `test_every_step_logs_one_value_per_dynamics_field` checks that `FisheryRegulatedEnv` leaves one value per step in every stock-level and per-agent series of `env.logger.peek()`
+- [x] `env.reporter.report(env.logger.peek())` does not mutate or clear the
+      logger. — done in `654dc20`: `log_and_report_episode_metrics` peeks, reports, then reduces; `test_report_does_not_mutate_the_metrics` (`70c5244`) shows that `Reporter.report` leaves the schema untouched
+- [x] After reporting, `env.logger.reduce()` still returns the correct compiled
+      episode metrics. — done in `a89fb77`: `test_episode_end_hook_reports_then_reduces` checks that the reduced episode metrics are still handed to RLlib after the report
 - [ ] Agent query traces match the agent values shown on dev.
-- [ ] No environment-specific field silently disappears when the runtime
-      `FisheryMetricSchema` subtype is materialized.
-- [ ] No `FisheryAgentMetricSchema` field disappears at the deeper `by_agent`
-      runtime subtype.
+- [x] No environment-specific field silently disappears when the runtime
+      `FisheryMetricSchema` subtype is materialized. — done in `e2ce117`: `TestSpecialisationKeepsPushedValues` shows that specialising a node to a subclass keeps what was pushed, and `test_every_step_logs_one_value_per_dynamics_field` (`9c74d85`) lists the `FisheryMetricSchema` fields the environment logs
+- [x] No `FisheryAgentMetricSchema` field disappears at the deeper `by_agent`
+      runtime subtype. — done in `e2ce117`: `test_values_pushed_under_a_dynamic_id_survive` covers the dynamic level, and the environment test (`9c74d85`) checks `requested_harvest` and `delivered_harvest` for every agent in `by_agent`
 
 ### Data/schema gaps versus old dev environment plotting
 
@@ -274,7 +275,7 @@ For exact parity:
 - [ ] Add shared values to `FisheryMetricSchema`.
 - [ ] Add agent-specific values to `FisheryAgentMetricSchema`.
 - [ ] Add named observation fields if exact old observation plots are required.
-- [ ] Add queries only after the schema field exists.
+- [x] Add queries only after the schema field exists. — done in `3205b73`: `test_every_episode_statistic_named_by_a_query_is_filled_by_the_environment` and `test_every_environment_query_resolves_against_the_environment_logger` fail when a query names a field the environment does not fill
 
 ---
 
@@ -343,7 +344,7 @@ Acceptance:
 - [ ] Train reward mean/min/max are numerically equivalent to dev.
 - [ ] Eval reward mean/min/max are numerically equivalent to dev.
 - [ ] Episode lengths and episode counts are equivalent.
-- [ ] x-axis uses the intended RLlib iteration and is monotonic.
+- [ ] x-axis uses the intended RLlib iteration and is monotonic. — partly done in `04e9e7f`: the x axis is `iter`, which `RayOptimizer.train` fills with its own zero-based monotonic inner counter; RLlib's lifetime `training_iteration` is only printed in the log line
 
 ---
 
@@ -418,8 +419,8 @@ learn-throughput depending on the RLlib result version.
 
 - [ ] Compare current `PerformanceSchema` to the exact dev fields.
 - [ ] Add missing fields only if exact dev parity requires them.
-- [ ] Do not read raw RLlib dictionaries directly from the reporter once the
-      schema adaptor owns those mappings.
+- [x] Do not read raw RLlib dictionaries directly from the reporter once the
+      schema adaptor owns those mappings. — done in `04e9e7f`: `build_rollout`, `build_learner` and `build_performance` in `core/adaptors/ray/utils.py` own the RLlib mapping, and the reporters read only `MetricSchema` paths
 
 ---
 
@@ -517,10 +518,10 @@ def ray_policy_queries(policy_id: str) -> list[Query]:
 
 Acceptance:
 
-- [ ] Every policy in `LearnerSchema.by_policy` can be plotted.
-- [ ] Policies do not have to be manually hard-coded after wildcard support.
-- [ ] `__all_modules__` / aggregate learner entries are handled intentionally:
-      either include with a clear label or exclude explicitly.
+- [x] Every policy in `LearnerSchema.by_policy` can be plotted. — done in `bd4728b`: the learner queries of `INNER_QUERIES` reach every policy of `LearnerSchema.by_policy` through `ReduceProtocol.SERIES`
+- [x] Policies do not have to be manually hard-coded after wildcard support. — done in `bd4728b`: policies are reached with the `ReduceProtocol.SERIES` token instead of a "*" wildcard, so none is hard-coded
+- [x] `__all_modules__` / aggregate learner entries are handled intentionally:
+      either include with a clear label or exclude explicitly. — done in `04e9e7f`: `build_learner` skips the `__all_modules__` entry explicitly and keeps one entry per policy module
 - [ ] Loss/entropy/KL/gradient values match dev for the same deterministic run.
 
 Old dev learner fields included names such as `kl`, `entropy`, `vf_loss`,
@@ -574,17 +575,17 @@ Query(
 
 ## 2.1 Required wildcard semantics
 
-- [ ] `"*"` matches keys only at dynamic dict nodes.
-- [ ] Static schema fields are not accidentally wildcarded.
-- [ ] One wildcard expands to one trace per matched runtime key.
-- [ ] Multiple wildcards retain their bindings.
-- [ ] Expansion order is deterministic (sort keys or preserve a documented
-      insertion order).
-- [ ] Missing dynamic branches produce a useful error or an empty match
-      according to an explicit policy.
-- [ ] An exact concrete key continues to work unchanged.
-- [ ] Wildcard expansion does not mutate the schema/MetricLogger.
-- [ ] Wildcard resolution works on runtime subtype nodes.
+- [x] `"*"` matches keys only at dynamic dict nodes. — done in `fdd2567`: realised with tokens: `ReduceProtocol.SERIES` and `MEAN` apply only at dynamic dict nodes, and a token on a static field raises (`test_reduction_token_on_a_schema_is_a_type_error`, `70c5244`)
+- [x] Static schema fields are not accidentally wildcarded. — done in `fdd2567`: a token on a static schema field raises a `TypeError` instead of expanding (`test_reduction_token_on_a_schema_is_a_type_error`, `70c5244`)
+- [x] One wildcard expands to one trace per matched runtime key. — done in `fdd2567`: `ReduceProtocol.SERIES` gives one group, hence one trace, per runtime key (`test_series_expands_one_group_per_dynamic_id`, `70c5244`)
+- [x] Multiple wildcards retain their bindings. — done in `fdd2567`: nested tokens chain their groups (`test_two_levels_of_series_chain_the_groups`, `70c5244`)
+- [x] Expansion order is deterministic (sort keys or preserve a documented
+      insertion order). — done in `fdd2567`: groups are sorted by key whatever the insertion order (`test_groups_come_out_sorted_whatever_the_insertion_order`, `70c5244`)
+- [x] Missing dynamic branches produce a useful error or an empty match
+      according to an explicit policy. — done in `fdd2567`: an empty dynamic node resolves to no series (`test_series_over_an_empty_dynamic_node_is_empty`), `Reporter.report` logs and skips a query that fails (`7e6bd39`), and an unknown path raises a `KeyError` that names it
+- [x] An exact concrete key continues to work unchanged. — done in `fdd2567`: `test_concrete_path_resolves_to_the_empty_group` (`70c5244`) and the ES query path through `by_parameter` and the key `quota` show that concrete keys still work
+- [x] Wildcard expansion does not mutate the schema/MetricLogger. — done in `70c5244`: `test_report_does_not_mutate_the_metrics`
+- [x] Wildcard resolution works on runtime subtype nodes. — done in `19125d3`: `test_every_query_of_the_debug_script_renders` runs the debug script and fails if any query, including those read through the runtime-specialised `inner` slot, cannot be rendered
 
 ## 2.2 x/y binding
 
@@ -689,7 +690,7 @@ class SeedRolloutSchema(MetricSchema):
 
 There is no `aggregate`.
 
-Choose one:
+Choose one: — answered: Option B was taken, `SeedRolloutSchema` holds only `by_episode` and has no `aggregate` (`04e9e7f`)
 
 ### Option A — add seed aggregate
 
@@ -710,9 +711,9 @@ episode leaves.
 
 Acceptance:
 
-- [ ] The choice is documented.
-- [ ] Tests use the final supported path only.
-- [ ] No tutorial/example advertises a nonexistent `aggregate` field.
+- [x] The choice is documented. — done in `a831019`: the `SeedRolloutSchema` docstring documents Option B, a level that holds only `by_episode`
+- [x] Tests use the final supported path only. — done in `9c22690`: `test_payloads_accumulate_in_the_logger_and_reduce_to_the_last_iteration` reads `by_seed[...].by_episode[...]`, the only supported path
+- [x] No tutorial/example advertises a nonexistent `aggregate` field. — done in `bd4728b`: the example queries average `by_episode` with `ReduceProtocol.MEAN`, and none reads a seed-level `aggregate` field
 
 ---
 
@@ -755,15 +756,15 @@ Query(
 
 Dev behavior to reproduce:
 
-- [ ] train and eval appear in the same figure;
-- [ ] one mean curve per phase × mechanism;
-- [ ] ±1 std shaded band across seeds;
-- [ ] mechanism identity is distinguishable;
-- [ ] train/eval identity is distinguishable;
-- [ ] deterministic legend order;
+- [x] train and eval appear in the same figure; — done in `bd4728b`: "Final train vs eval episode return" and its siblings in `ES_QUERIES` put the train and eval paths in one figure
+- [x] one mean curve per phase × mechanism; — done in `bd4728b`: those queries give one curve per mechanism and phase (`by_mechanism` with `ReduceProtocol.SERIES`, seeds and episodes averaged with `ReduceProtocol.MEAN`)
+- [ ] ±1 std shaded band across seeds; — partly done in `bd4728b`: `error_path` names one branch, so in the combined train/eval queries only the eval path gets the std band
+- [x] mechanism identity is distinguishable; — done in `7f06f47`: `Reporter._series_label` appends the mechanism ID to the legend name
+- [x] train/eval identity is distinguishable; — done in `bd4728b`: `legend_labels=("train", "eval")` names the two phases, and the reporters give each y path its own colour
+- [x] deterministic legend order; — done in `fdd2567`: groups come out sorted and y paths keep their declared order
 - [ ] horizon version uses environment step;
-- [ ] over-training version uses RLlib training iteration;
-- [ ] no W&B-specific grouping logic is required in the optimizer.
+- [ ] over-training version uses RLlib training iteration; — partly done in `04e9e7f`: x is `iter`, the optimizer's own iteration counter, not RLlib's lifetime `training_iteration`
+- [x] no W&B-specific grouping logic is required in the optimizer. — done in `41d9abf`: the ES optimizer pushes an `ESSchema` and renders through the `Reporter`; `core/optimizers` makes no W&B call
 
 Required target queries for the primary fishery metrics:
 
@@ -890,13 +891,13 @@ The supplied `ESSchema` includes:
 
 ### Required checks
 
-- [ ] `generation` is explicitly present and is `ReduceProtocol.SERIES`, or the
-      entire implementation consistently uses inherited `iter`.
-- [ ] The optimizer and Query use the same x field.
-- [ ] Add `generation_best` for exact dev parity.
+- [x] `generation` is explicitly present and is `ReduceProtocol.SERIES`, or the
+      entire implementation consistently uses inherited `iter`. — done in `f52e7c6`: `ESSchema.generation` is a `ReduceProtocol.SERIES` field filled by `ESOptimizer._to_logger_payload` next to the inherited `iter`
+- [x] The optimizer and Query use the same x field. — done in `f52e7c6`: `_to_logger_payload` fills `iter` and `generation` with the same value, and `ES_QUERIES` read `iter`
+- [x] Add `generation_best` for exact dev parity. — done in `5796732`: `ESSchema.generation_best` holds the parameters of the best candidate of each generation, filled in `_to_logger_payload`
 - [ ] Consider renaming the type alias used for `search_mean` and
       `global_best` keys from `MechanismID` to `ParameterName`; those dict keys
-      are parameter names, not mechanism IDs.
+      are parameter names, not mechanism IDs. — partly done in `5796732`: `generation_best` is keyed by the new `ParameterName` alias, while `search_mean` and `global_best` still use `MechanismID`
 
 Recommended additions if not already present:
 
@@ -966,12 +967,12 @@ Query(
 
 Exact visual parity:
 
-- [ ] candidate fitness = marker traces;
-- [ ] generation mean = line + markers;
-- [ ] generation best = line + markers;
+- [x] candidate fitness = marker traces; — done in `cd28820`: "Fitness over outer optimization iterations" draws the candidates with `plot_modes` "markers"
+- [x] generation mean = line + markers; — done in `cd28820`: the generation mean of the same query is a `ReduceProtocol.MEAN` path drawn in "lines+markers" with a std band
+- [x] generation best = line + markers; — done in `cd28820`: `fitness_best` is drawn in "lines+markers" under the label "Generation best"
 - [ ] candidate hover contains outer generation, candidate/mechanism index, and
-      fitness;
-- [ ] figure is cumulative over all completed generations.
+      fitness; — partly done in `cd28820`: x is the outer iteration and y the fitness, but the reporter sets no custom hover text, so the candidate index is not shown
+- [x] figure is cumulative over all completed generations. — done in `1cdf19f`: the ES loop reports the accumulated series after every generation (`test_one_report_per_generation_with_the_accumulated_series`)
 
 This likely requires trace style metadata or a specialized plot query. Data
 selection alone is not enough to reproduce marker-vs-line semantics.
@@ -1039,7 +1040,7 @@ Query(
 )
 ```
 
-- [ ] No optimized parameter name must be hard-coded after wildcard support.
+- [ ] No optimized parameter name must be hard-coded after wildcard support. — partly done in `34ae6f6`: `ReduceProtocol.SERIES` can expand `global_best` and `generation_best` without naming a parameter, but no fishery query reads them, and the scatter names `quota`, guarded by `test_every_parameter_named_by_a_query_is_searched_by_the_es`
 
 ---
 
@@ -1098,21 +1099,21 @@ Query(
 
 Required semantics:
 
-- [ ] all candidates in one cumulative scatter;
-- [ ] all generations included;
-- [ ] x/y wildcard bindings aligned by candidate ID;
-- [ ] each point carries generation metadata;
-- [ ] point color represents outer generation, as on dev;
-- [ ] colorbar title identifies outer iteration;
+- [x] all candidates in one cumulative scatter; — done in `cd28820`: one scatter query holds all candidates (final form in `34ae6f6`)
+- [x] all generations included; — done in `cd28820`: the query reads whole series, so every generation reported so far is included
+- [x] x/y wildcard bindings aligned by candidate ID; — done in `70c5244`: `_resolve_query` requires the x and y groups to match (`test_dynamic_x_and_y_groups_must_match`)
+- [x] each point carries generation metadata; — done in `cd28820`: `Query.color` resolves one colour value per point; the scatter uses `color=("iter",)`
+- [x] point color represents outer generation, as on dev; — done in `cd28820`: the scatter query sets `colorscale="Viridis"` on the outer iteration
+- [x] colorbar title identifies outer iteration; — done in `cd28820`: `color_label="Outer iteration"` titles the colour bar (`test_color_query_widens_legend_margin_and_adds_a_color_bar`, `70c5244`)
 - [ ] hover includes outer iteration, candidate/mechanism index, parameter
-      value, and fitness;
-- [ ] one figure per runtime optimized parameter.
+      value, and fitness; — partly done in `cd28820`: the default hover shows the parameter value and the fitness, but the reporter sets no custom text with the iteration or the candidate index
+- [ ] one figure per runtime optimized parameter. — partly done in `34ae6f6`: one scatter exists, for the searched parameter `quota`; no figure is generated per runtime parameter
 
 The current `Query` has no z/color metadata. Implement one of:
 
-- [ ] optional query metadata path for color/group;
-- [ ] `ScatterQuery`;
-- [ ] generic named-dimension query consumed by the W&B reporter.
+- [x] optional query metadata path for color/group; — done in `cd28820`: `Query.color`, `Query.color_label` and `Query.colorscale` carry the colour metadata
+- [ ] `ScatterQuery`; — obsolete: no `ScatterQuery` class was added; the colour path of `Query` (`cd28820`) covers the need
+- [ ] generic named-dimension query consumed by the W&B reporter. — obsolete: no separate named-dimension query was added; the W&B reporter consumes `Query.color` (`cd28820`)
 
 Do not bury generation lookup inside a W&B-only helper if the same semantic
 plot should be portable to another backend.
@@ -1159,7 +1160,7 @@ Acceptance:
 - [ ] line color = fitness;
 - [ ] rows remain aligned across parameter dimensions;
 - [ ] cumulative data across generations;
-- [ ] fixed-mode ES still uses the full default mechanism vector;
+- [ ] fixed-mode ES still uses the full default mechanism vector; — obsolete: the full-default-vector plotting arrays were removed from `ESOptimizer` in `41d9abf`; a fixed-mode generation now logs fitness only, with an empty `by_parameter`
 - [ ] empty/constant ranges do not crash.
 
 ---
@@ -1267,36 +1268,36 @@ Required tests:
 
 ## 7.1 Schema build
 
-- [ ] static nested `MetricSchema` builds the correct node tree;
-- [ ] `dict[ID, MetricSchema]` becomes a dynamic node;
-- [ ] leaf reducer metadata creates the correct Metric subclass;
-- [ ] `_refs` contains every materialized leaf path.
+- [x] static nested `MetricSchema` builds the correct node tree; — done in `7e4b2de`: `test_static_tree_and_refs`
+- [x] `dict[ID, MetricSchema]` becomes a dynamic node; — done in `7e4b2de`: `test_push_materializes_dynamic_ids_independently`
+- [x] leaf reducer metadata creates the correct Metric subclass; — done in `7e4b2de`: `test_static_tree_and_refs` checks `MeanMetric` and `SeriesMetric` against the declared reductions
+- [x] `_refs` contains every materialized leaf path. — done in `7e4b2de`: `test_static_tree_and_refs` checks that `_refs` holds each leaf as the same object as `_tree`
 
 ## 7.2 Push leaf values
 
-- [ ] push scalar into existing leaf;
-- [ ] skip `None`;
-- [ ] reject unknown field;
-- [ ] reject incompatible value/schema.
+- [x] push scalar into existing leaf; — done in `7e4b2de`: `test_push_static_leaf_and_unknown_path`
+- [x] skip `None`; — done in `7e4b2de`: `test_push_data_static_and_skips_none`
+- [x] reject unknown field; — done in `7e4b2de`: `test_push_static_leaf_and_unknown_path` and `test_unknown_field_when_node_lacks_it`
+- [x] reject incompatible value/schema. — done in `7e4b2de`: `test_schema_value_on_a_metric_leaf` and `test_dict_value_on_a_non_dynamic_node`
 
 ## 7.3 Dynamic dict materialization
 
-- [ ] first dynamic ID materializes its subtree;
-- [ ] second dynamic ID materializes independently;
-- [ ] runtime subclass of declared schema is accepted;
-- [ ] unrelated schema is rejected;
-- [ ] runtime schema cannot silently change for an already-bound ID.
+- [x] first dynamic ID materializes its subtree; — done in `7e4b2de`: `test_push_materializes_dynamic_ids_independently`
+- [x] second dynamic ID materializes independently; — done in `7e4b2de`: `test_push_materializes_dynamic_ids_independently`
+- [x] runtime subclass of declared schema is accepted; — done in `7e4b2de`: `test_push_data_dynamic_and_runtime_subtype`
+- [x] unrelated schema is rejected; — done in `7e4b2de`: `test_push_data_dynamic_and_runtime_subtype` expects a `TypeError` "not a subclass"
+- [x] runtime schema cannot silently change for an already-bound ID. — done in `7e4b2de`: `test_push_data_dynamic_and_runtime_subtype` expects a `TypeError` "Runtime schema changed"
 
 ## 7.4 Static nested runtime subtype binding
 
 This is the ES inner-optimizer regression test.
 
-- [ ] `ESSchema.inner` starts declared as `MetricSchema`;
-- [ ] first `RaySchema` push replaces/materializes the inner subtree;
-- [ ] `train` and `eval` fields exist;
-- [ ] second `RaySchema` push reuses the same subtree;
-- [ ] second push accumulates metrics instead of resetting to length 1;
-- [ ] switching to an incompatible concrete subtype in the same logger raises.
+- [x] `ESSchema.inner` starts declared as `MetricSchema`; — done in `7e4b2de`: `test_static_nested_runtime_subtype_binding` asserts the `inner` slot starts as `MetricSchema`
+- [x] first `RaySchema` push replaces/materializes the inner subtree; — done in `1cdf19f`: `test_the_inner_metrics_of_the_environment_are_forwarded` checks that `ESSchema.inner` takes the concrete schema of the first push
+- [x] `train` and `eval` fields exist; — done in `93b8d34`: `RaySchema.train` and `RaySchema.eval` are optional `TrainSchema` and `EvalSchema` fields
+- [x] second `RaySchema` push reuses the same subtree; — done in `1cdf19f`: the second generation keeps filling the same `inner` (`logged.inner.value == [7.0, 7.0]`)
+- [x] second push accumulates metrics instead of resetting to length 1; — done in `1cdf19f`: the same test sees `[7.0, 7.0]`, so the second push accumulates
+- [x] switching to an incompatible concrete subtype in the same logger raises. — done in `7e4b2de`: `test_static_nested_runtime_subtype_binding` expects a `TypeError` for an incompatible subtype
 
 ## 7.5 Deep runtime polymorphism
 
@@ -1327,24 +1328,24 @@ are registered and receive values.
 
 ## 7.6 `peek()`
 
-- [ ] non-destructive;
-- [ ] two consecutive peeks are equal;
-- [ ] SERIES history remains intact;
-- [ ] calling reporter after peek does not change logger contents.
+- [x] non-destructive; — done in `7e4b2de`: `test_peek_is_non_destructive_and_reduce_is_destructive`
+- [x] two consecutive peeks are equal; — done in `7e4b2de`: the same test asserts `logger.peek() == peeked`
+- [x] SERIES history remains intact; — done in `7e4b2de`: `test_peeked_history_is_a_copy` and `test_peek_does_not_end_the_episode`
+- [x] calling reporter after peek does not change logger contents. — done in `70c5244`: `test_report_does_not_mutate_the_metrics`
 
 ## 7.7 `reduce()`
 
-- [ ] destructive according to current Metric semantics;
-- [ ] resulting typed schema is correct;
-- [ ] empty reducer semantics are correct:
+- [x] destructive according to current Metric semantics; — done in `7e4b2de`: `test_peek_is_non_destructive_and_reduce_is_destructive`
+- [x] resulting typed schema is correct; — done in `7e4b2de`: the same test checks `isinstance(peeked, Root)`, and `test_compile_serialises_a_runtime_subtype_with_its_extra_fields` covers runtime subtypes
+- [x] empty reducer semantics are correct:
       Series `[]`, Mean `None`, Min `None`, Max `None`, Last `None`,
-      Sum `0`, Count `0`.
+      Sum `0`, Count `0`. — done in `7e4b2de`: `test_reducing_an_untouched_logger_gives_the_empty_value_of_each_protocol`; no Count protocol exists
 
 ## 7.8 `_refs`
 
-- [ ] `_refs[path]` is the same leaf object as the corresponding `_tree` leaf;
-- [ ] dynamic materialization updates `_refs`;
-- [ ] reduction does not leave stale aliases.
+- [x] `_refs[path]` is the same leaf object as the corresponding `_tree` leaf; — done in `7e4b2de`: `test_static_tree_and_refs`
+- [x] dynamic materialization updates `_refs`; — done in `7e4b2de`: `push` and `peek_value` read through `_refs`, so `test_push_materializes_dynamic_ids_independently` exercises it
+- [x] reduction does not leave stale aliases. — done in `7e4b2de`: `test_a_second_reduce_without_new_pushes_is_empty` and `test_consecutive_episodes_do_not_leak_into_each_other`
 
 ---
 
@@ -1360,18 +1361,18 @@ tests/reporting/test_query_wildcards.py
 
 ## 8.1 Constructor / validation
 
-- [ ] one-element path tuple is supported;
-- [ ] one y path;
-- [ ] multiple y paths;
-- [ ] `error="std"` with `reduce="none"` raises;
-- [ ] malformed empty path raises or has documented behavior.
+- [x] one-element path tuple is supported; — done in `70c5244`: `test_a_single_path_is_wrapped`
+- [x] one y path; — done in `70c5244`: `test_a_single_path_is_wrapped`
+- [x] multiple y paths; — done in `70c5244`: `test_a_tuple_of_paths_is_kept`
+- [x] `error="std"` with `reduce="none"` raises; — done in `70c5244`, realised differently: there is no `reduce` argument; `Query.__post_init__` rejects `error="std"` without an `error_path` followed by `ReduceProtocol.MEAN` (`test_invalid_combination_is_rejected`)
+- [x] malformed empty path raises or has documented behavior. — done in `70c5244`: `Query.__post_init__` raises a `ValueError` for an empty x or y path (`test_invalid_combination_is_rejected`)
 
 ## 8.2 Static resolution
 
-- [ ] root leaf;
-- [ ] nested leaf;
-- [ ] multiple y paths;
-- [ ] x/y length mismatch produces a clear error.
+- [x] root leaf; — done in `70c5244`: `test_concrete_path_resolves_to_the_empty_group`
+- [x] nested leaf; — done in `70c5244`: `test_concrete_path_resolves_to_the_empty_group`
+- [x] multiple y paths; — done in `70c5244`: `test_static_x_with_several_y_paths`
+- [x] x/y length mismatch produces a clear error. — done in `70c5244`: `test_static_x_length_mismatch_names_x_y_and_group`
 
 ## 8.3 Mean/std
 
@@ -1393,12 +1394,12 @@ Assert exact output before testing W&B rendering.
 
 ## 8.4 Wildcards
 
-- [ ] one wildcard;
-- [ ] two nested wildcards;
-- [ ] concrete key + wildcard;
-- [ ] deterministic match order;
-- [ ] no matches;
-- [ ] wildcard only applies to dynamic dict nodes.
+- [x] one wildcard; — done in `70c5244`, with tokens instead of "*": `test_series_expands_one_group_per_dynamic_id`
+- [x] two nested wildcards; — done in `70c5244`, with tokens: `test_two_levels_of_series_chain_the_groups`
+- [x] concrete key + wildcard; — done in `34ae6f6`: `test_every_es_level_query_resolves` resolves a path that mixes `ReduceProtocol.SERIES` with the concrete key `quota`
+- [x] deterministic match order; — done in `70c5244`: `test_groups_come_out_sorted_whatever_the_insertion_order`
+- [x] no matches; — done in `70c5244`: `test_series_over_an_empty_dynamic_node_is_empty`
+- [x] wildcard only applies to dynamic dict nodes. — done in `70c5244`: `test_reduction_token_on_a_schema_is_a_type_error` and `test_unsupported_dictionary_reduction`
 
 ## 8.5 Wildcard grouping
 
@@ -1410,9 +1411,9 @@ mechanism -> seed -> value
 
 assert:
 
-- [ ] one group per mechanism;
-- [ ] reduction across seeds only;
-- [ ] mechanism groups do not get averaged together.
+- [x] one group per mechanism; — done in `70c5244`: `test_mean_over_seeds_keeps_one_group_per_mechanism`
+- [x] reduction across seeds only; — done in `70c5244`: `test_mean_over_seeds_keeps_one_group_per_mechanism`
+- [x] mechanism groups do not get averaged together. — done in `70c5244`: `test_std_per_mechanism_over_seeds`
 
 ## 8.6 Wildcard x/y alignment
 
@@ -1449,14 +1450,14 @@ Suggested:
 tests/reporting/test_reporter_base.py
 ```
 
-- [ ] Reporter resolves every registered query against the configured schema.
-- [ ] Empty query list is a no-op.
-- [ ] Missing path includes the full path in the error.
-- [ ] Multiple y series preserve labels/identity.
-- [ ] Reduced mean/std data has expected shape.
-- [ ] Wildcard metadata/bindings survive until backend `_report`.
-- [ ] Reporter does not mutate input `MetricSchema`.
-- [ ] Same accumulated SERIES may be reported repeatedly as it grows.
+- [x] Reporter resolves every registered query against the configured schema. — done in `70c5244`: `test_every_query_is_resolved_and_forwarded_in_order`; `test_every_es_level_query_resolves` (`34ae6f6`) does it for the fishery ES queries
+- [x] Empty query list is a no-op. — done in `70c5244`: `test_no_query_means_no_backend_call`
+- [x] Missing path includes the full path in the error. — done in `70c5244`: `test_path_errors_name_the_path`
+- [x] Multiple y series preserve labels/identity. — done in `70c5244`: `test_static_x_with_several_y_paths` and `test_each_y_path_has_its_own_color_label_and_mode`
+- [x] Reduced mean/std data has expected shape. — done in `70c5244`: `test_mean_over_the_dynamic_node_is_pointwise` and `test_std_per_mechanism_over_seeds`
+- [x] Wildcard metadata/bindings survive until backend `_report`. — done in `70c5244`: `test_every_query_is_resolved_and_forwarded_in_order` shows the groups reach `_report`
+- [x] Reporter does not mutate input `MetricSchema`. — done in `70c5244`: `test_report_does_not_mutate_the_metrics`
+- [x] Same accumulated SERIES may be reported repeatedly as it grows. — done in `1cdf19f`: `test_one_report_per_generation_with_the_accumulated_series`
 
 ---
 
@@ -1472,19 +1473,19 @@ tests/reporting/test_wandb_reporter.py
 
 Required:
 
-- [ ] simple line query logs under stable key;
-- [ ] multiple raw y series produce expected trace count;
-- [ ] mean/std creates mean + band;
-- [ ] dynamic wildcard trace labels contain mechanism/seed/policy/agent ID;
+- [x] simple line query logs under stable key; — done in `70c5244`: `test_report_logs_one_figure_under_the_sanitised_title`
+- [x] multiple raw y series produce expected trace count; — done in `70c5244`: `test_one_trace_per_group_with_group_in_the_name`
+- [x] mean/std creates mean + band; — done in `70c5244`: `test_error_band_is_a_closed_polygon_before_the_line`
+- [x] dynamic wildcard trace labels contain mechanism/seed/policy/agent ID; — done in `70c5244`: `test_one_trace_per_group_with_group_in_the_name`
 - [ ] repeated report with growing SERIES updates using the complete current
-      history;
+      history; — partly done in `a094e05`: the CSV and TensorBoard tests (`test_reporting_again_rewrites_the_file`, `test_a_growing_history_writes_only_the_new_points`) report a growing history; no W&B test does
 - [ ] ES fitness plot trace count and types match dev;
 - [ ] ES parameter scatter point count =
       generations × population size;
-- [ ] ES scatter x/y candidate correspondence is exact;
+- [ ] ES scatter x/y candidate correspondence is exact; — partly done in `70c5244`: `_resolve_query` rejects mismatched x and y groups (`test_dynamic_x_and_y_groups_must_match`), but no ES-specific test checks the candidate pairing
 - [ ] parallel coordinates dimensions are exact;
 - [ ] constant fitness/parameter values do not crash range calculation;
-- [ ] no global W&B history table is required as source of truth.
+- [x] no global W&B history table is required as source of truth. — done in `c02db47`: the global W&B history tables were removed, and the reporter draws from the logger's accumulated series
 
 For dev parity, assert figure structure where practical:
 
@@ -1521,11 +1522,11 @@ short horizon
 few training iterations
 ```
 
-- [ ] environment logger contains expected horizon length;
-- [ ] `FisheryMetricSchema` values match direct env values;
-- [ ] `by_agent` contains both agents;
-- [ ] horizon reporter receives data before episode reduction;
-- [ ] reduction afterward still works.
+- [x] environment logger contains expected horizon length; — done in `9c74d85`: `test_every_step_logs_one_value_per_dynamics_field`
+- [x] `FisheryMetricSchema` values match direct env values; — done in `9c74d85`: the dynamics tests compare the logged series with the values computed by hand (for example `test_realised_harvest_is_the_sum_of_the_delivered_catches`)
+- [x] `by_agent` contains both agents; — done in `9c74d85`: `test_every_step_logs_one_value_per_dynamics_field` loops over every agent of `by_agent`
+- [x] horizon reporter receives data before episode reduction; — done in `a89fb77`: `test_episode_end_hook_reports_then_reduces` shows that the reporter receives the raw history
+- [x] reduction afterward still works. — done in `3205b73`: `test_the_series_fields_keep_every_step_of_the_episode` reduces after peeking
 
 ---
 
@@ -1534,15 +1535,15 @@ few training iterations
 Use a short deterministic run or a synthetic adaptor payload when full RLlib
 would be too expensive.
 
-- [ ] `RaySchema.train` populated;
-- [ ] `RaySchema.eval` populated after explicit evaluation;
-- [ ] all mechanism IDs present;
-- [ ] all seed IDs present;
-- [ ] stable episode IDs present;
-- [ ] per-policy learner IDs present;
-- [ ] performance fields present;
+- [ ] `RaySchema.train` populated; — partly done in `9c22690`: `RayOptimizer._to_logger_payload` is unit-tested on synthetic RLlib results, which cover the train branch; no test checks them on a real Ray run
+- [ ] `RaySchema.eval` populated after explicit evaluation; — partly done in `9c22690`: `RayOptimizer._to_logger_payload` is unit-tested on synthetic RLlib results, which cover the eval branch; no test checks them on a real Ray run
+- [ ] all mechanism IDs present; — partly done in `9c22690`: `RayOptimizer._to_logger_payload` is unit-tested on synthetic RLlib results, which cover the mechanism IDs; no test checks them on a real Ray run
+- [ ] all seed IDs present; — partly done in `9c22690`: `RayOptimizer._to_logger_payload` is unit-tested on synthetic RLlib results, which cover the seed IDs; no test checks them on a real Ray run
+- [ ] stable episode IDs present; — partly done in `9c22690`: `RayOptimizer._to_logger_payload` is unit-tested on synthetic RLlib results, which cover the episode IDs; no test checks them on a real Ray run
+- [ ] per-policy learner IDs present; — partly done in `9c22690`: `RayOptimizer._to_logger_payload` is unit-tested on synthetic RLlib results, which cover the per-policy learner IDs; no test checks them on a real Ray run
+- [ ] performance fields present; — partly done in `9c22690`: `RayOptimizer._to_logger_payload` is unit-tested on synthetic RLlib results, which cover the performance fields; no test checks them on a real Ray run
 - [ ] train/eval query outputs match manually computed values;
-- [ ] mechanism mean/std across seeds matches NumPy calculation.
+- [ ] mechanism mean/std across seeds matches NumPy calculation. — partly done in `70c5244`: mean and std across seeds are tested on a synthetic schema (`test_std_per_mechanism_over_seeds`), not against a NumPy computation on a Ray payload
 
 ---
 
@@ -1559,15 +1560,15 @@ dimension = 2
 parameter names = fixed_quota, restoration_subsidy
 ```
 
-- [ ] one ES payload per generation;
-- [ ] generation series length grows 1 -> 2 -> 3;
-- [ ] candidate fitness series length grows 1 -> 2 -> 3;
-- [ ] search mean series grows;
-- [ ] global best is updated after current population evaluation;
-- [ ] logged mean/sigma correspond to the pre-update distribution that sampled
-      the population;
-- [ ] `inner` contains the concrete inner schema;
-- [ ] second generation does not reconstruct/reset `inner`;
+- [x] one ES payload per generation; — done in `1cdf19f`: `test_one_report_per_generation_with_the_accumulated_series`
+- [x] generation series length grows 1 -> 2 -> 3; — done in `1cdf19f`: `test_series_grow_by_one_value_per_generation`
+- [x] candidate fitness series length grows 1 -> 2 -> 3; — done in `1cdf19f`: `test_series_grow_by_one_value_per_generation`
+- [x] search mean series grows; — done in `1cdf19f`: `test_series_grow_by_one_value_per_generation`
+- [x] global best is updated after current population evaluation; — done in `1cdf19f`: `test_mean_global_best_and_generation_best_come_from_different_sources`
+- [x] logged mean/sigma correspond to the pre-update distribution that sampled
+      the population; — done in `1cdf19f`: `test_the_logged_sigma_and_mean_are_those_the_population_was_drawn_from`
+- [x] `inner` contains the concrete inner schema; — done in `1cdf19f`: `test_the_inner_metrics_of_the_environment_are_forwarded`
+- [x] second generation does not reconstruct/reset `inner`; — done in `1cdf19f`: the same test sees `[7.0, 7.0]` over two generations, so `inner` is not rebuilt
 - [ ] fitness plot has `3 * 4 = 12` candidate points;
 - [ ] each parameter scatter has 12 points;
 - [ ] parallel coordinates has 12 lines;
@@ -1575,9 +1576,9 @@ parameter names = fixed_quota, restoration_subsidy
 
 Fixed-mode regression:
 
-- [ ] ES dimension 0 does not crash reporting;
-- [ ] plotting payload uses the full default mechanism vector;
-- [ ] parameter names match the default mechanism vector.
+- [x] ES dimension 0 does not crash reporting; — done in `1cdf19f`: `test_fixed_mode_generation_completes`
+- [ ] plotting payload uses the full default mechanism vector; — obsolete: the code that padded the plotting payload with the default mechanism vector was removed from `ESOptimizer` in `41d9abf`
+- [x] parameter names match the default mechanism vector. — done in `1cdf19f`: `test_every_candidate_is_keyed_by_its_index_and_parameter_name`; `test_every_parameter_named_by_a_query_is_searched_by_the_es` (`34ae6f6`) ties the query names to `parameter_names`
 
 ---
 
@@ -1595,20 +1596,20 @@ The CSV reporter must consume the same `Query` contract.
 
 ## 14.1 Required behavior
 
-- [ ] implement Reporter subclass;
-- [ ] configure output directory/path through `ReporterConfig`;
-- [ ] create directories safely;
-- [ ] stable file naming from query title/key;
-- [ ] append/update semantics documented;
-- [ ] no W&B dependency;
-- [ ] scalar series export;
-- [ ] multiple raw series export;
-- [ ] mean/std export;
-- [ ] dynamic wildcard labels exported;
-- [ ] train/eval/mechanism/seed dimensions preserved as columns;
-- [ ] ES candidate/parameter metadata preserved;
-- [ ] flush/close lifecycle;
-- [ ] safe behavior if process exits after partial run.
+- [x] implement Reporter subclass; — done in `f863b4e`: `CSVReporter`
+- [x] configure output directory/path through `ReporterConfig`; — done in `f863b4e`: `CSVConfig(output_dir=...)` builds the reporter
+- [x] create directories safely; — done in `70c5244`: `test_building_creates_the_directory`
+- [x] stable file naming from query title/key; — done in `70c5244`: `test_title_is_sanitised_into_the_file_name`
+- [x] append/update semantics documented; — done in `f863b4e`: the module docstring states that each report rewrites the whole file (`test_reporting_again_rewrites_the_file`, `70c5244`)
+- [x] no W&B dependency; — done in `f863b4e`: `core/reporting/csv.py` imports only the standard library and the reporting base
+- [x] scalar series export; — done in `70c5244`: `test_static_series_rows`
+- [x] multiple raw series export; — done in `70c5244`: `test_static_series_rows` writes two series into one file
+- [x] mean/std export; — done in `70c5244`: `test_error_column_holds_the_pointwise_std`
+- [x] dynamic wildcard labels exported; — done in `70c5244`: `test_dynamic_groups_become_labelled_series`
+- [ ] train/eval/mechanism/seed dimensions preserved as columns; — partly done in `f863b4e`: the dimensions appear inside the `series` label, not as separate columns
+- [ ] ES candidate/parameter metadata preserved; — partly done in `f863b4e`: the candidate and parameter sit in the `series` label and the outer iteration in the `color` column, not in dedicated columns
+- [x] flush/close lifecycle; — done in `f863b4e`: every file is closed after each report and `CSVReporter.close` has nothing left to do (`test_close_leaves_the_files_in_place`)
+- [ ] safe behavior if process exits after partial run. — partly done in `f863b4e`: each report rewrites the whole file, so a partial run keeps the last complete report, but the write is in place rather than atomic
 
 Recommended long-form representation:
 
@@ -1640,15 +1641,15 @@ Do not throw away dynamic identity just to force everything into wide format.
 
 ## 14.2 CSV tests
 
-- [ ] temp directory fixture;
-- [ ] single series;
-- [ ] multi-series;
-- [ ] mean/std;
-- [ ] wildcard series labels;
-- [ ] repeated report appends/updates correctly;
-- [ ] no duplicate header;
+- [x] temp directory fixture; — done in `70c5244`: `tests/reporting/test_csv_reporter.py` writes into a temporary directory
+- [x] single series; — done in `70c5244`: `test_static_series_rows`
+- [x] multi-series; — done in `70c5244`: `test_static_series_rows`
+- [x] mean/std; — done in `70c5244`: `test_error_column_holds_the_pointwise_std`
+- [x] wildcard series labels; — done in `70c5244`: `test_dynamic_groups_become_labelled_series`
+- [x] repeated report appends/updates correctly; — done in `70c5244`: `test_reporting_again_rewrites_the_file`
+- [x] no duplicate header; — done in `70c5244`: `test_reporting_again_rewrites_the_file` expects a single header row
 - [ ] NaN/None policy documented;
-- [ ] output can be loaded by pandas and reconstruct expected series.
+- [ ] output can be loaded by pandas and reconstruct expected series. — partly done in `70c5244`: the tests read the files back with the `csv` module, not with pandas
 
 ---
 
@@ -1666,16 +1667,16 @@ Use the same resolved Query result, not raw optimizer dictionaries.
 
 ## 15.1 Required behavior
 
-- [ ] Reporter subclass;
-- [ ] `SummaryWriter` lifecycle;
-- [ ] stable tag naming;
-- [ ] single scalar/series using `add_scalar`;
-- [ ] multiple related series using `add_scalars` where appropriate;
-- [ ] dynamic mechanism/policy/agent labels represented in tags;
-- [ ] mean/std behavior documented;
-- [ ] train/eval grouping represented consistently;
-- [ ] flush and close;
-- [ ] no W&B imports.
+- [x] Reporter subclass; — done in `63bce35`: `TensorBoardReporter`
+- [x] `SummaryWriter` lifecycle; — done in `70c5244`: `test_building_is_lazy`, `test_writer_is_created_once_and_reused` and `test_close_closes_and_forgets_the_writer`
+- [x] stable tag naming; — done in `63bce35`: the tag is the sanitised query title followed by the series label
+- [x] single scalar/series using `add_scalar`; — done in `63bce35`: `TensorBoardReporter` writes each point with `add_scalar`
+- [x] multiple related series using `add_scalars` where appropriate; — done in `63bce35`, realised differently: every series gets its own tag through `add_scalar`, and `add_scalars` is not used
+- [x] dynamic mechanism/policy/agent labels represented in tags; — done in `70c5244`: `test_dynamic_groups_get_one_tag_each`
+- [x] mean/std behavior documented; — done in `63bce35`: the module docstring states that the std goes under a `/std` suffix
+- [x] train/eval grouping represented consistently; — done in `63bce35`: train and eval share the query title and differ by series label, so their tags follow one scheme
+- [x] flush and close; — done in `70c5244`: `test_close_closes_and_forgets_the_writer`
+- [x] no W&B imports. — done in `63bce35`: `core/reporting/tensor_board.py` imports no W&B module
 
 Complex figures:
 
@@ -1685,18 +1686,18 @@ Complex figures:
 - parallel coordinates likely requires image/figure rendering because
   TensorBoard does not have a native parallel-coordinate primitive.
 
-- [ ] choose and document the complex-figure representation;
-- [ ] avoid adding a heavy conversion dependency unless justified.
+- [ ] choose and document the complex-figure representation; — partly done in `63bce35`: the module docstring says that the colour path is ignored; no representation exists for scatter or parallel-coordinate figures
+- [x] avoid adding a heavy conversion dependency unless justified. — done in `63bce35`: the `tensorboard` package is an optional extra imported lazily, and no figure conversion was added
 
 ## 15.2 TensorBoard tests
 
-- [ ] temporary logdir;
-- [ ] event file created;
-- [ ] expected scalar tags exist;
-- [ ] repeated iterations produce multiple steps;
-- [ ] dynamic tags are stable;
-- [ ] writer flush/close works;
-- [ ] complex figure path has a test if supported.
+- [x] temporary logdir; — done in `70c5244`: `TestRealEventFiles` writes into a temporary log directory
+- [x] event file created; — done in `70c5244`: `test_scalars_are_written_and_readable`
+- [x] expected scalar tags exist; — done in `70c5244`: `test_scalars_are_written_and_readable`
+- [x] repeated iterations produce multiple steps; — done in `a094e05`: `test_event_files_hold_each_step_once`
+- [x] dynamic tags are stable; — done in `70c5244`: `test_dynamic_groups_get_one_tag_each`
+- [x] writer flush/close works; — done in `70c5244`: `test_close_closes_and_forgets_the_writer`
+- [ ] complex figure path has a test if supported. — obsolete: `TensorBoardReporter` has no complex-figure path to test (`63bce35` ignores the colour path)
 
 ---
 
@@ -1716,7 +1717,7 @@ analysis.
 
 - [ ] Do not silently drop them if they are still required.
 - [ ] Prefer CSV/table export over forcing them into line `Query`.
-- [ ] Keep generic reporting backend-agnostic.
+- [x] Keep generic reporting backend-agnostic. — done in `146108c`: `Reporter` in `core/reporting/base.py` holds the resolution and imports no backend; the W&B, CSV and TensorBoard reporters subclass it
 - [ ] Water-specific observed-vs-simulated plots should remain domain-specific
       unless generalized deliberately.
 
@@ -1729,11 +1730,11 @@ tables.
 
 Once the feature branch passes parity tests:
 
-- [ ] remove obsolete direct W&B calls from optimizers;
-- [ ] remove duplicate ES history caches;
-- [ ] remove dead `plot_population`, `plot_parameter_names`, `plot_mean`, and
-      `plot_best_candidate` preparation if no longer used;
-- [ ] remove old plotting entry points only after screenshots/data are compared;
+- [x] remove obsolete direct W&B calls from optimizers; — done in `c02db47`: the direct W&B calls were removed from `RayOptimizer` (`c02db47`) and `ESOptimizer` (`41d9abf`), before any parity comparison
+- [ ] remove duplicate ES history caches; — partly done in `41d9abf`: the W&B history caches are gone; `ESOptimizer.population_history` remains, documented and used by the results and tests
+- [x] remove dead `plot_population`, `plot_parameter_names`, `plot_mean`, and
+      `plot_best_candidate` preparation if no longer used; — done in `41d9abf`: `plot_population`, `plot_parameter_names`, `plot_mean` and `plot_best_candidate` no longer exist in `ESOptimizer`
+- [ ] remove old plotting entry points only after screenshots/data are compared; — partly done in `c02db47`: the old plotting modules were removed, without comparing screenshots or data first
 - [ ] leave migration notes or deprecation stubs if other examples import them.
 
 Do not delete dev reference code before the parity test is complete.
@@ -1751,7 +1752,7 @@ class RaySchema(MetricSchema):
 ```
 
 Verify that an absent optional branch remains `None` instead of being
-constructed as an empty schema during `peek()`/`reduce()`.
+constructed as an empty schema during `peek()`/`reduce()`. — answered: `RayOptimizer._to_logger_payload` keeps an absent `train` or `eval` as `None` (`9c22690`), but `MetricLogger.peek()` and `reduce()` return an empty schema for a branch that was never pushed, measured on 2026-10-05
 
 Do not infer absence from leaf reduced values because legitimate empty reducer
 values include:
@@ -1764,10 +1765,10 @@ Series -> []
 
 If needed, add explicit node presence tracking.
 
-- [ ] test train-only payload;
-- [ ] test eval-only payload;
-- [ ] test train + eval payload;
-- [ ] test destructive reduce/reset behavior.
+- [x] test train-only payload; — done in `9c22690`: `test_training_result_fills_every_train_block_and_leaves_eval_empty`
+- [x] test eval-only payload; — done in `9c22690`: `test_eval_only_payload_has_no_train_branch_and_no_learner_block`
+- [x] test train + eval payload; — done in `9c22690`: `test_evaluation_block_nested_in_a_training_result_fills_the_eval_branch`
+- [x] test destructive reduce/reset behavior. — done in `9c22690`: `test_payloads_accumulate_in_the_logger_and_reduce_to_the_last_iteration`
 
 ---
 
@@ -1776,8 +1777,8 @@ If needed, add explicit node presence tracking.
 The optimizer-local `MetricLogger` should not have to cross into the `World`
 actor merely to register an optimizer ID.
 
-- [ ] base optimizer config sends only optimizer ID/registry data to World;
-- [ ] Ray optimizer config follows the same ownership model;
+- [x] base optimizer config sends only optimizer ID/registry data to World; — done in `41d9abf`: `OptimizerConfig.build_optimizer` registers only a generated ID with the World (`_set_new_opt_id.remote`)
+- [x] Ray optimizer config follows the same ownership model; — done in `088c164`: `RayOptimizerConfig.build_optimizer` registers only a generated ID the same way
 - [ ] regression test proves an optimizer containing an unpicklable local
       object can still register if only its ID crosses the actor boundary.
 
@@ -1787,22 +1788,22 @@ This keeps logger/reporter runtime state local to the optimizer that owns it.
 
 # 20. Recommended implementation order
 
-1. [ ] Verify/add `ESSchema.generation`.
-2. [ ] Add `ESSchema.generation_best`.
-3. [ ] Lock the current non-wildcard environment, Ray, and ES query smoke tests.
-4. [ ] Implement wildcard path expansion.
-5. [ ] Implement wildcard x/y binding.
-6. [ ] Implement mechanism grouping + seed mean/std.
-7. [ ] Implement train-vs-eval grouped shaded rendering.
-8. [ ] Reproduce ES fitness-over-generations trace modes.
-9. [ ] Reproduce cumulative ES parameter scatter with generation color.
+1. [x] Verify/add `ESSchema.generation`. — done in `f52e7c6`: `ESSchema.generation` exists and is filled
+2. [x] Add `ESSchema.generation_best`. — done in `5796732`: `ESSchema.generation_best`
+3. [x] Lock the current non-wildcard environment, Ray, and ES query smoke tests. — done in `34ae6f6`: `test_every_es_level_query_resolves` and the environment and debug-script query tests (`3205b73`, `19125d3`)
+4. [x] Implement wildcard path expansion. — done in `fdd2567`, with tokens instead of "*": `ReduceProtocol.SERIES` and `MEAN` in `Reporter._resolve_path`
+5. [x] Implement wildcard x/y binding. — done in `fdd2567`: x and y groups are bound by `Reporter._resolve_query`
+6. [x] Implement mechanism grouping + seed mean/std. — done in `bd4728b`: `error_path` gives the per-mechanism std across seeds
+7. [ ] Implement train-vs-eval grouped shaded rendering. — partly done in `bd4728b`: train and eval share a figure, but only the eval path carries the std band
+8. [x] Reproduce ES fitness-over-generations trace modes. — done in `cd28820`: `Query.plot_modes` and `legend_labels` style the ES fitness query
+9. [x] Reproduce cumulative ES parameter scatter with generation color. — done in `cd28820`: the "Candidate fitness vs quota" scatter is coloured by outer iteration, for the searched parameter only
 10. [ ] Implement parallel-coordinate query/renderer.
 11. [ ] Run deterministic dev-vs-feature parity validation.
-12. [ ] Complete unit/integration tests.
-13. [ ] Complete CSV reporter.
-14. [ ] Complete TensorBoard reporter.
-15. [ ] Remove legacy W&B-specific plotting/cache code.
-16. [ ] Finalize docs/tutorial examples.
+12. [ ] Complete unit/integration tests. — partly done in `70c5244`: unit suites cover the logger, `Query`, the reporters, the ES and Ray payloads, but there is no dev-parity test and no test of a real Ray run that checks the IDs
+13. [x] Complete CSV reporter. — done in `f863b4e`: `CSVReporter`
+14. [x] Complete TensorBoard reporter. — done in `63bce35`: `TensorBoardReporter`
+15. [x] Remove legacy W&B-specific plotting/cache code. — done in `c02db47`: the W&B-specific plotting modules and caches were removed (see also `41d9abf`)
+16. [ ] Finalize docs/tutorial examples. — partly done in `268b500`: the visualization tutorial was rewritten against the reporting API, but nothing documents parallel coordinates or parity
 
 ---
 
@@ -1864,49 +1865,49 @@ explicitly approved.
 
 Already supported / expected to work now:
 
-- [x] Environment horizon plots.
-- [x] Raw RLlib rollout plots.
-- [x] Performance plots.
-- [x] Per-policy learner data/plots with concrete IDs.
-- [x] Per-agent environment data/plots with concrete IDs.
-- [x] ES SERIES accumulation through `push_data -> peek -> report`.
-- [x] Nested ES `inner: MetricSchema` runtime specialization to `RaySchema`.
-- [x] Deep runtime specialization to fishery episode and agent schemas.
+- [x] Environment horizon plots. — already checked; confirmed in `bd4728b`: `FISHERY_ENV_QUERIES` holds one environment query, which neither `config.yaml` nor `debug.py` wires
+- [x] Raw RLlib rollout plots. — already checked; confirmed in `bd4728b`: the rollout queries of `INNER_QUERIES` plot the return and the fish biomass over the training episodes
+- [x] Performance plots. — already checked; qualified: `build_performance` fills `PerformanceSchema` (`04e9e7f`), but no example query plots it
+- [x] Per-policy learner data/plots with concrete IDs. — already checked; confirmed in `bd4728b`, with tokens instead of concrete IDs: the learner queries of `INNER_QUERIES` reach each policy through `ReduceProtocol.SERIES`
+- [x] Per-agent environment data/plots with concrete IDs. — already checked; qualified: the per-agent data is logged (`requested_harvest` and `delivered_harvest` in `by_agent`, `9c74d85`), but `queries.py` has no per-agent query since `3205b73`
+- [x] ES SERIES accumulation through `push_data -> peek -> report`. — already checked; confirmed in `1cdf19f`: `test_one_report_per_generation_with_the_accumulated_series`
+- [x] Nested ES `inner: MetricSchema` runtime specialization to `RaySchema`. — already checked; confirmed in `7e4b2de` for the logger (`test_static_nested_runtime_subtype_binding`) and in `1cdf19f` for `ESSchema.inner`
+- [x] Deep runtime specialization to fishery episode and agent schemas. — already checked; confirmed in `19125d3`: the debug-script smoke test renders the queries that read the fishery episode schema
 
 Still required:
 
-- [ ] Dynamic mechanism IDs.
-- [ ] Dynamic seed IDs.
-- [ ] Dynamic episode IDs.
-- [ ] Dynamic policy IDs.
-- [ ] Dynamic agent IDs.
-- [ ] Dynamic ES parameter keys.
-- [ ] Mechanism mean ±std across seeds through Query API.
-- [ ] Train-vs-eval shaded mechanism plots through Query API.
-- [ ] ES exact candidate/mean/best mixed trace styling.
-- [ ] ES all-candidate parameter scatter in one plot.
-- [ ] ES generation color metadata.
+- [x] Dynamic mechanism IDs. — done in `fdd2567`: `ReduceProtocol.SERIES` at a dynamic `by_mechanism` node
+- [x] Dynamic seed IDs. — done in `fdd2567`: `ReduceProtocol.SERIES` or `MEAN` at `by_seed`
+- [x] Dynamic episode IDs. — done in `fdd2567`: `ReduceProtocol.SERIES` or `MEAN` at `by_episode`
+- [x] Dynamic policy IDs. — done in `fdd2567`: `ReduceProtocol.SERIES` at `by_policy`
+- [x] Dynamic agent IDs. — done in `fdd2567`: the tokens work at `by_agent`; no fishery query reads it yet
+- [ ] Dynamic ES parameter keys. — partly done in `fdd2567`: the tokens can expand the parameter keys, but the fishery scatter names `quota`
+- [x] Mechanism mean ±std across seeds through Query API. — done in `bd4728b`: `error_path` ending at `by_seed` in `INNER_QUERIES`
+- [ ] Train-vs-eval shaded mechanism plots through Query API. — partly done in `bd4728b`: train and eval share a figure, but only the eval path carries the std band
+- [x] ES exact candidate/mean/best mixed trace styling. — done in `cd28820`: "Fitness over outer optimization iterations" mixes markers, a mean line and a best line (not compared with dev)
+- [x] ES all-candidate parameter scatter in one plot. — done in `cd28820`: one scatter holds all candidates of all generations (final form in `34ae6f6`)
+- [x] ES generation color metadata. — done in `cd28820`: `Query.color` with `color=("iter",)`
 - [ ] ES parallel coordinates.
-- [ ] Generation-best ES parameter schema/queries.
-- [ ] Full unit tests.
+- [ ] Generation-best ES parameter schema/queries. — partly done in `5796732`: `ESSchema.generation_best` exists, but no query reads it
+- [ ] Full unit tests. — partly done in `70c5244`: unit suites exist, with the gaps listed under the unit-test items
 - [ ] Full integration parity tests.
-- [ ] CSV reporter.
-- [ ] TensorBoard reporter.
-- [ ] Legacy visualization cleanup after parity.
-- [ ] The fishery benchmark builds and runs end-to-end with the new mechanism abstraction.
-- [ ] A quota-only run completes training and evaluation.
-- [ ] A quota + subsidy run completes.
-- [ ] A quota + subsidy + social-observation run completes.
-- [ ] Chained composition works for action, observation, and reward channels.
-- [ ] Parallel composition has one coherent API and tests.
-- [ ] All concrete `Mechanism` implementations satisfy the abstract base class.
-- [ ] Mechanism optimizer vectors encode/decode correctly.
-- [ ] Action and observation spaces agree with transformed values.
-- [ ] Unit tests cover every concerned mechanism/env/composition module.
-- [ ] Integration tests cover the benchmark + mechanism lifecycle.
+- [x] CSV reporter. — done in `f863b4e`: `CSVReporter`
+- [x] TensorBoard reporter. — done in `63bce35`: `TensorBoardReporter`
+- [ ] Legacy visualization cleanup after parity. — partly done in `c02db47`: the legacy plotting code was removed, but parity was never measured
+- [x] The fishery benchmark builds and runs end-to-end with the new mechanism abstraction. — done in `7dccabd`: `examples/bilevel_fishery/debug.py` builds the benchmark on the present abstraction (`FisheryRegulatedEnv`, `FisheryRegulatorEnv`, `Quota`) and runs it through ES and the inner APPO; `tests/integration/test_debug_script_csv_smoke.py` runs it as a child process and checks that it exits 0.
+- [x] A quota-only run completes training and evaluation. — done in `7dccabd`: `debug.py` holds a single `Quota` mechanism and evaluates after every inner iteration (`evaluation_interval=1`); `tests/integration/test_debug_script_csv_smoke.py` checks that this run completes (two generations, two fishermen, twenty steps).
+- [ ] A quota + subsidy run completes. — partly done in `7dccabd`: the real `Quota`, `Subsidy` and `ThresholdPenalty` are stepped together through the real fishery behind a scripted World (`tests/integration/test_fishery_regulator_composition.py`) and ES searches their two dimensions, but no full bilevel run with training and evaluation holds a subsidy.
+- [ ] A quota + subsidy + social-observation run completes. — partly done in `dbe2338`: `SocialInfluence` writes the peers' delivered actions into the fishermen's observation and `tests/integration/test_fishery_regulator_composition.py` steps quota, subsidy, penalty and social mechanisms together, but this is not a full bilevel run with training and evaluation.
+- [x] Chained composition works for action, observation, and reward channels. — done in `22142f4`: realised differently: nothing is chained any more; a leader's mechanisms all read the same input state and their residuals are summed by `MDPState.add` through `Agent.action`, `Agent.reward` and `Agent.mechanism_observations`, and `tests/integration/test_fishery_regulator_composition.py` checks the three channels (corrections summed, reward equal to harvest plus subsidy plus penalty, social entries in the observation).
+- [x] Parallel composition has one coherent API and tests. — done in `aaa0820`: realised differently: there is no `ParallelMechanism`; `Agent.action` applies every mechanism of an agent to the same state and composes the residuals with `MDPState.add`, tested in `tests/agents/test_agent_base.py` and `tests/mechanism/test_trajectory_edges.py`.
+- [x] All concrete `Mechanism` implementations satisfy the abstract base class. — done in `dbe2338`: `Mechanism.apply` is the only abstract method; after the port of `SocialInfluence` every class of `core/mechanism/algorithms/` implements it, and `tests/mechanism/test_mechanism_base.py` checks that the base class stays abstract.
+- [x] Mechanism optimizer vectors encode/decode correctly. — done in `a65b543`: ES builds its search space with `flatten_space`/`flatdim` over the dictionary of the regulator agents' mechanism action spaces, names the parameters `id` or `id[i]`, and hands each candidate to the environment as a dictionary through `unflatten`; see `tests/optimizers/test_es_construction.py` and `tests/optimizers/test_es_generation_loop.py`.
+- [ ] Action and observation spaces agree with transformed values. — partly done in `7dccabd`: `tests/integration/test_fishery_regulator_composition.py` asserts the observation shape at reset and at every step, and `tests/adaptors/test_marl_env_adapter_episode.py` checks that the adapter's spaces equal the agents' spaces; no test checks every transformed observation and action against `space.contains`.
+- [x] Unit tests cover every concerned mechanism/env/composition module. — done in `7dccabd`: measured on HEAD: 1893 tests pass and `core/` is at 99 % line coverage with every file of `core/mechanism/` and `core/envs/` at 100 %; the composition modules no longer exist.
+- [x] Integration tests cover the benchmark + mechanism lifecycle. — done in `7dccabd`: `tests/integration/test_fishery_regulator_composition.py` (candidate hand-off, reward, observation, truncation) and `tests/integration/test_debug_script_csv_smoke.py` (full run) cover the benchmark with its mechanisms.
 - [ ] Reproducibility against `dev` is checked where practical.
 - [ ] Quota behavior is numerically compared against the dev fishery benchmark if time permits.
-- [ ] The tutorial notebooks run after the P0 integration fixes are merged.
+- [x] The tutorial notebooks run after the P0 integration fixes are merged. — done in `6aaee13`: `tests/notebooks/test_tutorial_notebooks.py` executes every tutorial under the `notebook` marker, after the tutorials were rewritten against the present API (`97af7e4`, `13aff1b`, `279fba0`, `268b500`).
 
 ---
 
@@ -1960,11 +1961,11 @@ or, if `MechanismSpace` remains the owner of default construction:
 
 Acceptance:
 
-- [ ] exactly one supported builder signature;
-- [ ] examples and tutorials use that signature;
-- [ ] `BilevelConfig.build_optimizer()` injects the same mechanism/space into inner and outer components;
-- [ ] fixed mechanisms work without an unnecessary optimizer space;
-- [ ] optimized mechanisms expose an optimizer dimension unambiguously.
+- [x] exactly one supported builder signature; — done in `ed6051c`: realised differently: `BilevelConfig.mechanism(...)` and `MechanismSpace` were removed; mechanisms are declared once, as `MechanismConfig` objects in `AgentConfig(mechanisms=...)` on the regulator's `.agents(...)`.
+- [x] examples and tutorials use that signature; — done in `97af7e4`: the tutorials and examples declare their mechanisms through `AgentConfig(mechanisms=...)` (`examples/bilevel_fishery/debug.py`, `tutorials/`), and no file still calls `.mechanism(`.
+- [x] `BilevelConfig.build_optimizer()` injects the same mechanism/space into inner and outer components; — done in `03d77fd`: `BilevelConfig.build_optimizer` passes `outer_cfg.agents_cfgs` to the inner environment as `leaders_cfg_dict` and ES builds its action space from the same agents; `tests/optimizers/test_bilevel_config_build.py` checks the hand-off.
+- [x] fixed mechanisms work without an unnecessary optimizer space; — done in `dbe2338`: a fixed mechanism declares `empty_action_space()` (a `Box` of shape `(0,)`), so ES searches no dimension for it; `tests/optimizers/test_es_construction.py` checks that only empty spaces give the fixed mode with dimension 0.
+- [x] optimized mechanisms expose an optimizer dimension unambiguously. — done in `a65b543`: ES `dimension` is `flatdim` of the union of every regulator agent's mechanism spaces and `parameter_names` lists `id` or `id[i]` in sorted order, with a duplicate id rejected; see `TestSearchSpace` in `tests/optimizers/test_es_construction.py`.
 
 ---
 
@@ -2007,7 +2008,7 @@ decode          MISSING
 clip            MISSING
 ```
 
-- [ ] implement missing abstract API or move common parameterized behavior into a reusable base.
+- [x] implement missing abstract API or move common parameterized behavior into a reusable base. — done in `22142f4`: realised differently: the abstract vector API (`dimension`, `encode`, `decode`, `clip`, `param_names`, `to_vector`) is gone; `QuotaMechanism` implements `decode` and `apply`, and its search dimension comes from the `action_space` of its `Quota` configuration.
 
 ### `SubsidyMechanism`
 
@@ -2024,35 +2025,35 @@ decode          MISSING
 clip            MISSING
 ```
 
-- [ ] implement missing abstract API.
+- [x] implement missing abstract API. — done in `d317b9f`: `SubsidyMechanism` implements `decode` and `apply` and its `Subsidy` configuration carries the `action_space`; `tests/mechanism/algorithms/test_subsidy.py` covers it.
 
 ### `SocialInfluenceMechanism`
 
 Currently shown only with `observation(...)`.
 
-- [ ] implement fixed/optimized parameter API;
-- [ ] decide whether `influence_weight` is optimized or fixed;
-- [ ] if fixed, `dimension == 0`;
-- [ ] if optimized, define normalized encode/decode bounds.
+- [x] implement fixed/optimized parameter API; — done in `dbe2338`: `SocialInfluenceMechanism` implements `observe` and has an empty `action_space` by default, so it is fixed; `influence_weight` is a constructor parameter (`tests/mechanism/algorithms/test_social_influence.py`).
+- [x] decide whether `influence_weight` is optimized or fixed; — done in `dbe2338`: `influence_weight` is fixed: it is a constructor parameter, validated as non-negative, reserved for the reward bonus of Jaques et al. and without effect.
+- [x] if fixed, `dimension == 0`; — done in `dbe2338`: the default `action_space` of `SocialInfluence` is `empty_action_space()`, so its dimension is 0 (`test_default_action_space_is_empty` in `tests/mechanism/algorithms/test_social_influence.py`).
+- [ ] if optimized, define normalized encode/decode bounds. — obsolete: `influence_weight` is fixed, so no optimizer bounds are needed; the vector API `encode`/`decode` they would have used was removed in `22142f4`.
 
 ### `ThresholdPenaltyMechanism`
 
 Currently has `dimension`, `encode`, `decode`, `param_names`, `reward`.
 
-- [ ] verify/implement `clip`;
-- [ ] verify/implement `to_vector`;
-- [ ] decide whether threshold/penalty are fixed or optimizer-controlled.
+- [ ] verify/implement `clip`; — obsolete: `clip` was part of the abstract vector API removed in `22142f4`; `ThresholdPenalty` has no searched parameter, so nothing is clipped.
+- [ ] verify/implement `to_vector`; — obsolete: `to_vector` was part of the abstract vector API removed in `22142f4`, and `20f878e` removed it from `ThresholdPenalty`.
+- [x] decide whether threshold/penalty are fixed or optimizer-controlled. — done in `20f878e`: threshold and penalty are fixed in the `ThresholdPenalty` configuration, and its `action_space` is empty (`test_default_action_space_is_empty` in `tests/mechanism/algorithms/test_penalty.py`).
 
 ### `ChainedMechanism`
 
-- [ ] verify/implement `clip`;
-- [ ] define `to_vector` for the semantic vector exposed to agents;
-- [ ] test concatenation/slicing of child optimizer vectors.
+- [ ] verify/implement `clip`; — obsolete: `ChainedMechanism` was removed in `3639bda` and `clip` with the abstract vector API in `22142f4`.
+- [ ] define `to_vector` for the semantic vector exposed to agents; — obsolete: `ChainedMechanism` was removed in `3639bda`; the vector exposed to the agents no longer exists (`to_vector` left the base class in `22142f4`).
+- [x] test concatenation/slicing of child optimizer vectors. — done in `9d8ced6`: realised differently: ES concatenates the mechanisms' spaces with `flatten_space` and slices each candidate back with `unflatten`; `test_each_candidate_is_a_dict_of_mechanism_actions` in `tests/optimizers/test_es_generation_loop.py` checks the slicing.
 
 ### `ParallelMechanism`
 
-- [ ] same abstract-method audit;
-- [ ] same vector semantics audit.
+- [ ] same abstract-method audit; — obsolete: `ParallelMechanism` was removed in `3639bda`; every concrete mechanism now implements `apply`.
+- [ ] same vector semantics audit. — obsolete: `ParallelMechanism` was removed in `3639bda`; there is no composite vector left to audit.
 
 No concrete mechanism should remain abstract accidentally.
 
@@ -2093,9 +2094,9 @@ SubsidyMechanism(
 
 not old `optimize_params/default_*` arguments.
 
-- [ ] update all examples to the new object model;
-- [ ] keep optimization selection in one place only;
-- [ ] do not duplicate defaults in both mechanism objects and spaces.
+- [x] update all examples to the new object model; — done in `827dff6`: the fishery example was rebuilt on `MechanismConfig` objects (`Quota`, `FishingConfig`, `RestoreConfig`), and the cart-pole and fresh-water examples were ported the same way (`09033f7`, `2010b10`); no example passes `optimize_params` or `default_*` any more.
+- [x] keep optimization selection in one place only; — done in `22142f4`: what is searched is decided by the `action_space` of each `MechanismConfig` alone; an empty `Box` means fixed.
+- [x] do not duplicate defaults in both mechanism objects and spaces. — done in `22142f4`: the default action lives only in the `default` field of `MechanismConfig`; no space object exists to repeat it.
 
 ---
 
@@ -2138,7 +2139,7 @@ return self.mechanism.action(
 )
 ```
 
-- [ ] call `self.mechanism.reward(...)`.
+- [x] call `self.mechanism.reward(...)`. — done in `4fcf8e4`: realised differently: `MultiAgentEnv.step` calls `Agent.action` then `Agent.reward`, and a mechanism's reward residual is the `rewards` field returned by its `apply`; `tests/envs/test_marl_env_step.py` covers the step.
 
 The supplied `observation(...)` method returns:
 
@@ -2149,7 +2150,7 @@ return self.mechanism.action(
 )
 ```
 
-- [ ] call `self.mechanism.observation(...)`.
+- [x] call `self.mechanism.observation(...)`. — done in `5c2c52f`: realised differently: `MultiAgentEnv` builds observations with `Agent.observation` for the followers and `Agent.mechanism_observations` for the leaders, which call `Mechanism.observe`; `tests/envs/test_marl_regulated_observation.py` covers it.
 
 ---
 
@@ -2183,7 +2184,7 @@ obs_with_theta = {
 
 Then pass the dict through `mechanism.observation(...)`.
 
-- [ ] add a regression test for this exact failure mode.
+- [ ] add a regression test for this exact failure mode. — obsolete: the concatenation of a mechanism vector onto the observation was removed with `to_vector` in `22142f4` and the rewrite of the environment in `4fcf8e4`; observations are now built per agent, and `tests/envs/test_marl_regulated_observation.py` covers that path.
 
 ---
 
@@ -2206,9 +2207,9 @@ rewards = self.reward(
 obs = self.observation({})
 ```
 
-- [ ] one reward path only;
-- [ ] one observation path only;
-- [ ] one action path only.
+- [x] one reward path only; — done in `4fcf8e4`: `MultiAgentEnv.step` computes the reward through `Agent.reward` only; `tests/envs/test_marl_env_step.py`.
+- [x] one observation path only; — done in `5c2c52f`: `MultiAgentEnv.reset` and `step` build the observation through `Agent.observation` and `Agent.mechanism_observations` only; `tests/envs/test_marl_regulated_observation.py`.
+- [x] one action path only. — done in `4fcf8e4`: the action goes through `Agent.action` only, which applies each mechanism to the raw action of the step (`56dde42` made it the raw one); `tests/agents/test_agent_base.py`.
 
 ---
 
@@ -2222,8 +2223,8 @@ self.observation(agent_id, self.S_t)
 
 even though `observation(...)` accepts one `observation_dict`.
 
-- [ ] make fallback reset/step behavior use the same observation pipeline;
-- [ ] add a test where the world has not published a non-default mechanism.
+- [x] make fallback reset/step behavior use the same observation pipeline; — done in `472feb1`: before any candidate reaches the world, `MultiAgentEnv.reset` gives each leader the `default` action of its mechanisms and builds the observation through the same pipeline as later steps.
+- [x] add a test where the world has not published a non-default mechanism. — done in `472feb1`: `tests/envs/test_marl_env_reset.py` covers the reset before any publication, and `test_no_candidate_before_the_first_publication` in `tests/envs/test_marl_regulated_mechanism.py` checks that the default never counts as a published candidate.
 
 ---
 
@@ -2258,9 +2259,9 @@ Then:
 requested_harvest_i = harvest_fraction_i * full_required_harvest
 ```
 
-- [ ] extract action components deliberately;
-- [ ] document the semantic component map;
-- [ ] avoid implicit whole-vector arithmetic.
+- [x] extract action components deliberately; — done in `827dff6`: the fisherman holds two separate mechanisms, `Fishing` (action `harvest`) and `Restore` (action `restore`), each with its own one-component action, so no code indexes into a two-component vector.
+- [x] document the semantic component map; — done in `827dff6`: the component map is now the set of mechanism ids `harvest` and `restore` documented in `examples/bilevel_fishery/regulated_env.py` (`Fishing`, `Restore`).
+- [x] avoid implicit whole-vector arithmetic. — done in `827dff6`: `Fishing.apply` and `Restore.apply` each read their own scalar action; `tests/examples/test_fishery_env_dynamics.py` checks the catch and the restoration by hand.
 
 ## 3.1 Restoration dynamics are currently disconnected
 
@@ -2285,8 +2286,8 @@ and either pass it explicitly to the transition hook or derive it there.
 The subsidy mechanism should modify reward; ecological restoration belongs in
 the benchmark transition.
 
-- [ ] connect restoration action to fish dynamics;
-- [ ] keep ecology and incentive shaping separate.
+- [x] connect restoration action to fish dynamics; — done in `827dff6`: `Restore.apply` records the restored biomass and `pella_tomlinson` adds it to the next stock; `test_restoration_enters_the_equation_next_to_the_production` in `tests/examples/test_fishery_env_dynamics.py`.
+- [x] keep ecology and incentive shaping separate. — done in `827dff6`: restoration is ecology in the transition, while the subsidy is a reward residual of `Subsidy` that never touches the stock.
 
 ## 3.2 Fix `K` reference
 
@@ -2296,16 +2297,16 @@ The transition contains:
 fish_next = float(np.clip(fish_next, 0.0, K))
 ```
 
-- [ ] use `self.K` or deliberately remove the upper clipping;
-- [ ] add boundary tests.
+- [x] use `self.K` or deliberately remove the upper clipping; — done in `53e5ddd`: the upper clipping was removed on purpose and the growth term uses `self.K`; `test_stock_at_capacity_without_fishing_stays_there` and `test_stochastic_reset_is_reproducible_and_clipped_to_capacity` check the capacity.
+- [x] add boundary tests. — done in `53e5ddd`: `tests/examples/test_fishery_env_dynamics.py` has boundary tests: stock at capacity, stock below capacity, stock never negative, and the catch never above the stock.
 
 ## 3.3 Define the base reward
 
 The shown `FisheryRegulatedEnv` does not include a `@reward` hook.
 
-- [ ] add or verify the benchmark base reward;
-- [ ] test reward before any mechanism;
-- [ ] test reward after subsidy/penalty.
+- [x] add or verify the benchmark base reward; — done in `827dff6`: `Fisherman.reward` pays the harvest fraction of the step, and `FisheryRegulatedEnv` needs no reward hook.
+- [x] test reward before any mechanism; — done in `9c74d85`: `test_reward_is_the_harvest_fraction_of_the_step` in `tests/examples/test_fishery_env_dynamics.py`.
+- [x] test reward after subsidy/penalty. — done in `7dccabd`: `test_reward_is_harvest_plus_subsidy_plus_penalty` in `tests/integration/test_fishery_regulator_composition.py` checks the reward after subsidy and penalty.
 
 ---
 
@@ -2349,11 +2350,11 @@ reward
 
 Acceptance:
 
-- [ ] zero effort -> no subsidy/cost;
-- [ ] positive effort -> exact analytical reward;
-- [ ] component selection tested;
-- [ ] reward type remains `float`;
-- [ ] public bounds use `ValueError`, not only `assert`.
+- [x] zero effort -> no subsidy/cost; — done in `d317b9f`: `test_no_effort_leaves_the_reward_unchanged` in `tests/mechanism/algorithms/test_subsidy.py`.
+- [x] positive effort -> exact analytical reward; — done in `d317b9f`: `test_analytical_value` checks `rate * MAX_SUBSIDY * e - cost * e**2`.
+- [x] component selection tested; — done in `d317b9f`: realised differently: the effort comes from the action of the targeted mechanism named in `acts_on`, not from a component index; `test_effort_is_read_from_the_targeted_mechanism` and `tests/mechanism/algorithms/test_subsidy_targeting.py`.
+- [ ] reward type remains `float`; — partly done in `d317b9f`: `SubsidyMechanism.apply` returns a plain Python float per targeted agent (checked on HEAD), but no test asserts the type.
+- [x] public bounds use `ValueError`, not only `assert`. — done in `d317b9f`: `SubsidyMechanism` raises `ValueError` for a cost outside `[0, 1]` (`test_cost_must_be_in_unit_interval`) and when `acts_on` is missing.
 
 ---
 
@@ -2393,13 +2394,13 @@ a_{j,t-1},
 ].
 \]
 
-- [ ] document that this is observation augmentation, not the full Jacques et al. KL bonus;
-- [ ] `influence_weight` is currently unused in the shown implementation;
-- [ ] either implement the KL reward term or scope/rename the class;
-- [ ] add `bindings` to the dataclass if constructor-injected bindings are intended;
-- [ ] test peer-action ordering;
-- [ ] test self-action exclusion;
-- [ ] test observation dimensionality.
+- [x] document that this is observation augmentation, not the full Jacques et al. KL bonus; — done in `dbe2338`: the docstring of `SocialInfluenceMechanism` says it exposes the peers' delivered actions and that `influence_weight` is reserved for the bonus of Jaques et al.
+- [x] `influence_weight` is currently unused in the shown implementation; — done in `dbe2338`: `influence_weight` is documented as reserved with no effect and validated non-negative (`test_influence_weight_is_reserved`).
+- [x] either implement the KL reward term or scope/rename the class; — done in `dbe2338`: the class is scoped as an observation mechanism: the reward term is not implemented and the weight is kept for it, and the name was not changed.
+- [ ] add `bindings` to the dataclass if constructor-injected bindings are intended; — obsolete: the `bindings` field was removed with `Mechanism.resolve` in `22142f4`; the configuration now carries `acts_on` and `obs_offset`.
+- [x] test peer-action ordering; — done in `14557d7`: `test_peer_ordering_and_self_exclusion` and the numeric-order tests in `tests/mechanism/algorithms/test_social_influence.py`.
+- [x] test self-action exclusion; — done in `dbe2338`: `test_peer_ordering_and_self_exclusion` shows that each agent receives only its peers' entries.
+- [x] test observation dimensionality. — done in `dbe2338`: `test_reserved_entries_must_fit_in_the_observation` in `tests/mechanism/algorithms/test_social_influence.py` and the shape checks of `tests/integration/test_fishery_regulator_composition.py`.
 
 ---
 
@@ -2437,15 +2438,15 @@ w_u
 
 Tests:
 
-- [ ] resource close to 0 -> allowed fraction near lower end;
-- [ ] resource close to 1 -> allowed fraction near 1;
-- [ ] resource near `fixed_quota` -> expected sigmoid transition;
-- [ ] request below allowed fraction remains approximately unchanged;
-- [ ] request above allowed fraction is smoothly capped;
-- [ ] non-target action components are unchanged;
-- [ ] input arrays are not mutated in place;
-- [ ] per-agent mapping preserved;
-- [ ] `allowed_frac` is available to the quota observation transform.
+- [x] resource close to 0 -> allowed fraction near lower end; — done in `7dccabd`: `test_nothing_is_allowed_when_the_stock_is_empty` in `tests/mechanism/algorithms/test_quota.py`.
+- [x] resource close to 1 -> allowed fraction near 1; — done in `7dccabd`: `test_everything_is_allowed_when_the_stock_is_full` in `tests/mechanism/algorithms/test_quota.py`.
+- [x] resource near `fixed_quota` -> expected sigmoid transition; — done in `7dccabd`: `test_half_the_stock_at_the_quota` in `tests/mechanism/algorithms/test_quota.py`.
+- [x] request below allowed fraction remains approximately unchanged; — done in `7dccabd`: `test_request_below_the_allowance_is_left_unchanged` in `tests/mechanism/algorithms/test_quota.py`.
+- [x] request above allowed fraction is smoothly capped; — done in `7dccabd`: `test_request_above_the_allowance_is_capped_and_lowered` and `test_cap_is_continuous_around_the_allowance` in `tests/mechanism/algorithms/test_quota.py`.
+- [x] non-target action components are unchanged; — done in `7dccabd`: `test_residual_keeps_the_shape_and_leaves_other_components_alone` in `tests/mechanism/algorithms/test_quota.py`.
+- [x] input arrays are not mutated in place; — done in `7dccabd`: `test_request_is_not_mutated_in_place` in `tests/mechanism/algorithms/test_quota.py`.
+- [x] per-agent mapping preserved; — done in `7dccabd`: `test_each_agent_is_capped_on_its_own_request` in `tests/mechanism/algorithms/test_quota.py`.
+- [x] `allowed_frac` is available to the quota observation transform. — done in `6bf771c`: realised differently: the allowed fraction is published as the state entry `allowed_frac:<id>` rather than to an observation transform; see the `allowed_frac` tests in `tests/mechanism/algorithms/test_quota.py`.
 
 ---
 
@@ -2507,13 +2508,13 @@ smoothing, reward semantics, or dynamics.
 
 Tests:
 
-- [ ] `@reset` registers reset hook;
-- [ ] `@action` registers action hook;
-- [ ] `@reward` registers reward hook;
-- [ ] `@observation` registers observation hook;
-- [ ] `@transition` registers transition hook;
-- [ ] inherited hooks behave intentionally;
-- [ ] multiple hooks of one type either raise or have documented deterministic behavior.
+- [x] `@reset` registers reset hook; — done in `9c74d85`: `test_subclass_records_the_name_of_the_marked_method` in `tests/envs/test_env_hooks.py`.
+- [ ] `@action` registers action hook; — obsolete: the `action` decorator of `core.envs.hooks` was deleted in `be2d354`; an agent's action is now the `apply` of its mechanisms.
+- [ ] `@reward` registers reward hook; — obsolete: the `reward` decorator of `core.envs.hooks` was deleted in `be2d354`; the reward is now `Agent.reward` and the mechanisms' residuals.
+- [ ] `@observation` registers observation hook; — obsolete: the `observation` decorator of `core.envs.hooks` was deleted in `be2d354`; the observation is now `Agent.observation` and `Mechanism.observe`.
+- [x] `@transition` registers transition hook; — done in `9c74d85`: `test_subclass_records_the_name_of_the_marked_method` in `tests/envs/test_env_hooks.py` covers `transition` as well as `reset`.
+- [x] inherited hooks behave intentionally; — done in `9c74d85`: `test_inherited_hooks_are_kept_and_can_be_redeclared` in `tests/envs/test_env_hooks.py`.
+- [x] multiple hooks of one type either raise or have documented deterministic behavior. — done in `05dfc50`: `MultiAgentEnv` raises `TypeError` for two methods that carry the same hook mark (`test_two_methods_with_the_same_hook_mark_are_rejected` in `tests/envs/test_env_hooks.py`).
 
 Recommendation: fail fast rather than silently letting the last same-type hook
 win.
@@ -2540,12 +2541,12 @@ bindings={
 
 Tests:
 
-- [ ] `resolve(env)` returns configured keys;
-- [ ] missing required binding raises at construction;
-- [ ] quota receives normalized resource level;
-- [ ] social observation receives `previous_actions` and `agent_ids`;
-- [ ] child bindings in compositions resolve against the correct env;
-- [ ] bindings remain serializable in Ray/cloudpickle integration.
+- [ ] `resolve(env)` returns configured keys; — obsolete: `Mechanism.resolve` and the `bindings` field were removed in `22142f4`; a mechanism reads the state through `obs_map` and `acts_on` of its configuration.
+- [ ] missing required binding raises at construction; — partly done in `7dccabd`: a missing `obs_map` entry or `acts_on` raises `ValueError`, but at the first `apply` or `observe`, not at construction (`test_apply_requires_the_resource_level` in `tests/mechanism/algorithms/test_quota.py`).
+- [x] quota receives normalized resource level; — done in `7dccabd`: `QuotaMechanism.apply` divides the stock named by `obs_map['resource_level']` by `K` (`test_resource_level_is_the_state_over_the_capacity`).
+- [x] social observation receives `previous_actions` and `agent_ids`; — done in `dbe2338`: realised differently: `SocialInfluenceMechanism.observe` reads the delivered actions of step `t - 1` from the state it receives, and the ids come from the state's `aids` (`tests/mechanism/algorithms/test_social_influence.py`).
+- [ ] child bindings in compositions resolve against the correct env; — obsolete: mechanisms are no longer composed into children with their own bindings (`3639bda`, `22142f4`); every mechanism of an agent reads the same state.
+- [ ] bindings remain serializable in Ray/cloudpickle integration. — obsolete: the `bindings` callables were removed in `22142f4`; mechanism configurations are frozen dataclasses of plain values.
 
 ---
 
@@ -2569,16 +2570,16 @@ M_3(M_2(M_1(x))).
 
 Tests:
 
-- [ ] action order exactly follows child tuple order;
-- [ ] reward order exactly follows child tuple order;
-- [ ] observation order exactly follows child tuple order;
-- [ ] each child receives previous child's transformed output;
-- [ ] each child resolves its own env bindings;
-- [ ] dimension is sum of child dimensions;
-- [ ] encode is concatenation;
-- [ ] decode slices correctly;
-- [ ] parameter names preserve child identity/order;
-- [ ] zero-dimension children do not break slicing.
+- [ ] action order exactly follows child tuple order; — obsolete: `ChainedMechanism` was removed in `3639bda`; the mechanisms of an agent are applied to the same state and their residuals summed, so order does not matter.
+- [ ] reward order exactly follows child tuple order; — obsolete: `ChainedMechanism` was removed in `3639bda`; rewards are residuals summed by `MDPState.add`.
+- [ ] observation order exactly follows child tuple order; — obsolete: `ChainedMechanism` was removed in `3639bda`; observation contributions are summed by `MDPState.add`.
+- [ ] each child receives previous child's transformed output; — obsolete: `ChainedMechanism` was removed in `3639bda`; all mechanisms of one agent now read the same input state, as the `Subsidy` docstring states.
+- [ ] each child resolves its own env bindings; — obsolete: per-child bindings were removed in `22142f4`; each configuration carries its own `obs_map`.
+- [x] dimension is sum of child dimensions; — done in `a65b543`: realised differently: the search dimension is `flatdim` of the dictionary of mechanism spaces, so it is the sum of their sizes (`test_parameter_names_follow_the_sorted_mechanism_ids` in `tests/optimizers/test_es_construction.py`).
+- [x] encode is concatenation; — done in `9d8ced6`: realised differently: `flatten_space` of the dictionary of mechanism spaces is the concatenation, in sorted mechanism id order.
+- [x] decode slices correctly; — done in `e767ed4`: realised differently: ES slices each candidate with `unflatten` (`test_each_candidate_is_a_dict_of_mechanism_actions` in `tests/optimizers/test_es_generation_loop.py`).
+- [x] parameter names preserve child identity/order; — done in `a65b543`: `parameter_names` is `id` or `id[i]` for each mechanism in sorted order (`test_parameter_names_follow_the_sorted_mechanism_ids`).
+- [x] zero-dimension children do not break slicing. — done in `a65b543`: the penalty's empty space sits next to the quota and subsidy spaces in `test_parameter_names_follow_the_sorted_mechanism_ids`, and `test_only_empty_action_spaces_make_the_fixed_mode` covers the all-empty case.
 
 Interaction test:
 
@@ -2610,7 +2611,7 @@ reward(...)
 observation(...)
 ```
 
-- [ ] reconcile this before use.
+- [ ] reconcile this before use. — obsolete: `ParallelMechanism` was removed in `3639bda`.
 
 Recommended target:
 
@@ -2637,13 +2638,13 @@ Each child receives the same original input.
 
 Tests:
 
-- [ ] every child sees the same original input;
-- [ ] no child sees another child's output;
-- [ ] merge receives original + tuple of outputs;
-- [ ] merge ordering is documented;
-- [ ] deep copies prevent cross-child mutation;
-- [ ] action/reward/observation merge functions tested separately;
-- [ ] dimensions/encode/decode tested.
+- [x] every child sees the same original input; — done in `aaa0820`: realised differently: `Agent.action` applies every mechanism to the same state (`test_action_applies_every_mechanism_it_holds_an_action_for` in `tests/agents/test_agent_base.py`).
+- [x] no child sees another child's output; — done in `aaa0820`: realised differently: each mechanism returns a residual and the state is only changed when `MDPState.add` composes them, so no mechanism sees another's output.
+- [ ] merge receives original + tuple of outputs; — obsolete: there is no merge function since `3639bda`; `MDPState.add` sums the residuals.
+- [ ] merge ordering is documented; — obsolete: there is no merge step since `3639bda`; `MDPState.add` sums additive fields, so ordering is irrelevant.
+- [ ] deep copies prevent cross-child mutation; — partly done in `aaa0820`: there are no deep copies; mechanisms return residuals instead of editing the shared state, and only the quota has a test that its input is not mutated (`test_request_is_not_mutated_in_place`).
+- [x] action/reward/observation merge functions tested separately; — done in `27fbd29`: realised differently: `MDPState.add` is tested for rewards and observations summed at one step (`tests/mechanism/test_trajectory.py`, `0bb367c`) and for its edge cases in `tests/mechanism/test_trajectory_edges.py`.
+- [ ] dimensions/encode/decode tested. — obsolete: `ParallelMechanism` was removed in `3639bda`; the dimensions now come from the ES search space.
 
 ---
 
@@ -2682,12 +2683,12 @@ For 10 agents and 2-D actions, social influence adds:
 
 features per agent.
 
-- [ ] compute/validate final observation dimension;
-- [ ] decide whether mechanisms expose `observation_dimension_delta`;
-- [ ] decide whether `to_vector()` is always appended;
-- [ ] remove dependencies on obsolete `FisheryMechanismSpace().full_dimension` where inappropriate;
-- [ ] assert actual observation shape matches declared space;
-- [ ] assert normalized action shape matches declared action space.
+- [x] compute/validate final observation dimension; — done in `dbe2338`: `SocialInfluenceMechanism.observe` raises `ValueError` when the reserved entries do not fit in the agent's observation (`test_reserved_entries_must_fit_in_the_observation`).
+- [x] decide whether mechanisms expose `observation_dimension_delta`; — done in `dbe2338`: decided against it: a mechanism writes into entries of the agent's declared `observation_space` that the agent leaves at zero (`obs_offset`), so no dimension delta exists.
+- [ ] decide whether `to_vector()` is always appended; — obsolete: `to_vector` left the base class in `22142f4`; the mechanism parameters are not appended to the observation.
+- [x] remove dependencies on obsolete `FisheryMechanismSpace().full_dimension` where inappropriate; — done in `827dff6`: the observation space of the fishery no longer depends on `FisheryMechanismSpace().full_dimension`.
+- [ ] assert actual observation shape matches declared space; — partly done in `7dccabd`: `tests/integration/test_fishery_regulator_composition.py` asserts the observation shape (5,) at every step against the size declared in `observation_space`, but not through `space.contains`.
+- [ ] assert normalized action shape matches declared action space. — partly done in `a8db5a4`: `tests/adaptors/test_marl_env_adapter_episode.py` checks that the adapter's action spaces equal those of the mechanisms; no test checks a normalised action against its space.
 
 ---
 
@@ -2707,9 +2708,9 @@ action
 info
 ```
 
-- [ ] values correspond to regulated action/reward/observation actually used;
-- [ ] seeds remain immutable for an env instance;
-- [ ] mechanism ID matches the published mechanism;
+- [ ] values correspond to regulated action/reward/observation actually used; — partly done in `733be6c`: the environment logs the mean follower reward of each step and `test_the_env_logs_the_mean_follower_reward_of_each_step` checks it against the reward returned; the regulator now publishes candidates, not per-step actions or observations.
+- [x] seeds remain immutable for an env instance; — done in `9c74d85`: `test_reset_does_not_reseed_the_environment` in `tests/envs/test_marl_env_reset.py`.
+- [x] mechanism ID matches the published mechanism; — done in `9c74d85`: `MultiAgentEnv.reset` fetches the candidate by its `mechanism_id` (`tests/envs/test_marl_env_reset.py`), and `tests/envs/test_regulator_publish.py` checks that every candidate is published for every seed (`dea1919`).
 - [ ] publication does not modify behavior.
 
 ---
@@ -2736,9 +2737,9 @@ tests/integration/test_fishery_mechanisms.py
 
 Coverage target:
 
-- [ ] meaningful branch coverage for all concerned files;
-- [ ] aim for >=90% line coverage on pure mechanism/composition modules;
-- [ ] every mechanism dispatch path covered even if distributed integration coverage is lower.
+- [ ] meaningful branch coverage for all concerned files; — partly done in `3db1e46`: measured on HEAD: `core/` is at 99 % line coverage (5 lines missed, in `core/optimizers/es/optimizer.py` and `core/adaptors/ray/learner_drain.py`); branch coverage is not measured.
+- [x] aim for >=90% line coverage on pure mechanism/composition modules; — done in `3db1e46`: measured on HEAD: 99 % line coverage on `core/`, with `core/mechanism/` and `core/envs/` at 100 %.
+- [x] every mechanism dispatch path covered even if distributed integration coverage is lower. — done in `7dccabd`: `Agent.action`, `Agent.reward`, `Agent.mechanism_observations` and `MultiAgentEnv.step` are covered at 100 % by `tests/agents/test_agent_base.py`, `tests/envs/` and `tests/integration/test_fishery_regulator_composition.py`.
 
 Suggested command:
 
@@ -2814,10 +2815,10 @@ mechanism stateful.
 
 Decide:
 
-- [ ] Is one mechanism object shared across multiple env instances?
-- [ ] Could vectorized envs overwrite one another's `_context`?
-- [ ] Should mechanism state reset per episode?
-- [ ] Should step context live on the env instead?
+- [x] Is one mechanism object shared across multiple env instances? — done in `9c74d85`: no: each environment builds its own agents and mechanisms from the frozen configurations (`test_every_build_creates_independent_agents` in `tests/agents/test_agent_base.py`).
+- [x] Could vectorized envs overwrite one another's `_context`? — done in `282d125`: no: `_context` was removed from `QuotaMechanism`, which now publishes its allowed fraction in the state, and instances are not shared between environments.
+- [x] Should mechanism state reset per episode? — done in `b330a82`: decided: the fetched candidate is kept for every episode of a generation and replaced only by a newly published one (`tests/envs/test_marl_regulated_mechanism.py`); the allowed fraction is a state entry, reset with the state.
+- [x] Should step context live on the env instead? — done in `282d125`: yes: the step context is a state entry (`allowed_frac:<id>`), and the mechanism definition is a frozen configuration.
 
 Recommended default:
 
@@ -2839,8 +2840,8 @@ Examples use:
 assert 0.0 <= self.fixed_quota <= 1.0
 ```
 
-- [ ] use explicit `ValueError` for public configuration;
-- [ ] keep assertions for internal invariants only.
+- [x] use explicit `ValueError` for public configuration; — done in `282d125`: `QuotaMechanism`, `SubsidyMechanism`, `ThresholdPenalty` and `SocialInfluence` raise `ValueError` for bad parameters (`d317b9f`, `20f878e`, `dbe2338`), tested in `tests/mechanism/algorithms/`.
+- [x] keep assertions for internal invariants only. — done in `282d125`: no `assert` statement is left under `core/` or `examples/`.
 
 ---
 
@@ -2860,25 +2861,25 @@ Tutorial examples must reflect the final merged public API.
 
 # 19. Recommended implementation order
 
-1. [ ] Reconcile `BilevelConfig.mechanism` public API.
-2. [ ] Make all mechanism classes concretely instantiable.
-3. [ ] Fix reward/observation dispatch in `MultiAgentRegulatedEnv`.
-4. [ ] Fix per-agent observation concatenation.
-5. [ ] Fix fishery 2-component action decomposition.
-6. [ ] Connect restoration action to transition dynamics.
-7. [ ] Fix subsidy indexing bug.
-8. [ ] Scope/finish social influence behavior.
-9. [ ] Repair `ParallelMechanism` method API.
-10. [ ] Add unit tests for hooks and transforms.
-11. [ ] Add composition tests.
-12. [ ] Add deterministic fishery tests.
-13. [ ] Run quota-only smoke benchmark.
-14. [ ] Run quota + subsidy smoke benchmark.
-15. [ ] Run social observation smoke benchmark.
-16. [ ] Add evaluation smoke test.
+1. [x] Reconcile `BilevelConfig.mechanism` public API. — done in `ed6051c`: see the items of 1.1: mechanisms are declared by `AgentConfig(mechanisms=...)`.
+2. [x] Make all mechanism classes concretely instantiable. — done in `dbe2338`: every mechanism of `core/mechanism/algorithms/` implements `apply`.
+3. [x] Fix reward/observation dispatch in `MultiAgentRegulatedEnv`. — done in `4fcf8e4`: `MultiAgentEnv.step` calls `Agent.reward` and `Agent.observation`.
+4. [ ] Fix per-agent observation concatenation. — obsolete: the concatenation was removed with `to_vector` in `22142f4`; observations are built per agent.
+5. [x] Fix fishery 2-component action decomposition. — done in `827dff6`: the fisherman holds the `Fishing` and `Restore` mechanisms, each with a one-component action.
+6. [x] Connect restoration action to transition dynamics. — done in `827dff6`: `Restore.apply` feeds the restoration into `pella_tomlinson`.
+7. [x] Fix subsidy indexing bug. — done in `d317b9f`: `SubsidyMechanism.apply` reads the effort from the targeted mechanism's action.
+8. [x] Scope/finish social influence behavior. — done in `dbe2338`: `SocialInfluence` is scoped as an observation mechanism with a reserved `influence_weight`.
+9. [ ] Repair `ParallelMechanism` method API. — obsolete: `ParallelMechanism` was removed in `3639bda`.
+10. [x] Add unit tests for hooks and transforms. — done in `9c74d85`: `tests/envs/test_env_hooks.py` and the mechanism tests under `tests/mechanism/algorithms/`.
+11. [x] Add composition tests. — done in `7dccabd`: `tests/integration/test_fishery_regulator_composition.py` and `tests/agents/test_agent_base.py`.
+12. [x] Add deterministic fishery tests. — done in `9c74d85`: `tests/examples/test_fishery_env_dynamics.py` checks the fishery transitions by hand.
+13. [x] Run quota-only smoke benchmark. — done in `7dccabd`: `tests/integration/test_debug_script_csv_smoke.py`.
+14. [ ] Run quota + subsidy smoke benchmark. — partly done in `7dccabd`: the composition is stepped in `tests/integration/test_fishery_regulator_composition.py`, but not through a full bilevel run.
+15. [ ] Run social observation smoke benchmark. — partly done in `dbe2338`: the social entries are stepped in `tests/integration/test_fishery_regulator_composition.py`, but not through a full bilevel run.
+16. [ ] Add evaluation smoke test. — partly done in `7dccabd`: evaluation runs inside the end-to-end smoke test (`evaluation_interval=1` in `debug.py`) and the lifecycle is unit-tested (`tests/adaptors/test_ray_optimizer_lifecycle.py`), but no assertion targets the evaluation result.
 17. [ ] Optional/preferred: numerical quota parity against `dev`.
-18. [ ] Update tutorials to final API.
-19. [ ] Run coverage and close remaining untested branches.
+18. [x] Update tutorials to final API. — done in `97af7e4`: the tutorials were rewritten on the present API (`13aff1b`, `279fba0`, `268b500`) and executed by `tests/notebooks/test_tutorial_notebooks.py`.
+19. [ ] Run coverage and close remaining untested branches. — partly done in `3db1e46`: coverage was run (99 % of `core/` on HEAD) and the untested branches closed except 5 lines in `core/optimizers/es/optimizer.py` and `core/adaptors/ray/learner_drain.py`.
 
 # In-code TODO notes moved out of the source (October 2026)
 
