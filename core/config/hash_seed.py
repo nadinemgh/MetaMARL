@@ -39,17 +39,32 @@ def ensure_hash_seed(default: str = DEFAULT_HASH_SEED) -> None:
     ----------
     default : str, optional
         Value exported when ``PYTHONHASHSEED`` is unset (default ``"0"``).
+        Python accepts an integer between 0 and 4294967295, or ``"random"``.
 
-    When to use
-    -----------
-    As the first statement of a command-line entry point, before any work
-    whose cost would be paid twice by the restart.
+    Raises
+    ------
+    OSError
+        If the operating system cannot replace the process image.
+
+    When to use: as the first statement of a command-line entry point, before
+    any work whose cost would be paid twice by the restart. Do not call it from
+    library code or from a test: with the variable unset it never returns.
 
     Examples
     --------
+    The example sets the variable first, so the call returns instead of
+    restarting the interpreter, and it restores the previous state afterwards.
+
     >>> import os
+    >>> previous = os.environ.get("PYTHONHASHSEED")
     >>> os.environ["PYTHONHASHSEED"] = "0"
-    >>> ensure_hash_seed()  # already set: returns without restarting
+    >>> try:
+    ...     ensure_hash_seed()  # already set: returns without restarting
+    ... finally:
+    ...     if previous is None:
+    ...         del os.environ["PYTHONHASHSEED"]
+    ...     else:
+    ...         os.environ["PYTHONHASHSEED"] = previous
     """
 
     value = os.environ.get("PYTHONHASHSEED")

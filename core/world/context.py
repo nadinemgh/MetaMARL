@@ -1,11 +1,30 @@
 """Context schemas exchanged through the shared ``World`` actor.
 
 A ``Context`` is the unit of communication between the two levels of the
-bilevel loop. The outer (regulator) optimizer publishes ``MechanismContext``
-candidates, the inner RL environments consume them and publish one
-``EnvStepContext`` per ``reset``/``step``, and the regulator reads those step
-contexts back to score each candidate. ``MechanismStatus`` records where a
-published mechanism stands in that cycle.
+bilevel loop. The outer (regulator) optimizer publishes one
+``MechanismContext`` per candidate and training seed, the inner RL
+environments fetch the candidate that matches their index and seed, and the
+regulator appends a ``done`` ``MechanismContext`` carrying the aggregated
+fitness of each candidate. ``EnvStepContext`` is the schema for one
+environment transition; the ``World`` can store and filter such records, but no
+environment of the current fishery pipeline publishes them. ``MechanismStatus``
+records where a published mechanism stands in the publish, train, evaluate
+cycle. This module holds only the data definitions; the registry that stores
+them is ``core.world.base.World``.
+
+Examples
+--------
+>>> payload = MechanismContext(
+...     index=1,
+...     env_id=None,
+...     seed=7,
+...     status=MechanismStatus.published,
+...     mechanism={"quota": 0.3},
+...     metrics=None,
+... )
+>>> ctx = Context(id=None, opt_id="opt", step=0, env="RegulatorEnv", payload=payload)
+>>> ctx.payload.status.value, ctx.payload.mechanism
+('published', {'quota': 0.3})
 """
 
 from dataclasses import dataclass
@@ -43,8 +62,21 @@ class MechanismStatus(Enum):
     never assigns it.
 
     The same enum also stamps ``EnvStepContext.status`` with the mode of the
-    producing environment (``train`` or ``eval``), which is how the reporting
-    utilities separate training rollouts from evaluation rollouts.
+    producing environment (``train`` or ``eval``), and
+    ``MultiAgentEnv.mode`` is built with ``MechanismStatus(mode)`` from the
+    strings ``"train"`` and ``"eval"``.
+
+    When to use: to read or set ``MechanismContext.status``, to pick the fetch
+    mode of ``World.get_mechanism_by_id`` (``train`` or ``eval``), or to select
+    which contexts ``World.flush`` drops. Compare members with ``is`` or ``==``
+    rather than comparing their string values.
+
+    Examples
+    --------
+    >>> MechanismStatus("eval") is MechanismStatus.eval
+    True
+    >>> [status.value for status in MechanismStatus]
+    ['init', 'published', 'assigned', 'train', 'eval', 'done']
     """
 
     init = "init"
@@ -56,7 +88,30 @@ class MechanismStatus(Enum):
 
 
 class ContextSchema(BaseModel):
-    """Base schema for shared world context."""
+    """Base class of every payload that can be stored in a ``Context``.
+
+    A subclass is a pydantic model, so its fields are validated and
+    serialised when it is built. ``model_config`` allows arbitrary field types,
+    which lets payloads carry objects that pydantic cannot describe, such as
+    gymnasium spaces or NumPy arrays. The ``World`` treats payload types as
+    schemas: its singleton check compares the exact type of two payloads.
+
+    Attributes
+    ----------
+    model_config : dict
+        Pydantic configuration, ``{"arbitrary_types_allowed": True}``.
+
+    When to use: subclass it for each new kind of record exchanged between the
+    regulator and the environments, for example the fitness record of a
+    candidate (``FitnessContext`` in the fishery example).
+
+    Examples
+    --------
+    >>> class FitnessNote(ContextSchema):
+    ...     objective: float
+    >>> FitnessNote(objective=0.75).objective
+    0.75
+    """
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -64,31 +119,62 @@ class ContextSchema(BaseModel):
 class MechanismContext(ContextSchema):
     """One mechanism candidate, as published by the regulator.
 
+    The regulator publishes one instance in status ``published`` for each pair
+    of candidate index and training seed; an inner environment claims it
+    through ``World.get_mechanism_by_id`` and the status moves to ``train`` and
+    then ``eval``. After scoring, regulators publish a further instance in
+    status ``done`` with ``mechanism=None`` and the fitness in ``metrics``. All
+    fields except ``eval_seed`` and ``mechanism`` are required: ``seed``,
+    ``env_id`` and ``metrics`` have no default and must be passed explicitly,
+    even as ``None``.
+
     Attributes
     ----------
     index : int
-        Position of the candidate in the regulator's current batch. Training
-        environments are built with a matching ``mechanism_id`` and fetch
-        their candidate by this index.
+        Position of the candidate in the regulator's current batch,
+        dimensionless and zero-based. Training environments are built with a
+        matching ``mechanism_id`` and fetch their candidate by this index.
     env_id : str or None
         Identifier of the environment that produced the context. Publication
         from the regulator leaves it ``None``. ``World.set_new_context`` and
         ``World.update_context`` reject a ``None`` value; ``append_context``,
-        the path actually used by ``BaseEnv._publish``, does not.
+        the path used by ``RegulatorEnv.step`` and by the regulators of the
+        examples, does not.
     seed : int or None
         Policy (training) seed this copy of the candidate is meant for. The
         regulator publishes one copy per training seed so that each seeded
-        policy trains against its own instance.
+        policy trains against its own instance; ``done`` contexts use ``None``.
     eval_seed : int or None
-        Environment seed used when the same candidate is evaluated; ``None``
-        during training.
+        Environment seed intended for evaluating the candidate. Default
+        ``None``; the current regulators never set it.
     status : MechanismStatus
         Lifecycle state, see ``MechanismStatus``.
-    mechanism : Mechanism
-        The candidate itself. Pydantic validation is skipped because
-        mechanisms are arbitrary user classes. ``None`` on ``done`` contexts.
+    mechanism : dict[MechanismID, ActType] or None
+        The candidate itself: a mapping from mechanism identifier (for example
+        ``"quota"``) to the action of that mechanism, as decoded by the outer
+        optimizer. Default ``None``; it is ``None`` on ``done`` contexts.
     metrics : ContextSchema or None
-        Aggregated fitness payload; filled only on ``done`` contexts.
+        Aggregated fitness payload, for example ``FitnessContext`` in the
+        fishery example; filled only on ``done`` contexts and ``None``
+        otherwise. A required field.
+
+    When to use: build one to publish a candidate or its aggregated fitness
+    through ``World.append_context``, or read one returned by
+    ``World.get_mechanism_by_id`` to learn which mechanism an environment must
+    apply.
+
+    Examples
+    --------
+    >>> candidate = MechanismContext(
+    ...     index=0,
+    ...     env_id=None,
+    ...     seed=101,
+    ...     status=MechanismStatus.published,
+    ...     mechanism={"quota": 0.4},
+    ...     metrics=None,
+    ... )
+    >>> candidate.status.value, candidate.eval_seed
+    ('published', None)
     """
 
     index: int
@@ -101,23 +187,26 @@ class MechanismContext(ContextSchema):
 
 
 class EnvStepContext(ContextSchema):
-    """Snapshot of one environment transition, published on every step.
+    """Snapshot of one environment transition.
 
-    ``BaseEnv.reset`` and ``BaseEnv.step`` both append one of these to the
-    World; the reset record carries ``reward=0.0`` and ``action=None``. The
-    regulator collects them to score a mechanism, and the reporting utilities
-    reduce them into per-episode curves.
+    An environment that records its transitions in the ``World`` appends one of
+    these per ``reset`` (with ``reward=0.0`` and ``action=None``) and per
+    ``step``. The ``World`` can store such records and filter them with
+    ``get_env_step_contexts``, ``get_latest_env_step_contexts`` and
+    ``get_new_env_step_contexts``. No environment of the current fishery
+    pipeline publishes them: the regulator derives fitness from the inner
+    optimizer's metrics instead. All fields are required.
 
     Attributes
     ----------
     env_id : int or None
-        Index of the sub-environment inside its vectorised env runner. Set by
-        the ``tag_episode_with_env_idx`` callback when the first episode is
-        created; ``None`` until then.
+        Index of the sub-environment inside its vectorised env runner, as set
+        on the environment by the ``tag_episode_with_env_idx`` callback when
+        the first episode is created; ``None`` before that.
     seed : int or None
-        Seed of the environment dynamics (``BaseEnv.seed``). During training it
-        equals ``policy_seed``; during evaluation it is one of the configured
-        evaluation seeds.
+        Seed of the environment dynamics (``MultiAgentEnv.seed``). During
+        training it equals ``policy_seed``; during evaluation it is one of the
+        configured evaluation seeds.
     policy_seed : int or None
         Seed identifying which trained policy acts in this environment.
         Together with ``mechanism`` it selects the RLModule named
@@ -126,19 +215,39 @@ class EnvStepContext(ContextSchema):
         Mode of the producing environment: ``train`` or ``eval``.
     mechanism : int or None
         Index of the mechanism candidate the environment runs
-        (``RegulatedEnv.mechanism_id``), not the mechanism object itself.
+        (``MultiAgentEnv.mechanism_id``), not the mechanism object itself.
     observation : ObsType or MultiAgentDict
         Observation returned to the agent(s) after the transition.
     observation_map : list of str or None
-        Optional names for the entries of the observation vector, used by the
-        reporting utilities. Note that ``BaseEnv.obs_map`` is typed as a
-        ``dict[int, str]`` while this field is typed as a list.
+        Optional names for the entries of the observation vector. No code in
+        ``core`` fills it.
     reward : SupportsFloat or MultiAgentDict or list of float
-        Reward of the transition (``0.0`` on the reset record).
+        Reward of the transition (``0.0`` on the reset record), in reward units.
     action : ActType or MultiAgentDict
         Action that produced the transition (``None`` on the reset record).
     info : dict or MultiAgentDict or None
         The ``info`` dictionary returned by the environment.
+
+    When to use: when an environment should leave a per-step trace in the
+    ``World`` that a regulator can read back, for example to score a candidate
+    from raw transitions rather than from aggregated metrics.
+
+    Examples
+    --------
+    >>> step = EnvStepContext(
+    ...     env_id=0,
+    ...     seed=101,
+    ...     policy_seed=101,
+    ...     status=MechanismStatus.train,
+    ...     mechanism=0,
+    ...     observation={"fisher_0": [0.8]},
+    ...     observation_map=None,
+    ...     reward={"fisher_0": 0.0},
+    ...     action=None,
+    ...     info=None,
+    ... )
+    >>> step.status.value, step.reward
+    ('train', {'fisher_0': 0.0})
     """
 
     env_id: Optional[int]
@@ -155,8 +264,41 @@ class EnvStepContext(ContextSchema):
 
 @dataclass
 class Context:
-    """
-    Runtime instance of a context
+    """Runtime envelope around a payload stored in the ``World``.
+
+    The ``World`` indexes contexts by ``id`` and by ``opt_id``; the payload
+    carries the content. The envelope is a plain dataclass, so unlike the
+    payloads it performs no validation.
+
+    Attributes
+    ----------
+    id : ContextID or None
+        Unique identifier within the World. ``None`` until the context is
+        registered; ``World.append_context`` always overwrites it with a new
+        UUID string.
+    opt_id : OptimizerID
+        Identifier of the optimizer that owns the context. The annotation is
+        ``str``, but the World also accepts ``None``, in which case the context
+        is stored without an optimizer entry.
+    step : int
+        Step counter of the producing environment, dimensionless. A value of
+        ``0`` marks the first transition of an episode for
+        ``World.get_latest_env_step_contexts``.
+    env : str
+        Name of the producing environment; the regulator uses its class name.
+    payload : ContextSchema
+        The content, for example a ``MechanismContext``.
+
+    When to use: wrap a payload in a ``Context`` before handing it to
+    ``World.append_context``; the World returns the same kind of object from
+    its accessors.
+
+    Examples
+    --------
+    >>> note = ContextSchema()
+    >>> ctx = Context(id=None, opt_id="opt", step=3, env="RegulatorEnv", payload=note)
+    >>> ctx.id is None, ctx.step
+    (True, 3)
     """
 
     id: ContextID | None

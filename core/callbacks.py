@@ -8,11 +8,17 @@ in ``RayOptimizerConfig`` picks the right RLModule.
 environment's metric logger to its reporter and into RLlib's
 ``MetricsLogger``. ``_evaluate_with_fixed_duration_once`` is a
 ``custom_evaluation_function`` that replaces RLlib's fixed-duration evaluation
-loop with a strict single round.
+loop with a strict single round. The first two are registered on the RLlib
+config through ``callbacks(on_episode_created=..., on_episode_end=...)`` (the
+fishery ``config.yaml`` does so with ``_symbol_`` entries); the third is
+installed by ``RayOptimizerConfig.build_optimizer``. Everything here runs inside
+RLlib env-runner processes, which is why the hooks only touch plain attributes of
+the sub-environment.
 """
 
 import logging
 import time
+from typing import Any
 
 import gymnasium as gym
 from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
@@ -31,7 +37,7 @@ def tag_episode_with_env_idx(
     env_runner: MultiAgentEnvRunner,
     env: VectorMultiAgentEnv,
     env_index: int,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """Rewrite the episode ID to carry the sub-environment identity.
 
@@ -74,7 +80,28 @@ def tag_episode_with_env_idx(
     Notes
     -----
     Side effect: on the first episode the sub-environment's ``env_id`` is set
-    to ``env_index``; ``EnvStepContext.env_id`` is ``None`` before that.
+    to ``env_index``; the attribute is ``None`` before that.
+
+    When to use: pass it as ``on_episode_created`` in ``AlgorithmConfig.callbacks``
+    whenever the policies are laid out one RLModule per (mechanism, training
+    seed), so that ``policy_mapping_fn`` can recover the module from the
+    episode ID.
+
+    Examples
+    --------
+    >>> from types import SimpleNamespace
+    >>> sub_env = SimpleNamespace(mechanism_id=2, seed=7, policy_seed=11, env_id=None)
+    >>> runner = SimpleNamespace(
+    ...     env=SimpleNamespace(envs=[SimpleNamespace(unwrapped=sub_env)])
+    ... )
+    >>> episode = SimpleNamespace(id_="abc123")
+    >>> tag_episode_with_env_idx(
+    ...     episode=episode, env_runner=runner, env=None, env_index=0
+    ... )
+    >>> episode.id_
+    'env=0|m=2|ps=11|ss=7|raw=abc123'
+    >>> sub_env.env_id
+    0
     """
 
     env: gym.Env = env_runner.env.envs[env_index].unwrapped
@@ -115,7 +142,7 @@ def log_and_report_episode_metrics(
     env: VectorMultiAgentEnv,
     env_index: int,
     metrics_logger: MetricsLogger,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """Report the sub-environment's episode metrics and hand them to RLlib.
 
@@ -143,6 +170,42 @@ def log_and_report_episode_metrics(
         RLlib metrics logger of the env runner.
     **kwargs
         Other callback arguments, ignored.
+
+    Raises
+    ------
+    AttributeError
+        If the sub-environment was built without a metric schema, so that its
+        ``logger`` is ``None``.
+
+    When to use: pass it as ``on_episode_end`` in ``AlgorithmConfig.callbacks``
+    so that the regulator can read per-episode metrics grouped by mechanism and
+    seed from the iteration results.
+
+    Examples
+    --------
+    >>> from types import SimpleNamespace
+    >>> from core.metrics.logger import MetricLogger
+    >>> from core.metrics.schemas import MetricSchema
+    >>> class Score(MetricSchema):
+    ...     value: float = 0.0
+    >>> logger = MetricLogger.from_schema(Score)
+    >>> logger.push(("value",), 2.0)
+    >>> logger.push(("value",), 4.0)
+    >>> sub_env = SimpleNamespace(logger=logger, reporter=None)
+    >>> runner = SimpleNamespace(
+    ...     env=SimpleNamespace(envs=[SimpleNamespace(unwrapped=sub_env)])
+    ... )
+    >>> class RecordingMetricsLogger:
+    ...     def log_value(self, key, value, reduce):
+    ...         print(key, value.value, reduce)
+    >>> log_and_report_episode_metrics(
+    ...     episode=SimpleNamespace(id_="env=0|m=1|ps=2|ss=3|raw=xyz"),
+    ...     env_runner=runner,
+    ...     env=None,
+    ...     env_index=0,
+    ...     metrics_logger=RecordingMetricsLogger(),
+    ... )
+    ('by_episode', 'env=0|m=1|ps=2|ss=3') 3.0 item
     """
 
     env: gym.Env = env_runner.env.envs[env_index].unwrapped

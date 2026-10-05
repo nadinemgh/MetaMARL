@@ -1,18 +1,50 @@
 """Ray actor holding the shared state of a bilevel optimisation run.
 
-The ``World`` is the one object both levels of the optimisation talk to. The
-outer regulator publishes ``MechanismContext`` entries into it, the inner RLlib
-environments (living in env-runner processes) fetch those entries and push back
-one ``EnvStepContext`` per transition, and the regulator reads the step contexts
-to compute each candidate's fitness. Because ``World`` is a Ray actor, every
-method is called as ``world.<method>.remote(...)`` and its return value crosses
-a Ray boundary; callers must not rely on mutating a returned object to update
-the World.
+The ``World`` is the blackboard both levels of the optimisation talk to. The
+outer regulator publishes one ``MechanismContext`` per candidate and training
+seed, and the inner RLlib environments (living in env-runner processes) fetch
+their candidate from it at every episode reset. Regulators also append the
+``done`` contexts that record the aggregated fitness of a candidate, and the
+inner optimizer flushes the evaluated candidates after each evaluation pass.
+``EnvStepContext`` records can be stored too, together with the accessors that
+filter for them, but no environment of the current fishery pipeline publishes
+them: the regulator computes fitness from the inner optimizer's metrics. Because
+``World`` is a Ray actor, every method is called as ``world.<method>.remote(...)``
+and its return value crosses a Ray boundary; callers must not rely on mutating a
+returned object to update the World.
 
 Three registries are kept in sync: ``_contexts`` (all contexts by
 ``ContextID``), ``_mechanism_registry`` (the ``MechanismContext`` payloads,
 keyed by the ``ContextID`` of their context, not by mechanism index) and
 ``_opt_ctx_map`` (context IDs owned by each optimizer).
+
+Examples
+--------
+The decorated class cannot be instantiated without a Ray runtime, so the
+examples use the plain class stored in ``World.__ray_metadata__.modified_class``;
+with a running actor every call below becomes ``ray.get(world.<method>.remote())``.
+
+>>> from core.world.context import Context, MechanismContext, MechanismStatus
+>>> world = World.__ray_metadata__.modified_class()
+>>> payload = MechanismContext(
+...     index=0,
+...     env_id=None,
+...     seed=7,
+...     status=MechanismStatus.published,
+...     mechanism={"quota": 0.3},
+...     metrics=None,
+... )
+>>> ctx = Context(id=None, opt_id="opt", step=0, env="regulator", payload=payload)
+>>> ctx_id = world.append_context(ctx)
+>>> world.get_opt_ctx_ids("opt") == [ctx_id]
+True
+>>> world.get_mechanism_by_id(0, 7, MechanismStatus.train).mechanism
+{'quota': 0.3}
+>>> world.get_mechanism_by_id(0, 7, MechanismStatus.train) is None
+True
+>>> world.flush(status=MechanismStatus.train)
+>>> world.get_mechanism_registry()
+{}
 """
 
 from __future__ import annotations
@@ -37,16 +69,34 @@ if TYPE_CHECKING:
 
 @ray.remote
 class World:
-    """
-    Shared runtime container for optimizer-produced contexts.
+    """Shared runtime container for optimizer-produced contexts.
 
-    The World acts as the single source of truth for:
-    - Context lifecycles (creation, update, removal)
-    - Association between optimizers and their contexts
-    - Enforcing global constraints (e.g. singleton contexts)
+    The World is the single place where the regulator and the inner
+    environments exchange mechanism candidates. It keeps three registries (all
+    contexts by ID, mechanism payloads by the ID of the context that carried
+    them, and the context IDs owned by each optimizer) plus one cursor per
+    optimizer for ``get_new_env_step_contexts``. It enforces one global
+    constraint: a context whose payload type must be unique can be registered
+    as a singleton. The World does not own optimizers or environments; it only
+    tracks identifiers and context payloads.
 
-    The World does NOT own optimizers or environments.
-    It only tracks identifiers and context payloads.
+    Because the class is decorated with ``@ray.remote``, instances are actors:
+    arguments and return values are serialised across the actor boundary, and
+    ``copy.copy`` / ``copy.deepcopy`` of an instance return the same object.
+
+    The constructor takes no argument; every registry starts empty.
+
+    When to use: create exactly one World per run, before the outer
+    optimizer and the inner optimizer are built, and hand the actor handle to
+    both so that candidates published by the regulator can be fetched by the
+    inner environments and optimizer IDs stay unique.
+
+    Examples
+    --------
+    >>> import ray
+    >>> world = World.remote()  # doctest: +SKIP
+    >>> ray.get(world.get_opt_ids.remote())  # doctest: +SKIP
+    set()
     """
 
     def __init__(self):
@@ -70,11 +120,15 @@ class World:
     def get_ctx_registry(self) -> dict[ContextID, Context]:
         """Return the whole context registry.
 
+        On a plain instance the returned dict is the live ``_contexts``
+        registry, so mutating it mutates the World; through an actor handle the
+        caller receives a serialised copy. No component of ``core`` calls this
+        accessor today.
+
         Returns
         -------
         dict[ContextID, Context]
-            Every registered context, keyed by ID, in insertion order. The
-            regulator uses it to collect step contexts before flushing them.
+            Every registered context, keyed by ID, in insertion order.
         """
 
         return self._contexts
@@ -99,34 +153,67 @@ class World:
         Returns
         -------
         KeysView[OptimizerID]
-            Keys of the optimizer-to-contexts map. Used by
-            ``RayOptimizerConfig.build_optimizer`` to draw a fresh unique ID.
+            Keys of the optimizer-to-contexts map. The ``build_optimizer``
+            methods of ``OptimizerConfig`` and ``RayOptimizerConfig`` pass it to
+            ``generate_uuid`` to draw a fresh, unused optimizer ID.
         """
 
         return self._opt_ctx_map.keys()
 
     def get_context(self, ctx_id: ContextID) -> Context | None:
-        """Access a context stored in world with an ID"""
+        """Return the context stored under an ID.
+
+        Parameters
+        ----------
+        ctx_id : ContextID
+            Identifier of the context, as returned by ``append_context``.
+
+        Returns
+        -------
+        Context or None
+            The registered context, or ``None`` if the ID is unknown (including
+            an ID whose context was removed by ``flush_ctx``).
+        """
 
         return self._contexts.get(ctx_id, None)
 
     def get_opt_ctx_ids(self, opt_id: OptimizerID) -> list[ContextID]:
-        """
-        Return all context IDs registered under a given optimizer.
+        """Return the IDs of the contexts registered under an optimizer.
+
+        Parameters
+        ----------
+        opt_id : OptimizerID
+            Identifier of the optimizer.
+
+        Returns
+        -------
+        list[ContextID]
+            A copy of the optimizer's ID list, in registration order; empty if
+            the optimizer is unknown. The list can include IDs whose context was
+            removed with ``flush_ctx``, because that method does not update the
+            optimizer map.
         """
 
         return list(self._opt_ctx_map.get(opt_id, []))
 
     def get_ctx_ids(self) -> set[ContextID]:
-        """
-        Return all context IDs registered in the world.
+        """Return the IDs of every context in the context registry.
+
+        Returns
+        -------
+        set[ContextID]
+            A new set holding the keys of ``_contexts``.
         """
 
         return set(self._contexts.keys())
 
     def get_opt_ids(self) -> set[OptimizerID]:
-        """
-        Return all optimizer IDs known to the world.
+        """Return the IDs of every optimizer known to the World.
+
+        Returns
+        -------
+        set[OptimizerID]
+            A new set holding the keys of the optimizer-to-contexts map.
         """
 
         return set(self._opt_ctx_map.keys())
@@ -136,10 +223,20 @@ class World:
     def get_env_step_contexts(
         self, opt_id: Optional[OptimizerID] = None
     ) -> list[Context]:
-        """
-        Return all EnvStepContext objects for a given optimizer.
-        If opt_id is None, return all EnvStepContext objects in the world.
-        Order is preserved according to insertion order.
+        """Return the contexts whose payload is an ``EnvStepContext``.
+
+        Parameters
+        ----------
+        opt_id : OptimizerID or None, optional
+            Restrict the result to the contexts registered under this
+            optimizer. ``None`` (the default) scans every registered context.
+            An unknown optimizer yields an empty list.
+
+        Returns
+        -------
+        list[Context]
+            Matching contexts in registration order. IDs that are listed for
+            the optimizer but no longer in the context registry are skipped.
         """
 
         if opt_id is None:
@@ -158,12 +255,25 @@ class World:
     def get_latest_env_step_contexts(
         self, opt_id: Optional[OptimizerID] = None
     ) -> list[Context]:
-        """
-        Return only the latest contiguous env-step episode for an optimizer.
+        """Return the most recent episode of env-step contexts.
 
-        We assume env-step contexts are appended in order and that step resets
-        to 0 at the beginning of a new episode. We walk backward from the most
-        recent EnvStepContext until we hit step == 0.
+        The method assumes that step contexts are appended in order and that
+        ``Context.step`` is ``0`` for the first transition of an episode. It
+        walks backward from the newest env-step context and stops after the
+        first context whose ``step`` is ``0``; when no such context exists, every
+        env-step context is returned.
+
+        Parameters
+        ----------
+        opt_id : OptimizerID or None, optional
+            Optimizer whose contexts are scanned; ``None`` scans the whole
+            World, as in ``get_env_step_contexts``.
+
+        Returns
+        -------
+        list[Context]
+            The contexts of the latest episode in registration order; empty if
+            there is no env-step context.
         """
 
         env_ctxs = self.get_env_step_contexts(opt_id=opt_id)
@@ -186,12 +296,28 @@ class World:
     def get_new_env_step_contexts(
         self, opt_id: Optional[OptimizerID] = None
     ) -> list[Context]:
-        """
-        Return all EnvStepContext objects appended since the last call
-        for this optimizer, then advance the cursor.
+        """Return the env-step contexts appended since the previous call.
 
-        This is used for reduced env plotting so we capture both train
-        and eval contexts produced during one optimizer train().
+        Each optimizer ID (and ``None``, for the whole World) has its own
+        cursor. The cursor is a position in the list of context IDs that the
+        call reads (the optimizer's list, or the keys of the context registry
+        for ``None``); the call returns the entries from that position onward
+        that are env-step contexts and advances the cursor to the list length.
+        The cursor is not adjusted when ``flush_ctx`` or ``remove_context``
+        shrink the underlying list, so after such a removal the position refers
+        to different entries and contexts appended later can be skipped.
+
+        Parameters
+        ----------
+        opt_id : OptimizerID or None, optional
+            Optimizer whose cursor is read and advanced; ``None`` uses the
+            global cursor.
+
+        Returns
+        -------
+        list[Context]
+            The new env-step contexts in registration order. No component of
+            ``core`` calls this method today.
         """
 
         ctx_ids = (
@@ -215,7 +341,9 @@ class World:
 
         Legacy accessor: the first entry with status ``published`` is moved to
         ``assigned`` and returned. The current environments use
-        ``get_mechanism_by_id`` instead, which matches index and seed.
+        ``get_mechanism_by_id`` instead, which matches index and seed. An entry
+        in status ``assigned`` is not accepted by any fetch mode of
+        ``get_mechanism_by_id``.
 
         Returns
         -------
@@ -242,12 +370,12 @@ class World:
     ) -> MechanismContext:
         """Fetch the mechanism for ``(mechanism_id, seed)`` and advance its status.
 
-        Called by ``RegulatedEnv._pre_reset`` at the start of every episode.
-        The first registry entry whose ``index`` equals ``mechanism_id``, whose
-        ``seed`` equals ``seed`` and whose status is a valid predecessor of
-        ``mode`` is switched to ``mode`` and returned. Valid predecessors are
-        ``published`` for ``mode=train`` and ``{train, eval}`` for
-        ``mode=eval``.
+        Called by ``MultiAgentEnv.reset`` (``core.envs.marl_regulated``) at the
+        start of every episode. The first registry entry whose ``index`` equals
+        ``mechanism_id``, whose ``seed`` equals ``seed`` and whose status is a
+        valid predecessor of ``mode`` is switched to ``mode`` and returned. Valid
+        predecessors are ``published`` for ``mode=train`` and ``{train, eval}``
+        for ``mode=eval``.
 
         Parameters
         ----------
@@ -272,8 +400,10 @@ class World:
         Raises
         ------
         TypeError
-            If ``mode`` is neither ``train`` nor ``eval``: the predecessor set
-            lookup yields ``None`` and the ``in`` test fails.
+            If ``mode`` is neither ``train`` nor ``eval`` and a registry entry
+            matches ``mechanism_id`` and ``seed``: the predecessor lookup yields
+            ``None`` and the ``in`` test fails. With no matching entry the call
+            returns ``None`` whatever ``mode`` is, and no status is changed.
         """
 
         required_status = {
@@ -295,7 +425,17 @@ class World:
         return None
 
     def try_get_mechanism(self) -> MechanismContext | None:
-        """Try to get a published mechanism, return None if none available."""
+        """Claim the first published mechanism, or return ``None``.
+
+        Non-raising variant of ``get_mechanism``: the first entry in status
+        ``published`` is moved to ``assigned`` and returned, regardless of index
+        or seed.
+
+        Returns
+        -------
+        MechanismContext or None
+            The claimed mechanism, or ``None`` if no entry is ``published``.
+        """
 
         for m_ctx in self._mechanism_registry.values():
             if m_ctx.status == MechanismStatus.published:
@@ -314,6 +454,17 @@ class World:
         mismatch is recorded in ``TODO.md``. Use ``get_mechanism_by_id`` to look
         up a candidate by its batch position.
 
+        Parameters
+        ----------
+        index : int
+            Registry key. In practice the ``ContextID`` string returned by
+            ``append_context``.
+
+        Returns
+        -------
+        MechanismContext
+            The payload stored under that key; its status is not changed.
+
         Raises
         ------
         KeyError
@@ -323,8 +474,10 @@ class World:
         return self._mechanism_registry[index]
 
     def _validate_ctx_schema_exists(self, schema: type[ContextSchema]) -> None:
-        """
-        Ensure a singleton ContextSchema is not already present in the world.
+        """Ensure a singleton ContextSchema is not already present in the world.
+
+        The comparison is on the exact payload type (``type(payload) is
+        schema``), so a subclass of ``schema`` does not count as a duplicate.
         """
 
         for ctx in self._contexts.values():
@@ -338,8 +491,9 @@ class World:
     def append_context(self, ctx: Context, *, singleton: bool = False) -> ContextID:
         """Register a context, assigning it a fresh ID.
 
-        This is the path used by ``BaseEnv._publish`` for every mechanism and
-        step context. The context is stored in ``_contexts``; a
+        This is the path used by ``RegulatorEnv.step`` for every candidate it
+        publishes and by the regulators of the examples for the ``done``
+        contexts. The context is stored in ``_contexts``; a
         ``MechanismContext`` payload is additionally indexed in the mechanism
         registry; and the ID is appended to the owning optimizer's list,
         creating that optimizer entry on the fly if needed.
@@ -370,7 +524,8 @@ class World:
         -----
         Unlike ``set_new_context``, this method does not require
         ``MechanismContext.env_id`` to be set, which is why regulators can
-        publish candidates with ``env_id=None``.
+        publish candidates with ``env_id=None``. When the singleton check or
+        the duplicate-ID check raises, nothing has been stored yet.
         """
 
         # Enforce singleton schemas if requested
@@ -398,6 +553,9 @@ class World:
     def _set_new_opt_id(self, opt_id: OptimizerID) -> OptimizerID:
         """Ensure an optimizer ID exists in the map and return it.
 
+        Also called remotely by the ``build_optimizer`` methods to register the
+        ID they drew with ``generate_uuid``.
+
         Parameters
         ----------
         opt_id : OptimizerID or None
@@ -419,15 +577,38 @@ class World:
         return opt_id
 
     def set_new_context(self, ctx: Context, singleton: bool = False) -> ContextID:
-        """
-        Register a new context in the world.
+        """Register a context, keeping its ID when it already has one.
 
-        Args:
-            ctx: Context object containing optimizer ID and schema payload
-            singleton: Whether this context schema must be unique globally
+        Unlike ``append_context``, a caller-supplied ``ctx.id`` is preserved
+        (a fresh UUID is generated only when it is ``None``), and a
+        ``MechanismContext`` payload must carry an ``env_id``. The context is
+        stored, indexed in the mechanism registry when its payload is a
+        mechanism, and appended to its optimizer's list (the optimizer entry is
+        created on the fly). Because the context is stored before the
+        ``env_id`` check, a call that raises for a missing ``env_id`` leaves the
+        context registered in ``_contexts``. No component of ``core`` calls this
+        method today; environments and regulators use ``append_context``.
 
-        Returns:
-            The generated ContextID
+        Parameters
+        ----------
+        ctx : Context
+            Context to register; ``ctx.opt_id`` selects the owning optimizer
+            and ``ctx.payload`` the schema.
+        singleton : bool, optional
+            If ``True``, raise when another context with the same payload type
+            is already registered. Default ``False``.
+
+        Returns
+        -------
+        ContextID
+            The context's ID (the supplied one, or the generated one now stored
+            in ``ctx.id``).
+
+        Raises
+        ------
+        ValueError
+            If ``singleton`` is requested and violated, if ``ctx.id`` already
+            exists, or if a ``MechanismContext`` has ``env_id=None``.
         """
 
         if singleton:
@@ -458,8 +639,26 @@ class World:
         return ctx.id
 
     def update_context(self, ctx: Context) -> None:
-        """
-        Update an existing context payload.
+        """Replace a registered context by an updated one.
+
+        The stored context under ``ctx.id`` is replaced by ``ctx`` and, when the
+        payload is a ``MechanismContext``, the mechanism registry entry is
+        replaced too. A payload of another type does not remove an earlier
+        mechanism entry. The context is replaced before the ``env_id`` check, so
+        a call that raises for a missing ``env_id`` leaves the new context
+        stored while the mechanism registry keeps the previous payload.
+
+        Parameters
+        ----------
+        ctx : Context
+            Context whose ``id`` is already registered.
+
+        Raises
+        ------
+        KeyError
+            If ``ctx.id`` is not registered.
+        ValueError
+            If the payload is a ``MechanismContext`` with ``env_id=None``.
         """
 
         if ctx.id not in self._contexts:
@@ -474,8 +673,17 @@ class World:
             self._mechanism_registry[ctx.id] = ctx.payload
 
     def remove_context(self, ctx: Context) -> None:
-        """
-        Remove a context from the world.
+        """Remove a context from the context registry and the optimizer map.
+
+        Unknown contexts are ignored. When the optimizer's list becomes empty,
+        the optimizer entry itself is deleted, so the optimizer disappears from
+        ``get_opt_registry``. The mechanism registry is not touched; ``flush``
+        removes mechanism payloads.
+
+        Parameters
+        ----------
+        ctx : Context
+            Context to remove, identified by its ``id`` and ``opt_id``.
         """
 
         if ctx.id in self._contexts:
@@ -497,8 +705,8 @@ class World:
         ----------
         status : MechanismStatus or None, optional
             Only remove mechanisms in this status. ``None`` removes all of
-            them. The regulator calls ``flush(status=eval)`` between inner
-            runs so evaluated candidates are not fetched again.
+            them. ``RayOptimizer.evaluate`` calls ``flush(status=eval)`` after
+            each evaluation pass so evaluated candidates are not fetched again.
 
         Notes
         -----
@@ -524,8 +732,8 @@ class World:
         Parameters
         ----------
         ctx_ids : list[ContextID]
-            IDs to drop; unknown IDs are ignored. The regulator passes the
-            full key set of ``get_ctx_registry`` after scoring a batch.
+            IDs to drop; unknown IDs are ignored. No component of ``core``
+            calls this method today.
 
         Notes
         -----
