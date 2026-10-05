@@ -103,8 +103,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    # Same format as the library modules that configure logging at import, so
-    # the hash-seed notice is visible before any of them is imported.
+    # The library modules leave logging to the entry point, so configure it
+    # here, before the hash-seed check, whose notice must be visible.
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
