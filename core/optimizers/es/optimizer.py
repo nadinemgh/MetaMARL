@@ -10,7 +10,8 @@ candidate and moves the mean along the fitness-weighted noise directions,
 using the estimator of Salimans et al., 2017 (https://arxiv.org/abs/1703.03864)
 with standardized fitness values in place of their rank transformation.
 In population mode ``sigma`` expands after a worse generation and contracts
-after a better one.
+after a better one. The run stops early when the search mean stops moving (see
+the convergence rule of :class:`ESOptimizer`).
 
 Three regimes share the same ``train()``:
 
@@ -66,12 +67,26 @@ class ESOptimizer(Optimizer):
     mechanisms; gymnasium orders the mechanisms by id, so the vector and
     ``parameter_names`` follow the alphabetical order of the mechanism ids.
 
+    The run stops before ``config.episodes`` generations when the search mean
+    has converged: the Euclidean norm of the change of the mean between two
+    consecutive generations, measured in the normalized ``[0, 1]^dimension``
+    space, stays below ``convergence_eps`` for ``convergence_patience``
+    consecutive generations, and :meth:`train` then reports ``converged=True``.
+    In single-candidate mode the mean only moves when a candidate is accepted,
+    so a streak of rejected candidates counts as a streak of zero displacement.
+    The rule does not apply in fixed mode, where there is nothing to search and
+    every generation is run. ``convergence_eps=0`` disables the rule. This is a
+    heuristic stopping rule of this implementation, not taken from a paper:
+    a flat fitness (no directional information) or a mean pushed against a
+    bound of ``[0, 1]`` also satisfy it, whether or not the optimum was found.
+
     Parameters
     ----------
     config : ESConfig
         Hyperparameters (``sigma``, ``mean_lr``, sigma adaptation and bounds,
         ``break_symmetry``, ``initial_mean``), the number of generations
-        (``episodes``) and the regulator agent (``agents_cfgs``);
+        (``episodes``), the convergence rule (``convergence_eps``,
+        ``convergence_patience``) and the regulator agent (``agents_cfgs``);
         ``config.base_seed`` seeds the random generator.
     **kwargs : Any
         Forwarded to :class:`~core.optimizers.base.Optimizer` (``world``,
@@ -96,6 +111,15 @@ class ESOptimizer(Optimizer):
     best_candidate : numpy.ndarray
         Candidate that reached ``best_fitness``, shape ``(dimension,)``, values
         in ``[0, 1]``.
+    convergence_eps : float
+        Displacement threshold of the convergence rule, in the normalized
+        ``[0, 1]^dimension`` space (``0`` disables the rule).
+    convergence_patience : int
+        Number of consecutive generations below ``convergence_eps`` that
+        stops the run.
+    stalled_generations : int
+        Length of the current streak of generations whose mean displacement is
+        below ``convergence_eps``; reset when :meth:`train` starts.
     population_history : list of tuple
         One ``(population, fitness)`` pair per generation, shapes
         ``(batch_capacity, dimension)`` and ``(batch_capacity,)``.
@@ -108,7 +132,8 @@ class ESOptimizer(Optimizer):
         On action bounds other than ``[0, 1]``, a negative dimension, a
         non-positive ``mean_lr``, a negative ``sigma_lr``, a ``sigma_decay``
         outside ``(0, 1]``, a non-positive ``min_sigma``, ``max_sigma`` below
-        ``min_sigma``, or an ``initial_mean`` of the wrong shape, not finite or
+        ``min_sigma``, a negative ``convergence_eps``, a ``convergence_patience``
+        below 1, or an ``initial_mean`` of the wrong shape, not finite or
         outside ``[0, 1]``.
     AttributeError
         If no regulator agent was set on the config (``agents``).
@@ -215,6 +240,8 @@ class ESOptimizer(Optimizer):
         self.min_sigma = float(config.min_sigma)
         self.max_sigma = float(config.max_sigma)
         self.break_symmetry = config.break_symmetry
+        self.convergence_eps = float(config.convergence_eps)
+        self.convergence_patience = int(config.convergence_patience)
 
         if self.dimension < 0:
             raise ValueError("dimension must be non-negative")
@@ -237,6 +264,15 @@ class ESOptimizer(Optimizer):
 
         if self.max_sigma < self.min_sigma:
             raise ValueError("max_sigma must be >= min_sigma")
+
+        if self.convergence_eps < 0.0:
+            raise ValueError(
+                "convergence_eps must be non-negative. Use 0 to disable the "
+                + "convergence stop."
+            )
+
+        if self.convergence_patience < 1:
+            raise ValueError("convergence_patience must be at least 1")
 
         # --- Runtime state ---
         if config.initial_mean is not None:
@@ -269,6 +305,7 @@ class ESOptimizer(Optimizer):
         self.best_candidate = self.mean.copy()
         self.best_mechanism_idx: int | None = None
         self.population_history: list[tuple[np.ndarray, np.ndarray]] = []
+        self.stalled_generations = 0
 
         # This is explicitly the average fitness of the sampled population,
         # not the fitness of the distribution mean.
@@ -763,10 +800,53 @@ class ESOptimizer(Optimizer):
             inner=inner,
         )
 
-    def _has_converged(self) -> bool:
-        """Report whether the search has converged; always ``False`` today."""
+    def _update_convergence(self, previous_mean: np.ndarray) -> bool:
+        """Update the stall streak after a generation and test the stop rule.
 
-        return False
+        The displacement is the Euclidean norm of ``self.mean - previous_mean``
+        in the normalized ``[0, 1]^dimension`` space. A displacement below
+        ``convergence_eps`` extends the streak, any other resets it, and the
+        search has converged when the streak reaches ``convergence_patience``.
+        This is a heuristic stopping rule, not taken from a paper. It is
+        inactive in fixed mode, where the mean is empty, and when
+        ``convergence_eps`` is ``0``.
+
+        Parameters
+        ----------
+        previous_mean : numpy.ndarray
+            Search mean before the generation's update, shape ``(dimension,)``,
+            values in ``[0, 1]``.
+
+        Returns
+        -------
+        bool
+            ``True`` when the streak has reached ``convergence_patience``.
+        """
+
+        if self.fixed_mode:
+            return False
+
+        displacement = float(
+            np.linalg.norm(
+                np.asarray(self.mean, dtype=np.float64)
+                - np.asarray(previous_mean, dtype=np.float64)
+            )
+        )
+
+        if displacement < self.convergence_eps:
+            self.stalled_generations += 1
+        else:
+            self.stalled_generations = 0
+
+        logger.info(
+            "[ES] CONVERGENCE CHECK | displacement=%.3e | eps=%.3e | stalled=%d/%d",
+            displacement,
+            self.convergence_eps,
+            self.stalled_generations,
+            self.convergence_patience,
+        )
+
+        return self.stalled_generations >= self.convergence_patience
 
     def train(self) -> dict[str, Any]:
         """Run ``self.episodes`` generations and return a summary.
@@ -780,15 +860,17 @@ class ESOptimizer(Optimizer):
         ``inner`` field) and reports it. ``actions`` is a list with one
         dictionary per candidate, keyed by mechanism id.
 
-        The optimizer always runs all ``self.episodes`` generations:
-        ``converged`` is ``False`` because the convergence check never reports
-        convergence.
+        The run stops before ``self.episodes`` generations when the search
+        mean has converged (``convergence_eps`` and ``convergence_patience``,
+        see the class docstring); the generation that completes the streak is
+        the last one run. Otherwise all ``self.episodes`` generations run.
 
         Returns
         -------
         dict
-            ``episodes`` (generations run), ``converged`` (always ``False``
-            today), ``best_fitness`` (best value seen so far),
+            ``episodes`` (generations actually run), ``converged`` (``True``
+            when the convergence rule stopped the run), ``best_fitness``
+            (best value seen so far),
             ``best_mechanism`` (the normalized candidate that reached it,
             shape ``(dimension,)``, values in ``[0, 1]``) and
             ``population_history``.
@@ -809,6 +891,7 @@ class ESOptimizer(Optimizer):
 
         converged = False
         generations_run = 0
+        self.stalled_generations = 0
 
         for generation in range(self.episodes):
             logger.info(
@@ -906,14 +989,15 @@ class ESOptimizer(Optimizer):
             )
 
             generations_run += 1
-            converged = self._has_converged()
+            converged = self._update_convergence(pre_update_mean)
 
             if converged:
                 logger.info(
-                    "[ES] Converged | gen=%d | sigma=%.6f | min_sigma=%.6f",
+                    "[ES] Converged | gen=%d | stalled=%d | eps=%.3e | sigma=%.6f",
                     generation,
+                    self.stalled_generations,
+                    self.convergence_eps,
                     self.sigma,
-                    self.min_sigma,
                 )
                 break
 

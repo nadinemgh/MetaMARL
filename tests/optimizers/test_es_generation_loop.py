@@ -17,7 +17,6 @@ import pytest
 from gymnasium import spaces
 
 from core.metrics.schemas import MetricSchema
-from core.optimizers.es.optimizer import ESOptimizer
 
 SEED = 21
 
@@ -306,22 +305,26 @@ class TestMetricsReporting:
             assert marker in caplog.text
 
 
-@pytest.mark.unit
-class TestConvergenceHook:
-    def test_the_stub_criterion_never_fires(self, es_factory):
-        assert es_factory()._has_converged() is False
+def flat_fitness(actions):
+    """Same fitness for every candidate: no directional information."""
+    return np.ones(len(actions), dtype=np.float32)
 
-    def test_a_criterion_that_fires_stops_the_loop_and_is_reported(
-        self, es_factory, scripted_env, monkeypatch, caplog
+
+@pytest.mark.unit
+class TestConvergenceStop:
+    """The run stops once the search mean has stopped moving."""
+
+    def test_defaults_are_the_documented_ones(self, es_factory):
+        opt = es_factory()
+
+        assert (opt.convergence_eps, opt.convergence_patience) == (1e-4, 10)
+        assert opt.stalled_generations == 0
+
+    def test_a_frozen_mean_stops_the_run_after_patience_generations(
+        self, es_factory, scripted_env, caplog
     ):
-        opt = es_factory(episodes=10)
-        opt.env = scripted_env(quota_fitness(0.8))
-        calls = []
-        monkeypatch.setattr(
-            ESOptimizer,
-            "_has_converged",
-            lambda self: calls.append(1) or len(calls) == 3,
-        )
+        opt = es_factory(episodes=20, convergence_patience=3)
+        opt.env = scripted_env(flat_fitness)
 
         with caplog.at_level(logging.INFO, logger="core.optimizers.es.optimizer"):
             result = opt.train()
@@ -329,7 +332,98 @@ class TestConvergenceHook:
         assert result["episodes"] == 3
         assert result["converged"] is True
         assert opt.env.resets == 3
+        assert len(result["population_history"]) == 3
         assert "Converged | gen=2" in caplog.text
+
+    def test_a_moving_mean_never_converges(self, es_factory, scripted_env):
+        opt = es_factory(episodes=15, convergence_patience=2, mean_lr=0.5)
+        opt.env = scripted_env(quota_fitness(0.9))
+
+        result = opt.train()
+
+        assert result["episodes"] == 15
+        assert result["converged"] is False
+
+    def test_zero_eps_disables_the_stop(self, es_factory, scripted_env):
+        opt = es_factory(episodes=12, convergence_eps=0.0, convergence_patience=1)
+        opt.env = scripted_env(flat_fitness)
+
+        result = opt.train()
+
+        assert result["episodes"] == 12
+        assert result["converged"] is False
+
+    def test_the_displacement_is_the_euclidean_norm_in_the_unit_cube(self, es_factory):
+        opt = es_factory(
+            {"a": unit_box(1), "b": unit_box(1)},
+            convergence_eps=0.5,
+            convergence_patience=1,
+        )
+        opt.mean = np.array([0.5, 0.5], dtype=np.float32)
+
+        # Each coordinate moves by 0.3: the norm is 0.424 and stays below eps.
+        assert opt._update_convergence(np.array([0.2, 0.8], dtype=np.float32))
+        # Each coordinate moves by 0.4: the norm is 0.566 and exceeds eps although
+        # no single coordinate does.
+        assert not opt._update_convergence(np.array([0.1, 0.9], dtype=np.float32))
+
+    def test_a_large_displacement_resets_the_streak(self, es_factory):
+        opt = es_factory(convergence_eps=0.1, convergence_patience=3)
+        opt.mean = np.array([0.5], dtype=np.float32)
+        still, moved = np.array([0.5], np.float32), np.array([0.9], np.float32)
+
+        assert [opt._update_convergence(v) for v in (still, still)] == [False, False]
+        assert opt.stalled_generations == 2
+        assert opt._update_convergence(moved) is False
+        assert opt.stalled_generations == 0
+        assert [opt._update_convergence(v) for v in (still, still, still)] == [
+            False,
+            False,
+            True,
+        ]
+
+    def test_single_candidate_mode_counts_rejected_candidates_as_no_movement(
+        self, es_factory, scripted_env
+    ):
+        # A constant fitness is never an improvement: the parent is kept.
+        opt = es_factory(population=1, episodes=20, convergence_patience=4)
+        opt.env = scripted_env(flat_fitness)
+
+        result = opt.train()
+
+        assert result["episodes"] == 4
+        assert result["converged"] is True
+
+    def test_single_candidate_mode_with_accepted_candidates_keeps_running(
+        self, es_factory, scripted_env
+    ):
+        # Every candidate improves on the previous one, so the parent moves.
+        counter = iter(range(1, 1000))
+        opt = es_factory(population=1, episodes=12, convergence_patience=3)
+        opt.env = scripted_env(lambda actions: np.array([float(next(counter))]))
+
+        result = opt.train()
+
+        assert result["episodes"] == 12
+        assert result["converged"] is False
+
+    def test_fixed_mode_runs_every_generation(self, es_factory, scripted_env):
+        opt = es_factory(
+            {"penalty": unit_box(0)}, population=2, episodes=12, convergence_patience=2
+        )
+        opt.env = scripted_env(lambda actions: np.array([1.0, 2.0]))
+
+        result = opt.train()
+
+        assert result["episodes"] == 12
+        assert result["converged"] is False
+
+    def test_the_streak_restarts_with_each_train_call(self, es_factory, scripted_env):
+        opt = es_factory(episodes=20, convergence_patience=3)
+        opt.env = scripted_env(flat_fitness)
+
+        assert opt.train()["episodes"] == 3
+        assert opt.train()["episodes"] == 3
 
 
 @pytest.mark.unit

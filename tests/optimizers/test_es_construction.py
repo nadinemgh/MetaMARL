@@ -95,6 +95,8 @@ class TestHyperparameterValidation:
             ({"sigma_decay": 1.5}, r"sigma_decay must be in \(0, 1\]"),
             ({"min_sigma": 0.0}, "min_sigma must be positive"),
             ({"min_sigma": 0.5, "max_sigma": 0.1}, "max_sigma must be >= min_sigma"),
+            ({"convergence_eps": -1e-3}, "convergence_eps must be non-negative"),
+            ({"convergence_patience": 0}, "convergence_patience must be at least 1"),
         ],
     )
     def test_invalid_hyperparameter_is_rejected(
@@ -104,10 +106,18 @@ class TestHyperparameterValidation:
             ESOptimizer(es_config_factory(**training))
 
     def test_boundary_values_are_accepted(self, es_factory):
-        opt = es_factory(sigma_lr=0.0, sigma_decay=1.0, min_sigma=0.2, max_sigma=0.2)
+        opt = es_factory(
+            sigma_lr=0.0,
+            sigma_decay=1.0,
+            min_sigma=0.2,
+            max_sigma=0.2,
+            convergence_eps=0.0,
+            convergence_patience=1,
+        )
 
         assert (opt.sigma_lr, opt.sigma_decay) == (0.0, 1.0)
         assert opt.sigma == pytest.approx(0.2)
+        assert (opt.convergence_eps, opt.convergence_patience) == (0.0, 1)
 
     @pytest.mark.parametrize(
         "sigma, expected",

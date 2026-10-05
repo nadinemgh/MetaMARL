@@ -49,9 +49,11 @@ class ESConfig(OptimizerConfig):
     break_symmetry : bool
         Replace one mirrored sample by an independent one (default ``False``).
     convergence_eps : float
-        Stored (default 1e-4); not read by ``ESOptimizer`` today.
+        Displacement threshold of the convergence stop, in the normalized
+        ``[0, 1]^dimension`` space (default 1e-4); ``0`` disables the stop.
     convergence_patience : int
-        Stored (default 10); not read by ``ESOptimizer`` today.
+        Number of consecutive generations whose displacement of the search mean
+        stays below ``convergence_eps`` before the run stops (default 10).
     initial_mean : list of float or None
         Starting point in ``[0, 1]^dimension``; ``None`` means ``0.5`` in every
         coordinate.
@@ -133,8 +135,12 @@ class ESConfig(OptimizerConfig):
             Replace one mirrored sample by an independent one so the population
             is not strictly antithetic (allows odd population sizes).
         convergence_eps, convergence_patience : float, int, optional
-            Stored on the config; ``ESOptimizer`` does not read them, so no
-            convergence criterion stops the run today.
+            Convergence stop of ``ESOptimizer``: the run ends when the
+            Euclidean norm of the change of the search mean between two
+            consecutive generations, in the normalized ``[0, 1]^dimension``
+            space, stays below ``convergence_eps`` for ``convergence_patience``
+            consecutive generations (``convergence_eps=0`` disables it). This
+            is a heuristic stopping rule, not taken from a paper.
         initial_mean : list[float], optional
             Starting point in ``[0, 1]^dimension`` (default ``0.5`` everywhere).
         **kwargs : Any
