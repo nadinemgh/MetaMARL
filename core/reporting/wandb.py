@@ -56,8 +56,12 @@ class WandbConfig(ReporterConfig):
     max_end_of_run_history_metrics : int or None, default 0
         W&B setting: maximum number of history sparklines displayed at the end of
         a run.
-    **kwargs : Any
-        Accepted and ignored; they do not reach the W&B settings.
+
+    Raises
+    ------
+    TypeError
+        If an argument other than the ones above is given (Python rejects the
+        unknown keyword and names it).
 
     Attributes
     ----------
@@ -81,6 +85,13 @@ class WandbConfig(ReporterConfig):
     True
     >>> config.settings["quiet"]
     False
+
+    An unknown argument is an error, not silently dropped:
+
+    >>> WandbConfig(project="fishery", queit=True)
+    Traceback (most recent call last):
+        ...
+    TypeError: WandbConfig.__init__() got an unexpected keyword argument 'queit'
     """
 
     def __init__(
@@ -92,7 +103,6 @@ class WandbConfig(ReporterConfig):
         quiet: Optional[bool] = True,
         max_end_of_run_summary_metrics: Optional[int] = 0,
         max_end_of_run_history_metrics: Optional[int] = 0,
-        **kwargs: Any,
     ) -> None:
         super().__init__(project=project)
 

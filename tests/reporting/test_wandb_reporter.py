@@ -115,6 +115,10 @@ class TestConfig:
         assert config.settings["quiet"] is False
         assert config.settings["x_disable_meta"] is False
 
+    def test_an_unknown_argument_is_rejected_by_name(self):
+        with pytest.raises(TypeError, match="queit"):
+            WandbConfig(project="p", queit=True)
+
     def test_build_describes_the_run_without_starting_it(self, fake_wandb):
         config = WandbConfig(project="proj")
         config.world = "w"
