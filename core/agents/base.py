@@ -29,8 +29,8 @@ class Agent:
     ``MDPState`` for every mechanism the state holds an action for, and its
     ``observation`` and ``reward`` methods return what the agent sees and
     earns at the current step. The base implementations of ``observation`` and
-    ``reward`` contribute nothing; a benchmark overrides them in a subclass
-    (optionally marked with the decorators of :mod:`core.envs.hooks`).
+    ``reward`` contribute nothing; a benchmark overrides them by name in a
+    subclass.
     Environments build agents from an ``AgentConfig`` rather than directly.
 
     Parameters
@@ -72,11 +72,6 @@ class Agent:
     [0.75]
     """
 
-    _action: ClassVar[str | None] = None
-    _reward: ClassVar[str | None] = None
-    _observation: ClassVar[str | None] = None
-    _observation_spaces: ClassVar[str | None] = None
-
     def __init__(
         self,
         *,
@@ -90,39 +85,6 @@ class Agent:
         self.policy_id = policy_id
         self.mechanisms = mechanisms
         self.observation_space = observation_space
-
-    def __init_subclass__(cls, **kwargs):
-        """Record the names of the methods marked with a hook decorator.
-
-        Each attribute of the new class that carries the ``action``,
-        ``reward``, ``observation`` or ``observation_spaces`` mark is recorded
-        by name in ``_action``, ``_reward``, ``_observation`` or
-        ``_observation_spaces``. A class body marks at most one attribute per
-        hook. Nothing in the framework reads these class variables back.
-
-        Raises
-        ------
-        TypeError
-            If two attributes of the class body carry the same mark. The
-            message names the class, the hook and both attributes.
-        """
-        super().__init_subclass__(**kwargs)
-
-        marked: dict[str, str] = {}
-
-        for name, func in tuple(cls.__dict__.items()):
-            for hook in ("action", "reward", "observation", "observation_spaces"):
-                if not getattr(func, hook, False):
-                    continue
-
-                if hook in marked:
-                    raise TypeError(
-                        f"{cls.__name__} marks both {marked[hook]!r} and {name!r} "
-                        + f"as the {hook!r} hook; a class can have only one."
-                    )
-
-                marked[hook] = name
-                setattr(cls, f"_{hook}", name)
 
     def _normalize_action(self, action: ActType) -> np.ndarray:
         z = np.asarray(action, dtype=np.float32).reshape(-1)

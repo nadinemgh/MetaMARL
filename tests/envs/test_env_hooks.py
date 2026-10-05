@@ -2,9 +2,7 @@
 
 A hook decorator only marks a function with an attribute named after the hook.
 ``MultiAgentEnv.__init_subclass__`` then records, as class variables, the name
-of the method that carries the ``reset`` or ``transition`` mark. The
-``action``, ``observation`` and ``reward`` marks are read by
-``Agent.__init_subclass__`` instead (see ``tests/agents/test_agent_base.py``).
+of the method that carries the ``reset`` or ``transition`` mark.
 """
 
 import pytest
@@ -13,12 +11,11 @@ from core.envs import hooks
 from core.envs.marl_regulated import MultiAgentEnv
 from core.mechanism.base import MDPState
 
-ALL_HOOKS = ["reset", "action", "reward", "observation", "transition"]
 ENV_HOOKS = ["reset", "transition"]
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("hook", ALL_HOOKS)
+@pytest.mark.parametrize("hook", ENV_HOOKS)
 def test_decorator_marks_the_function_and_returns_it(hook):
     def function():
         return None
@@ -27,7 +24,7 @@ def test_decorator_marks_the_function_and_returns_it(hook):
 
     assert decorated is function
     assert getattr(function, hook) is True
-    assert [h for h in ALL_HOOKS if getattr(function, h, False)] == [hook]
+    assert [h for h in ENV_HOOKS if getattr(function, h, False)] == [hook]
 
 
 @pytest.mark.unit
@@ -41,17 +38,6 @@ def test_subclass_records_the_name_of_the_marked_method(hook):
     assert getattr(Env, f"_{hook}") == "my_hook"
     other = next(h for h in ENV_HOOKS if h != hook)
     assert getattr(Env, f"_{other}") is None
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("hook", ["action", "reward", "observation"])
-def test_agent_hooks_are_not_recorded_by_the_environment(hook):
-    class Env(MultiAgentEnv):
-        @getattr(hooks, hook)
-        def my_hook(self, mdp):
-            return MDPState()
-
-    assert (Env._reset, Env._transition) == (None, None)
 
 
 @pytest.mark.unit
