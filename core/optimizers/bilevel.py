@@ -61,6 +61,9 @@ class BilevelConfig(OptimizerConfig):
     (``training``, ``environment``, ``debugging``, ``reporting``, ``agents``)
     configure the bilevel config itself; the numbers of generations and of inner
     iterations are set on the levels, through ``regulator`` and ``society``.
+    ``training(episodes=...)`` on the bilevel config is a shortcut for the
+    number of generations: ``build_optimizer`` copies it into the regulator
+    config when that one has none, and refuses a different value.
 
     Parameters
     ----------
@@ -136,7 +139,8 @@ class BilevelConfig(OptimizerConfig):
 
         ``build_optimizer`` copies the inner seeds into its ``env_config`` and
         sizes its population from the inner batch capacity. The number of
-        generations is the ``episodes`` of this config.
+        generations is the ``episodes`` of this config, or the ``episodes`` of
+        the bilevel config when this one has none.
 
         Parameters
         ----------
@@ -256,6 +260,11 @@ class BilevelConfig(OptimizerConfig):
         number of seeds), so every candidate is evaluated by exactly one
         environment per seed.
 
+        ``training(episodes=...)`` of the bilevel config is the number of ES
+        generations. It is copied into the outer configuration when that one
+        has no ``episodes``; when both are set they must be equal. The check
+        runs before Ray starts.
+
         Returns
         -------
         BilevelOptimizer
@@ -264,16 +273,37 @@ class BilevelConfig(OptimizerConfig):
 
         Raises
         ------
+        ValueError
+            If ``training(episodes=...)`` of the bilevel config and the
+            ``episodes`` of the regulator config are both set and differ.
         AttributeError
             If ``society``, ``regulator`` or ``reporter`` was not called; this
             surfaces after Ray has started.
         """
+
+        # A conflicting generation count is a configuration error: fail before
+        # starting Ray rather than silently keeping one of the two values.
+        if (
+            self.episodes is not None
+            and self.outer_cfg is not None
+            and self.outer_cfg.episodes is not None
+            and self.outer_cfg.episodes != self.episodes
+        ):
+            raise ValueError(
+                f"BilevelConfig.training(episodes={self.episodes}) conflicts with "
+                + f"the regulator's episodes={self.outer_cfg.episodes}. Set the "
+                + "number of generations once, or give both the same value."
+            )
 
         RayRuntime.ensure_initialized(self.ray_cfg or RayRuntimeConfig())
 
         world = World.options(name=self.world_name).remote()
         inner_cfg = self.inner_cfg.copy()
         outer_cfg = self.outer_cfg.copy()
+
+        # The bilevel ``episodes`` is the number of ES generations.
+        if outer_cfg.episodes is None:
+            outer_cfg.episodes = self.episodes
 
         # Setup reporting
         self.reporter_cfg.world = self.world_name

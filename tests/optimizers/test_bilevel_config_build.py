@@ -42,8 +42,11 @@ class StubLevelConfig:
     left in the original.
     """
 
-    def __init__(self, *, seeds=None, batch_capacity=None, agents_cfgs=None):
+    def __init__(
+        self, *, seeds=None, batch_capacity=None, agents_cfgs=None, episodes=None
+    ):
         self.env_config: dict = {}
+        self.episodes = episodes
         self.seeds = seeds
         self.agents_cfgs = agents_cfgs
         self.reporter_cfg = None
@@ -299,6 +302,47 @@ class TestBuildOptimizer:
         make_config(society, regulator).build_optimizer()
 
         assert "seeds" not in regulator.copies[0].env_config
+
+    def test_the_bilevel_episodes_become_the_number_of_generations(
+        self, patched_actors
+    ):
+        regulator = StubLevelConfig()
+
+        make_config(StubLevelConfig(batch_capacity=2), regulator).build_optimizer()
+
+        assert regulator.copies[0].episodes == 5
+        assert regulator.episodes is None
+
+    def test_an_equal_generation_count_on_both_configs_is_accepted(
+        self, patched_actors
+    ):
+        regulator = StubLevelConfig(episodes=5)
+
+        make_config(StubLevelConfig(batch_capacity=2), regulator).build_optimizer()
+
+        assert regulator.copies[0].episodes == 5
+
+    def test_the_regulator_episodes_are_kept_when_the_bilevel_has_none(
+        self, patched_actors
+    ):
+        regulator = StubLevelConfig(episodes=40)
+        cfg = make_config(StubLevelConfig(batch_capacity=2), regulator)
+        cfg.episodes = None
+
+        cfg.build_optimizer()
+
+        assert regulator.copies[0].episodes == 40
+
+    def test_conflicting_generation_counts_are_rejected_before_ray_starts(
+        self, patched_actors
+    ):
+        regulator = StubLevelConfig(episodes=40)
+        cfg = make_config(StubLevelConfig(batch_capacity=2), regulator)
+
+        with pytest.raises(ValueError, match=r"episodes=5.*episodes=40"):
+            cfg.build_optimizer()
+
+        assert patched_actors.init_calls == []
 
     def test_the_regulators_agents_are_handed_to_the_society_as_leaders(
         self, patched_actors
