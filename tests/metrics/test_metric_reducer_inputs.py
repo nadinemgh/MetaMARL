@@ -8,11 +8,11 @@ an empty list for a series. This file checks those empty windows, single
 values, NaN and infinite values, integer inputs, the independence of
 successive windows, and the protocol table of the factory.
 
-Behaviour that the code does not settle is deliberately not asserted. In
-particular ``MaxMetric`` and ``MinMetric`` return a result that depends on the
-push order when a NaN is present (Python's ``max`` and ``min`` compare with
-``>`` and ``<``, which are false against NaN), and the intended result is
-undecided, so no test pins it.
+``MaxMetric`` and ``MinMetric`` ignore NaN, because a NaN is how the Ray
+adaptor marks a statistic that RLlib did not report and Python's ``max`` and
+``min`` would otherwise return a result that depends on the push order (they
+compare with ``>`` and ``<``, which are false against NaN). A window holding
+only NaN stays NaN. The mean and the sum propagate NaN.
 """
 
 import math
@@ -165,6 +165,32 @@ class TestNonFiniteValues:
     def test_last_keeps_a_nan_only_when_it_is_the_last_value(self):
         assert filled(LastMetric, [1.0, NAN, 3.0]).reduce() == 3.0
         assert math.isnan(filled(LastMetric, [1.0, NAN]).reduce())
+
+    @pytest.mark.parametrize("cls, expected", [(MaxMetric, 3.0), (MinMetric, 1.0)])
+    @pytest.mark.parametrize(
+        "values",
+        [
+            [NAN, 1.0, 3.0],
+            [1.0, NAN, 3.0],
+            [1.0, 3.0, NAN],
+            [3.0, NAN, 1.0],
+            [NAN, 3.0, 1.0],
+            [3.0, 1.0, NAN],
+        ],
+    )
+    def test_max_and_min_ignore_nan_whatever_the_position(self, cls, expected, values):
+        metric = filled(cls, values)
+        assert metric.peek() == expected
+        assert metric.reduce() == expected
+
+    @pytest.mark.parametrize("cls", [MaxMetric, MinMetric])
+    def test_max_and_min_of_only_nan_stay_nan(self, cls):
+        assert math.isnan(filled(cls, [NAN, NAN]).reduce())
+
+    @pytest.mark.parametrize("cls", [MaxMetric, MinMetric])
+    def test_nan_stays_in_the_raw_history(self, cls):
+        history = filled(cls, [1.0, NAN]).peek(compile=False)
+        assert history[0] == 1.0 and math.isnan(history[1])
 
     def test_series_keeps_every_nan_in_place(self):
         reduced = filled(SeriesMetric, [1.0, NAN, 3.0]).reduce()

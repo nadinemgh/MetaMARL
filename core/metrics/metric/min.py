@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from core.annotations import override
 from core.metrics.metric.base import PrimitiveType
 from core.metrics.metric.series import SeriesMetric
@@ -11,7 +13,10 @@ class MinMetric(SeriesMetric):
     """Metric reducing to the minimum of the pushed numbers.
 
     Only ``int`` and ``float`` are accepted (``bool`` is rejected); ``peek``
-    returns ``None`` while empty.
+    returns ``None`` while empty. A NaN is ignored, because the Ray adaptor
+    logs NaN for the learner statistics RLlib did not report and a missing
+    value has no rank; the result therefore does not depend on the push order.
+    A window holding only NaN reduces to NaN.
 
     When to use: for floor values over an iteration, such as the lowest stock observed.
 
@@ -27,6 +32,13 @@ class MinMetric(SeriesMetric):
     2.0
     >>> metric.peek() is None
     True
+
+    A NaN is skipped whatever its position:
+
+    >>> metric.push(float("nan"))
+    >>> metric.push(4.0)
+    >>> metric.peek()
+    4.0
     """
 
     @override(SeriesMetric)
@@ -66,7 +78,8 @@ class MinMetric(SeriesMetric):
         Returns
         -------
         int or float or list or None
-            The smallest pushed value, ``None`` while empty, or the history.
+            The smallest pushed value, ignoring NaN (NaN when every value is NaN),
+            ``None`` while empty, or the history.
         """
 
         if not compile:
@@ -75,7 +88,17 @@ class MinMetric(SeriesMetric):
         if not self.values:
             return None
 
-        return min(self.values)
+        # NaN is how the Ray adaptor marks a statistic that RLlib did not report,
+        # so it carries no ordering information. Python's min() compares with
+        # ``<``, which is false against NaN, and would then return
+        # NaN or a number depending on the push order. NaN values are skipped
+        # instead; a window holding nothing but NaN stays NaN.
+        valid = [value for value in self.values if not math.isnan(value)]
+
+        if not valid:
+            return self.values[0]
+
+        return min(valid)
 
     def reduce(self, compile: bool = True) -> PrimitiveType | MinMetric | None:
         """Return the minimum and clear the history.

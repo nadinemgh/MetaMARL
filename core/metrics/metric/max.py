@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from core.annotations import override
 from core.metrics.metric.base import PrimitiveType
 from core.metrics.metric.series import SeriesMetric
@@ -11,7 +13,10 @@ class MaxMetric(SeriesMetric):
     """Metric reducing to the maximum of the pushed numbers.
 
     Only ``int`` and ``float`` are accepted (``bool`` is rejected); ``peek``
-    returns ``None`` while empty.
+    returns ``None`` while empty. A NaN is ignored, because the Ray adaptor
+    logs NaN for the learner statistics RLlib did not report and a missing
+    value has no rank; the result therefore does not depend on the push order.
+    A window holding only NaN reduces to NaN.
 
     When to use: for peak values over an iteration, such as the best reward of a
     batch of episodes.
@@ -28,6 +33,13 @@ class MaxMetric(SeriesMetric):
     5
     >>> metric.peek() is None
     True
+
+    A NaN is skipped whatever its position:
+
+    >>> metric.push(float("nan"))
+    >>> metric.push(4.0)
+    >>> metric.peek()
+    4.0
     """
 
     @override(SeriesMetric)
@@ -67,7 +79,8 @@ class MaxMetric(SeriesMetric):
         Returns
         -------
         int or float or list or None
-            The largest pushed value, ``None`` while empty, or the history.
+            The largest pushed value, ignoring NaN (NaN when every value is NaN),
+            ``None`` while empty, or the history.
         """
 
         if not compile:
@@ -76,7 +89,17 @@ class MaxMetric(SeriesMetric):
         if not self.values:
             return None
 
-        return max(self.values)
+        # NaN is how the Ray adaptor marks a statistic that RLlib did not report,
+        # so it carries no ordering information. Python's max() compares with
+        # ``>``, which is false against NaN, and would then return
+        # NaN or a number depending on the push order. NaN values are skipped
+        # instead; a window holding nothing but NaN stays NaN.
+        valid = [value for value in self.values if not math.isnan(value)]
+
+        if not valid:
+            return self.values[0]
+
+        return max(valid)
 
     def reduce(self, compile: bool = True) -> PrimitiveType | MaxMetric | None:
         """Return the maximum and clear the history.
