@@ -1,3 +1,14 @@
+"""Time-indexed trees that store what a mechanism and an environment exchange.
+
+A :class:`Trajectory` is a tree of dictionaries whose leaves are lists with one
+entry per timestep. The state, the actions, the rewards and the observations of
+an :class:`~core.mechanism.base.MDPState` are all trajectories, and the
+residuals returned by the mechanisms are trajectories too, which is how they are
+composed with the shared state. :class:`FlowTrajectory` differs only in how an
+unwritten timestep is filled: stocks keep their previous value, flows restart
+from zero.
+"""
+
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
@@ -6,6 +17,43 @@ T = TypeVar("T")
 
 @dataclass
 class Trajectory(Generic[T]):
+    """Tree of per-timestep histories, treated as a stock.
+
+    Every leaf of the tree is a list holding one value per timestep. A value
+    that is not a ``dict`` becomes a one-entry list when the trajectory is built
+    (a ``list`` is copied and taken as a history, so a NumPy array is a single
+    timestep, not a history). The operations never modify the trajectory they
+    are called on: :meth:`add`, :meth:`append` and :meth:`update` return a new
+    one. A trajectory records stocks, such as the fish stock or the actions in
+    force, so a timestep that nothing has written keeps the previous value; see
+    :class:`FlowTrajectory` for quantities that do not persist.
+
+    Attributes
+    ----------
+    data : dict
+        The tree, with ``list`` leaves, one entry per timestep. Keys are agent
+        identifiers, mechanism identifiers or state names. Defaults to an empty
+        dictionary.
+
+    Notes
+    -----
+    When to use: to hold anything that evolves along an episode and that
+    mechanisms must be able to adjust at the current step, such as the state of
+    the environment or the actions of the agents. Reach for
+    :class:`FlowTrajectory` for rewards and observations.
+
+    Examples
+    --------
+    >>> stock = Trajectory({"fish": 10.0})
+    >>> stock = stock.append({"fish": 8.0})
+    >>> stock["fish"]
+    [10.0, 8.0]
+    >>> stock.length
+    2
+    >>> stock.add(1, [Trajectory({"fish": -2.0})])["fish"]
+    [10.0, 6.0]
+    """
+
     data: dict[Any, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -150,13 +198,47 @@ class Trajectory(Generic[T]):
         return key in self.data
 
     def copy(self) -> "Trajectory[T]":
+        """Return an independent copy of the tree.
+
+        The lists are copied, so appending to the copy leaves the original
+        alone. The values inside the lists, such as NumPy arrays, are shared.
+        """
         return type(self)(self._copy_tree(self.data))
 
     @property
     def length(self) -> int:
+        """Number of timesteps recorded, that is the length of the longest leaf.
+
+        An empty trajectory has length ``0``.
+        """
         return self._length(self.data)
 
     def add(self, t: int, deltas: list["Trajectory[T]"]) -> "Trajectory[T]":
+        """Return a copy with the latest value of each delta added at step ``t``.
+
+        For each leaf of each delta, the last entry is summed into the entry of
+        the same path at step ``t``. A path that does not exist yet is created,
+        with zeros before ``t``. A leaf that lags behind ``t`` is first filled
+        up to ``t`` with its fill value, then summed. The sum is not done in
+        place, so arrays shared with this trajectory are not modified.
+
+        Parameters
+        ----------
+        t : int
+            Timestep at which the deltas are added, non-negative.
+        deltas : list of Trajectory
+            Residual trajectories; only the last entry of each leaf is used.
+
+        Returns
+        -------
+        Trajectory
+            New trajectory of the same type as this one.
+
+        Raises
+        ------
+        TypeError
+            If a path is a leaf in one tree and a branch in the other.
+        """
         result = self.copy()
 
         for delta in deltas:
@@ -165,9 +247,43 @@ class Trajectory(Generic[T]):
         return result
 
     def append(self, values: dict[Any, Any]) -> "Trajectory[T]":
+        """Return a copy with one more timestep holding ``values``.
+
+        Equivalent to :meth:`update` at step :attr:`length`. Leaves that
+        ``values`` does not mention receive their fill value for the new step.
+        """
         return self.update(self.length, values)
 
     def update(self, t: int, values: dict[Any, Any]) -> "Trajectory[T]":
+        """Return a copy with ``values`` written at step ``t``.
+
+        Writing at an existing step overwrites it. Writing at step
+        :attr:`length` opens a new step, on which every existing leaf first
+        receives its fill value. A leaf that lags behind ``t`` is filled up to
+        ``t`` before it is written, and a new path is created with zeros before
+        ``t``. As in :meth:`add`, only the last entry of each leaf of ``values``
+        is used.
+
+        Parameters
+        ----------
+        t : int
+            Timestep to write, between ``0`` and :attr:`length` included.
+        values : dict
+            Tree of values, normalised like the ``data`` of a trajectory.
+
+        Returns
+        -------
+        Trajectory
+            New trajectory of the same type as this one.
+
+        Raises
+        ------
+        ValueError
+            If ``t`` is negative, or larger than the current length (a step
+            cannot be skipped).
+        TypeError
+            If a path is a leaf in one tree and a branch in the other.
+        """
         result = self.copy()
 
         if t < 0:
@@ -200,6 +316,25 @@ class FlowTrajectory(Trajectory[T]):
     hand the policy a running sum. Contributions written at the same timestep
     are summed, which lets a mechanism fill entries of the observation vector
     that the agent leaves at zero.
+
+    Attributes
+    ----------
+    data : dict
+        The tree, with ``list`` leaves, one entry per timestep. Defaults to an
+        empty dictionary.
+
+    Notes
+    -----
+    When to use: for the rewards and the observations of an episode, and for
+    the residuals that a mechanism adds to them.
+
+    Examples
+    --------
+    >>> reward = FlowTrajectory({"fisherman:0": 1.0}).append({})
+    >>> reward["fisherman:0"]
+    [1.0, 0]
+    >>> reward.add(1, [FlowTrajectory({"fisherman:0": -0.25})])["fisherman:0"]
+    [1.0, -0.25]
     """
 
     @classmethod

@@ -16,7 +16,7 @@ payment against a convex effort cost; it is not taken from a published model.
 """
 
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -91,7 +91,7 @@ class SubsidyMechanism(Mechanism):
     [0.25]
     """
 
-    def __init__(self, *, cost: float, **kwargs) -> None:
+    def __init__(self, *, cost: float, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.cost = cost
 
@@ -105,6 +105,18 @@ class SubsidyMechanism(Mechanism):
         The scaling by ``MAX_SUBSIDY`` is left to :meth:`apply`: the decoded
         action is written back into the trajectory and carried forward to the
         next step, where it is decoded again, so this map must be idempotent.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state; not used.
+        action : ActType
+            Raw action of the regulator, array-like with at least one element.
+
+        Returns
+        -------
+        float
+            Normalised subsidy rate in ``[0, 1]``.
         """
         value = float(np.asarray(action, dtype=np.float32).reshape(-1)[0])
         return float(np.clip(value, 0.0, 1.0))
@@ -124,7 +136,13 @@ class SubsidyMechanism(Mechanism):
         Returns
         -------
         MDPState
-            Residual holding only ``rewards``, one float per targeted agent.
+            Residual holding only ``rewards``, one float per targeted agent, in
+            reward units.
+
+        Raises
+        ------
+        ValueError
+            If ``acts_on`` is missing.
         """
         if self.acts_on is None:
             raise ValueError("SubsidyMechanism requires `acts_on`.")
@@ -151,5 +169,37 @@ class SubsidyMechanism(Mechanism):
 
 @dataclass(frozen=True, kw_only=True)
 class Subsidy(MechanismConfig):
+    """Configuration of a :class:`SubsidyMechanism`.
+
+    Attributes
+    ----------
+    cost : float
+        Quadratic effort cost ``c`` in ``[0, 1]``, in reward units per squared
+        unit of effort. Required; the mechanism rejects a value outside the
+        interval.
+
+    Notes
+    -----
+    The other fields (``action_space``, ``id``, ``acts_on``, ``obs_map``) are
+    those of :class:`~core.mechanism.config.MechanismConfig`. ``action_space``
+    has no default: give a ``Box`` of shape ``(1,)`` in ``[0, 1]``.
+
+    When to use: in the ``mechanisms`` of the regulator's
+    :class:`~core.agents.base.AgentConfig`, to pay the followers for an effort.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from gymnasium import spaces
+    >>> config = Subsidy(
+    ...     id="subsidy",
+    ...     action_space=spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
+    ...     acts_on=("fisherman", "restore"),
+    ...     cost=0.1,
+    ... )
+    >>> config.build("regulator").cost
+    0.1
+    """
+
     mechanism_cls: ClassVar[type[Mechanism]] = SubsidyMechanism
     cost: float

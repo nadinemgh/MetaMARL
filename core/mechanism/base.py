@@ -1,13 +1,15 @@
-"""Mechanism interface and its generic vector implementation.
+"""Shared state of an episode and the interface of a mechanism.
 
-A mechanism is the regulatory intervention the outer optimizer searches over
-and the inner environment applies to its agents. This module defines the
-:class:`Mechanism` protocol every mechanism satisfies (a normalized vector
-representation exposed to the agents, parameter names and a default instance)
-and :class:`VectorMechanism`, a parameter-free wrapper around a raw array used
-when no semantic mechanism class is available. The geometry of the mechanism
-manifold (encoding, decoding, clipping, sampling) lives in
-:mod:`core.mechanism.space`.
+A mechanism is the regulatory intervention that the outer optimizer searches
+over and that the inner environment applies to its agents. This module defines
+:class:`MDPState`, the container for the state, the observations, the actions
+and the rewards of an episode, and :class:`Mechanism`, the abstract class every
+mechanism inherits. A mechanism does not change the state it receives: it
+returns a residual :class:`MDPState`, which the owning agent adds to the shared
+state, and may return a second residual for the observations through
+:meth:`Mechanism.observe`. The time-indexed trees that hold the fields live in
+:mod:`core.mechanism.types`, and the configurations that build the concrete
+mechanisms in :mod:`core.mechanism.config`.
 """
 
 from __future__ import annotations
@@ -30,6 +32,57 @@ ObsType = TypeVar("ObsType")
 
 @dataclass
 class MDPState:
+    """Snapshot of an episode: parameters, time and the four trajectories.
+
+    The state, the observations, the actions and the rewards are
+    :class:`~core.mechanism.types.Trajectory` trees indexed by timestep. A
+    ``dict`` given for one of them is converted: the state and the actions are
+    stocks (an unwritten step keeps the previous value), while the rewards and
+    the observations are flows (an unwritten step starts from zero). The
+    environment and the agents build residual states that hold only the fields
+    they change, and :meth:`add` composes them into the shared state.
+
+    Attributes
+    ----------
+    t : int
+        Current timestep, starting at ``0``. Default ``0``.
+    params : dict[str, Any]
+        Fixed parameters of the environment, for example the carrying capacity
+        ``"K"`` in fish units. Default empty.
+    aids : set
+        Identifiers of the agents present. Default empty.
+    state : Trajectory or dict
+        Environment state, for example the fish stock. Default empty.
+    obs : FlowTrajectory or dict
+        Observation of each agent, one array per step. Default empty.
+    actions : Trajectory or dict
+        Action of each agent and mechanism, as ``actions[agent][mechanism]``.
+        Default empty.
+    rewards : FlowTrajectory or dict
+        Reward of each agent at each step. Default empty.
+    state_space, action_spaces, obs_space : gymnasium.spaces.Dict or None
+        Spaces of the state, the actions and the observations. ``None`` means
+        that the field says nothing about the space.
+    terminateds, truncateds : dict[AgentID, bool] or None
+        Termination and truncation flags per agent. ``None`` means that the
+        field says nothing about them.
+
+    Notes
+    -----
+    When to use: as the argument and the return value of everything that takes
+    part in a transition, namely the environment, the agents and the
+    mechanisms. Build a partial one to describe a residual.
+
+    Examples
+    --------
+    >>> mdp = MDPState(state={"fish": 100.0}, rewards={"fisherman:0": 1.0})
+    >>> residual = MDPState(rewards={"fisherman:0": -0.25})
+    >>> mdp.add(residual).rewards["fisherman:0"]
+    [0.75]
+    >>> mdp.advance(state={"fish": 90.0}).state["fish"]
+    [100.0, 90.0]
+    """
+
     t: int = 0
     params: dict[str, StateType] = field(default_factory=dict)
     aids: set[AgentID] = field(default_factory=set)
@@ -60,6 +113,25 @@ class MDPState:
     # Mechanisms may introduce dimensions, but absence means "no change".
     # Deletion is not supported.
     def add(self, ds: list["MDPState"]) -> MDPState:
+        """Compose this state with residual states, without modifying it.
+
+        The trajectories of the residuals are added to this state's at the
+        current step ``t``: values are summed, and a field a residual does not
+        mention is left unchanged. ``params`` are merged, a later residual
+        overriding an earlier key, ``aids`` are united, the spaces are
+        intersected, and the termination and truncation flags are combined with
+        a logical or. The time ``t`` is kept.
+
+        Parameters
+        ----------
+        ds : list of MDPState
+            Residual states. A single ``MDPState`` is also accepted.
+
+        Returns
+        -------
+        MDPState
+            New state of the same class as ``self``.
+        """
         if isinstance(ds, MDPState):
             ds = [ds]
 
@@ -91,7 +163,23 @@ class MDPState:
         actions: Optional[dict[Any, Any]] = None,
         rewards: Optional[dict[Any, Any]] = None,
     ) -> "MDPState":
-        """Advance the MDP by one timestep."""
+        """Return a copy one timestep later, with the given values appended.
+
+        Each trajectory that is given receives one more step holding the
+        values; a trajectory left as ``None`` is not extended. This state is
+        not modified.
+
+        Parameters
+        ----------
+        state, obs, actions, rewards : dict or None
+            Values of the new step for the matching trajectory, as trees keyed
+            by agent or state name. Default ``None``.
+
+        Returns
+        -------
+        MDPState
+            New state with ``t`` increased by one.
+        """
 
         return replace(
             self,
@@ -115,7 +203,24 @@ class MDPState:
         actions: Optional[dict[Any, Any]] = None,
         rewards: Optional[dict[Any, Any]] = None,
     ) -> "MDPState":
-        """Update trajectory values"""
+        """Write values at one timestep, in place, and return the state.
+
+        Unlike :meth:`add` and :meth:`advance`, this method modifies the state
+        it is called on.
+
+        Parameters
+        ----------
+        t : int or None
+            Timestep to write. Default ``None``, the current step ``self.t``.
+        state, obs, actions, rewards : dict or None
+            Values to write in the matching trajectory, which is overwritten at
+            that step. A trajectory left as ``None`` is not touched.
+
+        Returns
+        -------
+        MDPState
+            This state, after the update.
+        """
         t = self.t if t is None else t
 
         if state is not None:
@@ -130,7 +235,74 @@ class MDPState:
 
 
 class Mechanism(ABC):
-    """Runtime mechanism controller owned by an agent"""
+    """Abstract regulatory mechanism, owned by an agent.
+
+    A mechanism turns the regulator's action into a residual
+    :class:`MDPState`, which the owning agent adds to the shared state. It does
+    so in two steps: :meth:`decode` maps the raw action to the coordinates of
+    the mechanism, and :meth:`apply` returns the residual of a transition. The
+    environment calls :meth:`observe` separately, for the mechanisms of the
+    leaders, to let a mechanism contribute to the observations. Subclasses
+    implement :meth:`apply`, and override :meth:`decode` and :meth:`observe`
+    when needed. They are usually built from a
+    :class:`~core.mechanism.config.MechanismConfig`.
+
+    Parameters
+    ----------
+    aid : AgentID or None
+        Identifier of the agent that owns the mechanism, typically the
+        regulator. Default ``None``; the configuration passes it to
+        :meth:`~core.mechanism.config.MechanismConfig.build`.
+    action_space : gymnasium.spaces.Box
+        Space of the mechanism's action, for example ``Box(0, 1, (1,))`` for a
+        quota in ``[0, 1]``. Keyword-only.
+    id : MechanismID or None
+        Identifier of the mechanism, the key of its action under ``aid``.
+        Default ``None``.
+    acts_on : tuple[AgentID, MechanismID]
+        Agent type and mechanism that the mechanism acts on. Keyword-only.
+    obs_map : dict[str, str] or None
+        Names under which the mechanism reads the environment state, for
+        example ``{"resource_level": "fish"}``. Default ``None``.
+    default : numpy.ndarray or None
+        Default action, kept as the private attribute ``_u``. A value whose
+        truth value is false is stored as ``None``, and an array of several
+        elements raises a ``ValueError`` because its truth value is ambiguous.
+        Default ``None``.
+
+    Attributes
+    ----------
+    aid, id, action_space, acts_on, obs_map
+        The constructor arguments of the same names.
+    mechanism_id : MechanismID or None
+        Same value as ``id``.
+
+    Notes
+    -----
+    When to use: as the base class of a new regulatory mechanism. Use the
+    ready-made ones (:class:`~core.mechanism.algorithms.quota.QuotaMechanism`,
+    :class:`~core.mechanism.algorithms.subsidy.SubsidyMechanism`,
+    :class:`~core.mechanism.algorithms.penalty.ThresholdPenaltyMechanism`,
+    :class:`~core.mechanism.algorithms.social_influence.SocialInfluenceMechanism`)
+    when they fit.
+
+    Examples
+    --------
+    >>> class Tax(Mechanism):
+    ...     def apply(self, mdp, action):
+    ...         return MDPState(rewards={"fisherman:0": -action / 2})
+    >>> mechanism = Tax(
+    ...     aid="regulator",
+    ...     id="tax",
+    ...     action_space=spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
+    ...     acts_on=("fisherman", "harvest"),
+    ... )
+    >>> mdp = MDPState(actions={"regulator": {"tax": 0.0}})
+    >>> mechanism(mdp, 0.5).rewards["fisherman:0"]
+    [-0.25]
+    >>> mdp.actions["regulator"]["tax"]
+    [0.5]
+    """
 
     def __init__(
         self,
@@ -151,17 +323,72 @@ class Mechanism(ABC):
         self._u = default if default else None
 
     def __call__(self, mdp: MDPState, action: ActType) -> MDPState:
+        """Decode ``action``, record it in ``mdp`` and return the residual.
+
+        The decoded action is written, in place, at step ``mdp.t`` of
+        ``mdp.actions[aid][id]``, which must already exist and be long enough.
+        Then :meth:`apply` is called with it.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state at the current step.
+        action : ActType
+            Raw action of the regulator for this mechanism.
+
+        Returns
+        -------
+        MDPState
+            Residual of the transition, as returned by :meth:`apply`.
+        """
         action = self.decode(mdp, action)
         mdp.actions[self.aid][self.id][mdp.t] = action
         return self.apply(mdp, action)
 
     def decode(self, mdp: MDPState, action: ActType) -> ActType:
-        """Map optimizer/policy coordinates to mechanism coordinates."""
+        """Map optimizer/policy coordinates to mechanism coordinates.
+
+        The decoded value is written back into the action trajectory and is
+        carried forward to the following steps, where it is decoded again, so
+        an override must give the same result when it receives its own output.
+        The default is the identity.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state at the current step.
+        action : ActType
+            Raw action of the regulator for this mechanism.
+
+        Returns
+        -------
+        ActType
+            Action in the mechanism's own coordinates.
+        """
         return action
 
     @abstractmethod
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:
-        """Return this mechanism's contribution to the state transition."""
+        """Return this mechanism's contribution to the state transition.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state at the current step, as every mechanism of the agent
+            sees it.
+        action : ActType
+            Decoded action, as returned by :meth:`decode`.
+
+        Returns
+        -------
+        MDPState
+            Residual holding only the fields the mechanism changes.
+
+        Raises
+        ------
+        NotImplementedError
+            Always, in the base class; the method is abstract.
+        """
         raise NotImplementedError
 
     def observe(self, mdp: MDPState) -> MDPState:
@@ -177,5 +404,15 @@ class Mechanism(ABC):
         mechanism fills entries of the vector that the agent leaves at zero.
 
         The default contributes nothing.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state after the transition, or after the reset.
+
+        Returns
+        -------
+        MDPState
+            Residual holding only ``obs``; the default holds nothing.
         """
         return MDPState()

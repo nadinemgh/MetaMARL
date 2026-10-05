@@ -25,7 +25,7 @@ arXiv:1810.08647.
 """
 
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 from gymnasium import Space
@@ -89,7 +89,7 @@ class SocialInfluenceMechanism(Mechanism):
     """
 
     def __init__(
-        self, *, obs_offset: int, influence_weight: float = 0.0, **kwargs
+        self, *, obs_offset: int, influence_weight: float = 0.0, **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
         self.obs_offset = obs_offset
@@ -102,7 +102,20 @@ class SocialInfluenceMechanism(Mechanism):
 
     @override(Mechanism)
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:
-        """Contribute nothing to the transition; see :meth:`observe`."""
+        """Contribute nothing to the transition; see :meth:`observe`.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state; not used.
+        action : ActType
+            Empty array, shape ``(0,)``; not used.
+
+        Returns
+        -------
+        MDPState
+            An empty residual.
+        """
         return MDPState()
 
     @override(Mechanism)
@@ -177,6 +190,40 @@ class SocialInfluenceMechanism(Mechanism):
 
 @dataclass(frozen=True, kw_only=True)
 class SocialInfluence(MechanismConfig):
+    """Configuration of a :class:`SocialInfluenceMechanism`.
+
+    Attributes
+    ----------
+    action_space : gymnasium.Space
+        Defaults to :func:`~core.mechanism.config.empty_action_space`: the rule
+        has no searched parameter.
+    obs_offset : int
+        Index of the first observation entry reserved for the peers' actions,
+        non-negative. Required.
+    influence_weight : float
+        Reserved for a reward bonus that is not implemented; non-negative, and
+        without effect. Default ``0.0``.
+
+    Notes
+    -----
+    The other fields (``id``, ``acts_on``, ``obs_map``) are those of
+    :class:`~core.mechanism.config.MechanismConfig`.
+
+    When to use: in the ``mechanisms`` of the regulator's
+    :class:`~core.agents.base.AgentConfig`, to make the followers' actions
+    visible to one another.
+
+    Examples
+    --------
+    >>> config = SocialInfluence(
+    ...     id="social", acts_on=("fisherman", "harvest"), obs_offset=4
+    ... )
+    >>> config.action_space.shape
+    (0,)
+    >>> config.build("regulator").obs_offset
+    4
+    """
+
     mechanism_cls: ClassVar[type[Mechanism]] = SocialInfluenceMechanism
     action_space: Space = field(default_factory=empty_action_space)
     obs_offset: int

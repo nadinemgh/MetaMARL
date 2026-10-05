@@ -12,7 +12,7 @@ in the stock; it is not taken from a published model.
 """
 
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 from gymnasium import Space
@@ -92,7 +92,7 @@ class ThresholdPenaltyMechanism(Mechanism):
         threshold: float = 0.20,
         penalty_amount: float = 0.10,
         transition_width: float = 0.03,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.threshold = threshold
@@ -107,7 +107,22 @@ class ThresholdPenaltyMechanism(Mechanism):
             raise ValueError("transition_width must be positive.")
 
     def penalty(self, resource_level: float) -> float:
-        """Reward deduction, non-negative, for a normalised resource level."""
+        """Reward deduction, non-negative, for a normalised resource level.
+
+        The exponent of the logistic is bounded by ``MAX_EXPONENT`` so that it
+        cannot overflow.
+
+        Parameters
+        ----------
+        resource_level : float
+            Resource stock divided by the carrying capacity, in ``[0, 1]``.
+
+        Returns
+        -------
+        float
+            Deduction in ``[0, penalty_amount]``, in reward units; half of
+            ``penalty_amount`` at the threshold.
+        """
         z = np.clip(
             (float(resource_level) - self.threshold) / self.transition_width,
             -MAX_EXPONENT,
@@ -129,7 +144,14 @@ class ThresholdPenaltyMechanism(Mechanism):
         Returns
         -------
         MDPState
-            Residual holding only ``rewards``, one float per targeted agent.
+            Residual holding only ``rewards``, one float per targeted agent, in
+            reward units.
+
+        Raises
+        ------
+        ValueError
+            If ``acts_on`` is missing, or if ``obs_map`` does not map
+            ``"resource_level"``.
         """
         if self.acts_on is None:
             raise ValueError("ThresholdPenaltyMechanism requires `acts_on`.")
@@ -158,6 +180,46 @@ class ThresholdPenaltyMechanism(Mechanism):
 
 @dataclass(frozen=True, kw_only=True)
 class ThresholdPenalty(MechanismConfig):
+    """Configuration of a :class:`ThresholdPenaltyMechanism`.
+
+    Attributes
+    ----------
+    action_space : gymnasium.Space
+        Defaults to :func:`~core.mechanism.config.empty_action_space`: the rule
+        is fixed and the regulator searches no dimension for it.
+    threshold : float
+        Normalised resource level in ``[0, 1]`` at which half of the penalty
+        applies. Default ``0.20``.
+    penalty_amount : float
+        Maximal reward deduction per step, non-negative, in reward units.
+        Default ``0.10``.
+    transition_width : float
+        Width of the logistic transition, positive, in normalised resource
+        units. Default ``0.03``.
+
+    Notes
+    -----
+    The other fields (``id``, ``acts_on``, ``obs_map``) are those of
+    :class:`~core.mechanism.config.MechanismConfig`.
+
+    When to use: in the ``mechanisms`` of the regulator's
+    :class:`~core.agents.base.AgentConfig`, to sanction the followers when the
+    resource is low.
+
+    Examples
+    --------
+    >>> config = ThresholdPenalty(
+    ...     id="penalty",
+    ...     acts_on=("fisherman", "harvest"),
+    ...     obs_map={"resource_level": "fish"},
+    ...     threshold=0.3,
+    ... )
+    >>> config.action_space.shape
+    (0,)
+    >>> config.build("regulator").threshold
+    0.3
+    """
+
     mechanism_cls: ClassVar[type[Mechanism]] = ThresholdPenaltyMechanism
     action_space: Space = field(default_factory=empty_action_space)
     threshold: float = 0.20
