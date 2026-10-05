@@ -10,7 +10,7 @@ in :mod:`core.reporting.csv`, :mod:`core.reporting.tensor_board` and
 
 import copy
 from abc import ABC, abstractmethod
-from typing import Self, Union
+from typing import Optional, Self, Union
 
 from core.reporting.base import Reporter
 
@@ -95,12 +95,15 @@ class ReporterConfig(ABC):
         return copy.deepcopy(self)
 
     @abstractmethod
-    def build(self) -> Reporter:
+    def build(self, *, label: Optional[str] = None) -> Reporter:
         """Create the backend-specific reporter described by this config.
 
-        The concrete configurations of this package take a keyword-only
-        ``label`` (the owner of the reporter) that the optimizers and
-        environments pass; this abstract signature does not declare it.
+        Parameters
+        ----------
+        label : str or None, default None
+            The owner of the reporter (an optimizer class name or an
+            environment id), used by the backend to keep the outputs of two
+            owners apart. The optimizers and environments always pass it.
 
         Returns
         -------
