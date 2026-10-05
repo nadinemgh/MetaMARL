@@ -234,13 +234,18 @@ class SeedRolloutSchema(MetricSchema):
 
 
 class MechanismRolloutSchema(MetricSchema):
-    """Rollouts of one mechanism candidate, keyed by training seed.
+    """Rollouts of one mechanism candidate, keyed by environment seed.
+
+    The key is the environment seed of the episode (``ss`` in the environment
+    identifier), not the policy seed. ``MechanismLearnerSchema.by_seed``, at the
+    same depth of the learner tree, is keyed by the policy seed instead, so the
+    two ``by_seed`` levels name different seeds and are not aligned.
 
     Attributes
     ----------
     by_seed : dict of str to SeedRolloutSchema
-        Rollouts keyed by the seed of the episode, as a string. Empty by
-        default.
+        Rollouts keyed by the environment seed of the episode, as a string.
+        Empty by default.
 
     When to use: as the middle level of ``RolloutSchema.by_mechanism``; the
     regulator reads one of these per candidate mechanism to compute its
@@ -312,8 +317,8 @@ class SeedLearnerSchema(MetricSchema):
 class MechanismLearnerSchema(MetricSchema):
     """Learner statistics of one mechanism candidate, keyed by training seed.
 
-    The seed is the training (policy initialization) seed, not the seed of an
-    evaluation environment.
+    The seed is the training (policy initialization) seed, not the environment
+    seed that keys ``MechanismRolloutSchema.by_seed``.
 
     Attributes
     ----------
