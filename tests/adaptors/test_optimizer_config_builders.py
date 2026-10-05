@@ -9,9 +9,10 @@ recorded arguments. They also cover the seed bookkeeping of ``evaluation`` and
 ``debugging``, the episode-identity parser and the seeded initializer. No RLlib
 algorithm is built and Ray is never started.
 
-Two behaviours are order dependent by design and are pinned here as such:
-``debugging`` scales ``num_envs_per_env_runner`` only if ``env_runners`` was
-called first, and a builder called twice keeps only its last call.
+A builder called twice keeps only its last call. ``debugging`` and
+``env_runners`` may be called in either order, and ``debugging`` any number of
+times: the recorded ``num_envs_per_env_runner`` is always the mechanism count
+times the number of training seeds.
 """
 
 from __future__ import annotations
@@ -301,15 +302,63 @@ def test_debugging_derives_training_seeds_and_scales_the_env_count():
 
 
 @pytest.mark.unit
-def test_debugging_before_env_runners_does_not_scale_the_env_count():
-    # The documented ordering trap: the seeds exist, but ``env_runners`` records
-    # the raw count afterwards, so no environment is added per seed.
+def test_debugging_before_env_runners_scales_the_env_count_all_the_same():
     cfg = PPOptimizerConfig().debugging(seed=7, num_seeds=2)
     cfg.env_runners(num_envs_per_env_runner=5)
 
     assert len(cfg.seeds) == 2
     assert cfg.num_mechanisms == 5
-    assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 5
+    assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 10
+
+
+@pytest.mark.unit
+def test_debugging_after_env_runners_without_an_env_count_assumes_one_mechanism():
+    cfg = PPOptimizerConfig().env_runners(num_env_runners=2).debugging(seed=1)
+
+    assert cfg.num_mechanisms == 1
+    assert cfg._cfg_ops["_env_runners"].kwargs == {
+        "num_env_runners": 2,
+        "num_envs_per_env_runner": 3,
+    }
+
+
+@pytest.mark.unit
+def test_calling_debugging_twice_does_not_compound_the_scaling():
+    cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
+
+    cfg.debugging(seed=7, num_seeds=3).debugging(seed=7, num_seeds=3)
+
+    assert cfg.num_mechanisms == 4
+    assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 12
+
+
+@pytest.mark.unit
+def test_a_later_debugging_rescales_from_the_mechanism_count():
+    cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
+
+    cfg.debugging(seed=7, num_seeds=3).debugging(seed=7, num_seeds=2)
+
+    assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 8
+
+
+@pytest.mark.unit
+def test_calling_env_runners_again_rescales_from_the_new_mechanism_count():
+    cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
+
+    cfg.debugging(seed=7, num_seeds=3).env_runners(num_envs_per_env_runner=2)
+
+    assert cfg.num_mechanisms == 2
+    assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 6
+
+
+@pytest.mark.unit
+def test_debugging_without_a_seed_after_a_seeded_one_restores_the_mechanism_count():
+    cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
+
+    cfg.debugging(seed=7, num_seeds=3).debugging()
+
+    assert cfg.seeds == []
+    assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 4
 
 
 @pytest.mark.unit

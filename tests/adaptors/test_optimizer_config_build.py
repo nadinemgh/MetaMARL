@@ -7,9 +7,6 @@ identity), ``register_env`` recording the creator it is given, and
 ``RLlibMultiAgentEnvAdapter`` replaced by a wrapper that keeps the environment,
 so the inner ``env_creator`` can be called as RLlib would call it. Tests that
 need the real ``RayOptimizer`` stub its ``PolicyActor``. Ray never starts.
-
-Every test configures ``debugging`` after ``env_runners``, as the docstring of
-``debugging`` requires for the environment count to be scaled by the seeds.
 """
 
 from __future__ import annotations

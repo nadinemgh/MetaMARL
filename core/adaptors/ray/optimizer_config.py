@@ -6,9 +6,9 @@ not touch an ``AlgorithmConfig`` while the user is chaining calls. Each builder
 decorated with ``rllib_config_mutator`` only records an ``RLlibConfigOp`` (the
 target function plus its arguments) in ``_cfg_ops``, keyed by method name. The
 ops are replayed, in insertion order, on ``algo_class.get_default_config()`` the
-first time ``build_optimizer`` runs. This deferral lets later calls such as
-``debugging`` or ``build_optimizer`` patch the recorded keyword arguments of an
-earlier call (for example scaling ``num_envs_per_env_runner`` by the number of
+first time ``build_optimizer`` runs. This deferral lets ``env_runners``,
+``debugging`` and ``build_optimizer`` patch the recorded keyword arguments of
+a call (for example scaling ``num_envs_per_env_runner`` by the number of
 seeds) before RLlib ever validates them.
 
 Policies are laid out as one RLModule per ``(mechanism candidate, training
@@ -136,9 +136,9 @@ class RayOptimizerConfig(OptimizerConfig):
 
     When to use: subclass it (as ``APPOptimizerConfig`` and
     ``PPOptimizerConfig`` do) to describe the inner RL level of a bilevel run,
-    then pass it to the bilevel configuration. Chain the RLlib-style builders
-    in the order ``env_runners`` then ``debugging`` so that the environment
-    count is scaled by the number of seeds.
+    then pass it to the bilevel configuration. The RLlib-style builders may be
+    chained in any order; the environment count is scaled by the number of
+    seeds whether ``env_runners`` or ``debugging`` comes first.
 
     Examples
     --------
@@ -364,14 +364,38 @@ class RayOptimizerConfig(OptimizerConfig):
 
         return cfg.env_runners(**kwargs)
 
+    def _scale_env_count_by_seeds(self) -> None:
+        """Record ``num_mechanisms * len(seeds)`` as the env count of each runner.
+
+        Each mechanism candidate gets one environment per training seed. The
+        count is always derived from ``num_mechanisms`` and ``seeds``, never
+        from the previously recorded kwarg, so calling it again (or from
+        ``env_runners`` and ``debugging`` in either order) gives the same
+        result. Without seeds the kwarg is restored to ``num_mechanisms`` if
+        it was recorded. Does nothing when ``env_runners`` was not called.
+        """
+
+        env_runners_op = self._cfg_ops.get("_env_runners")
+
+        if env_runners_op is None:
+            return
+
+        if self.seeds:
+            env_runners_op.kwargs["num_envs_per_env_runner"] = (
+                self.num_mechanisms * len(self.seeds)
+            )
+        elif "num_envs_per_env_runner" in env_runners_op.kwargs:
+            env_runners_op.kwargs["num_envs_per_env_runner"] = self.num_mechanisms
+
     def env_runners(self, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.env_runners`` that records the env count.
 
         ``num_envs_per_env_runner`` is read as the number of mechanism
         candidates evaluated per runner and stored in ``num_mechanisms``
-        (``1`` when the argument is absent). ``debugging`` later multiplies the
-        recorded kwarg by the number of training seeds, so this builder must be
-        called before ``debugging`` for the multiplication to happen.
+        (``1`` when the argument is absent). The recorded kwarg is the
+        mechanism count multiplied by the number of training seeds, whether
+        ``debugging`` was called before or after this builder (see
+        ``debugging``).
 
         Parameters
         ----------
@@ -387,7 +411,10 @@ class RayOptimizerConfig(OptimizerConfig):
 
         self.num_mechanisms = kwargs.get("num_envs_per_env_runner", 1)
 
-        return self._env_runners(**kwargs)
+        self._env_runners(**kwargs)
+        self._scale_env_count_by_seeds()
+
+        return self
 
     @rllib_config_mutator
     def learners(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
@@ -1201,17 +1228,18 @@ class RayOptimizerConfig(OptimizerConfig):
 
         Notes
         -----
-        When a seed is given and ``env_runners`` was already called, the
-        recorded ``num_envs_per_env_runner`` is taken as the number of
-        mechanisms (stored in ``num_mechanisms``) and multiplied by
-        ``num_seeds`` so each mechanism candidate gets one environment per
-        seed. If ``env_runners`` is called *after* ``debugging``, no scaling
-        happens and ``num_mechanisms`` is whatever ``env_runners`` records.
-        When ``env_runners`` was called without ``num_envs_per_env_runner``,
-        ``debugging`` with a seed raises ``KeyError``.
+        The ``num_envs_per_env_runner`` passed to ``env_runners`` is the number
+        of mechanisms (stored in ``num_mechanisms``, ``1`` when absent); the
+        value recorded for RLlib is that number multiplied by the number of
+        seeds, so each mechanism candidate gets one environment per seed. The
+        product is recomputed from ``num_mechanisms`` each time, so the result
+        does not depend on whether ``env_runners`` is called before or after
+        ``debugging``, and calling ``debugging`` again replaces the seeds
+        without compounding the scaling. Without a seed the seeds are cleared
+        and the recorded count goes back to ``num_mechanisms``.
 
-        When to use: call it once, after ``env_runners``, to fix the base seed
-        and the number of independent training seeds of the society.
+        When to use: call it, before or after ``env_runners``, to fix the base
+        seed and the number of independent training seeds of the society.
 
         Examples
         --------
@@ -1229,14 +1257,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
         super().debugging(seed=seed, num_seeds=num_seeds)
 
-        if seed is not None:
-            env_runners_op = self._cfg_ops.get("_env_runners")
-
-            if env_runners_op is not None:
-                self.num_mechanisms = env_runners_op.kwargs["num_envs_per_env_runner"]
-                env_runners_op.kwargs["num_envs_per_env_runner"] = (
-                    env_runners_op.kwargs.get("num_envs_per_env_runner", 1) * num_seeds
-                )
+        self._scale_env_count_by_seeds()
 
         # Lazy construction
         return self._debugging_rllib(seed=seed, **kwargs)
