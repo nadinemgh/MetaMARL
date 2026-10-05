@@ -80,9 +80,9 @@ class TestDecode:
         assert mechanism.decode(mdp, np.array([0.25])) == pytest.approx(0.25)
 
     def test_decode_is_idempotent(self):
-        # ``Mechanism.__call__`` writes the decoded action back into the
-        # trajectory, and the regulator's action is carried forward, so the
-        # next step decodes an already decoded value.
+        # A rate already in [0, 1] is returned unchanged. The mechanism no
+        # longer relies on it (see ``test_decode_input.py``), but the clip
+        # keeps this property.
         mechanism = make()
         once = mechanism.decode(MDPState(), np.array([0.6]))
         assert mechanism.decode(MDPState(), once) == once
@@ -159,7 +159,8 @@ class TestComposition:
         )
 
     def test_rate_does_not_drift_over_the_steps_of_an_episode(self):
-        # The regulator's action is set once at reset and carried forward.
+        # The regulator's action is set once at reset and carried forward; the
+        # mechanism decodes the raw action again at every step.
         efforts = {"fisherman:0": 0.4}
         regulator = Agent(
             id=REGULATOR, policy_id="p", mechanisms={"subsidy": make(cost=0.0)}

@@ -1,8 +1,8 @@
 """``Mechanism``: the interface a concrete mechanism inherits.
 
 ``__call__`` decodes the action, writes the decoded value back into the
-trajectory and applies it; ``apply`` is abstract and ``observe`` contributes
-nothing by default.
+action trajectory (not into the raw one) and applies it; ``apply`` is abstract
+and ``observe`` contributes nothing by default.
 """
 
 import numpy as np

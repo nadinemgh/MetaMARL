@@ -134,8 +134,7 @@ class QuotaMechanism(Mechanism):
         """Decode the regulator action into a quota parameter in [0, 1].
 
         The first component of ``action`` is clipped to ``[0, 1]``. The map is
-        idempotent, as the decoded action is written back and decoded again at
-        the next steps.
+        idempotent: a quota already in ``[0, 1]`` is returned unchanged.
 
         Parameters
         ----------

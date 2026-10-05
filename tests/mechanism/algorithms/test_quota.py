@@ -172,8 +172,9 @@ class TestDecode:
         )
 
     def test_decode_is_idempotent(self):
-        # ``Mechanism.__call__`` writes the decoded action back into the
-        # trajectory, where it is carried forward and decoded again.
+        # A quota already in [0, 1] is returned unchanged. The mechanism no
+        # longer relies on it (see ``test_decode_input.py``), but the clip
+        # keeps this property.
         mechanism = make()
         once = mechanism.decode(MDPState(), np.array([1.4]))
         assert mechanism.decode(MDPState(), once) == once

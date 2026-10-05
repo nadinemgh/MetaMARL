@@ -57,7 +57,19 @@ class MDPState:
         Observation of each agent, one array per step. Default empty.
     actions : Trajectory or dict
         Action of each agent and mechanism, as ``actions[agent][mechanism]``.
-        Default empty.
+        A mechanism overwrites its entry of the current step with the action it
+        decoded, so after a mechanism has been called this is the action
+        delivered, not the one received. Default empty.
+    raw_actions : Trajectory or dict or None
+        The actions as they were received, before any mechanism decoded them:
+        the policy output of a follower, the candidate of a leader. A mechanism
+        decodes its entry from here, never from ``actions``, so that the action
+        in force of a leader, which is carried forward from step to step, is
+        decoded from the raw value at every step and not from its own previous
+        output. Everything that writes ``actions`` through this class
+        (construction, :meth:`add`, :meth:`advance`, :meth:`update`) writes
+        ``raw_actions`` too. Default ``None``, which starts as a copy of
+        ``actions``.
     rewards : FlowTrajectory or dict
         Reward of each agent at each step. Default empty.
     state_space, action_spaces, obs_space : gymnasium.spaces.Dict or None
@@ -99,6 +111,7 @@ class MDPState:
     obs_space: Optional[spaces.Dict] = None
     terminateds: Optional[dict[AgentID, bool]] = None
     truncateds: Optional[dict[AgentID, bool]] = None
+    raw_actions: Trajectory[ActType] | dict | None = None
 
     def __post_init__(self) -> None:
         for name in ("state", "obs", "actions", "rewards"):
@@ -110,6 +123,11 @@ class MDPState:
                 cls = FlowTrajectory if name in ("rewards", "obs") else Trajectory
                 setattr(self, name, cls(value))
 
+        if self.raw_actions is None:
+            self.raw_actions = self.actions.copy()
+        elif isinstance(self.raw_actions, dict):
+            self.raw_actions = Trajectory(self.raw_actions)
+
     # Mechanisms may introduce dimensions, but absence means "no change".
     # Deletion is not supported.
     def add(self, ds: list["MDPState"]) -> MDPState:
@@ -117,7 +135,9 @@ class MDPState:
 
         The trajectories of the residuals are added to this state's at the
         current step ``t``: values are summed, and a field a residual does not
-        mention is left unchanged. ``params`` are merged, a later residual
+        mention is left unchanged. The raw actions are summed like the actions,
+        so a residual that changes an action changes what the mechanism of that
+        action receives. ``params`` are merged, a later residual
         overriding an earlier key, ``aids`` are united, the spaces are
         intersected, and the termination and truncation flags are combined with
         a logical or. The time ``t`` is kept.
@@ -146,6 +166,7 @@ class MDPState:
             params=params,
             state=self.state.add(self.t, [d.state for d in ds]),
             actions=self.actions.add(self.t, [d.actions for d in ds]),
+            raw_actions=self.raw_actions.add(self.t, [d.raw_actions for d in ds]),
             obs=self.obs.add(self.t, [d.obs for d in ds]),
             rewards=self.rewards.add(self.t, [d.rewards for d in ds]),
             state_space=intersect(self.state_space, [d.state_space for d in ds]),
@@ -166,8 +187,9 @@ class MDPState:
         """Return a copy one timestep later, with the given values appended.
 
         Each trajectory that is given receives one more step holding the
-        values; a trajectory left as ``None`` is not extended. This state is
-        not modified.
+        values; a trajectory left as ``None`` is not extended. The ``actions``
+        given are appended to ``raw_actions`` as well. This state is not
+        modified.
 
         Parameters
         ----------
@@ -188,6 +210,11 @@ class MDPState:
             obs=(self.obs.append(obs) if obs is not None else self.obs),
             actions=(
                 self.actions.append(actions) if actions is not None else self.actions
+            ),
+            raw_actions=(
+                self.raw_actions.append(actions)
+                if actions is not None
+                else self.raw_actions
             ),
             rewards=(
                 self.rewards.append(rewards) if rewards is not None else self.rewards
@@ -214,7 +241,9 @@ class MDPState:
             Timestep to write. Default ``None``, the current step ``self.t``.
         state, obs, actions, rewards : dict or None
             Values to write in the matching trajectory, which is overwritten at
-            that step. A trajectory left as ``None`` is not touched.
+            that step. A trajectory left as ``None`` is not touched. The
+            ``actions`` are written to ``raw_actions`` as well: they are the
+            actions as they arrive, and the mechanisms decode them.
 
         Returns
         -------
@@ -229,6 +258,7 @@ class MDPState:
             self.obs = self.obs.update(t, obs)
         if actions is not None:
             self.actions = self.actions.update(t, actions)
+            self.raw_actions = self.raw_actions.update(t, actions)
         if rewards is not None:
             self.rewards = self.rewards.update(t, rewards)
         return self
@@ -325,14 +355,17 @@ class Mechanism(ABC):
 
         The decoded action is written, in place, at step ``mdp.t`` of
         ``mdp.actions[aid][id]``, which must already exist and be long enough.
-        Then :meth:`apply` is called with it.
+        ``mdp.raw_actions`` is left alone, so the raw action that is carried
+        forward to the next step is still the raw one. Then :meth:`apply` is
+        called with the decoded action.
 
         Parameters
         ----------
         mdp : MDPState
             Shared state at the current step.
         action : ActType
-            Raw action of the regulator for this mechanism.
+            Raw action for this mechanism, as held by ``mdp.raw_actions`` at the
+            current step. :meth:`core.agents.base.Agent.action` passes it.
 
         Returns
         -------
@@ -346,10 +379,10 @@ class Mechanism(ABC):
     def decode(self, mdp: MDPState, action: ActType) -> ActType:
         """Map optimizer/policy coordinates to mechanism coordinates.
 
-        The decoded value is written back into the action trajectory and is
-        carried forward to the following steps, where it is decoded again, so
-        an override must give the same result when it receives its own output.
-        The default is the identity.
+        ``action`` is always the raw action, as it arrived: the decoded value
+        is written to ``mdp.actions`` for the rest of the step to read, but the
+        raw one is what is carried forward to the following steps, so an
+        override does not have to be idempotent. The default is the identity.
 
         Parameters
         ----------

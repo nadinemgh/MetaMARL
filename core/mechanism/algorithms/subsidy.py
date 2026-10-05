@@ -102,9 +102,9 @@ class SubsidyMechanism(Mechanism):
     def decode(self, mdp: MDPState, action: ActType) -> float:
         """Decode the regulator action into a normalised rate in [0, 1].
 
-        The scaling by ``MAX_SUBSIDY`` is left to :meth:`apply`: the decoded
-        action is written back into the trajectory and carried forward to the
-        next step, where it is decoded again, so this map must be idempotent.
+        The scaling by ``MAX_SUBSIDY`` is left to :meth:`apply`, where the
+        rate is used. The map receives the raw action at every step, and it is
+        idempotent as well: a rate already in ``[0, 1]`` is returned unchanged.
 
         Parameters
         ----------
