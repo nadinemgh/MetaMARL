@@ -99,7 +99,7 @@ class World:
         self._contexts: dict[ContextID, Context] = {}
 
         # Mechanism registry
-        self._mechanism_registry: dict[int, MechanismContext] = {}
+        self._mechanism_registry: dict[ContextID, MechanismContext] = {}
 
     def __deepcopy__(self, memo):
         return self
@@ -108,16 +108,15 @@ class World:
         return self
 
     # Accessors
-    def get_mechanism_registry(self) -> dict[int, MechanismContext]:
+    def get_mechanism_registry(self) -> dict[ContextID, MechanismContext]:
         """Return the mechanism registry.
 
         Returns
         -------
         dict[ContextID, MechanismContext]
             Mechanism payloads keyed by the ``ContextID`` of the context that
-            carried them. Despite the ``int`` annotation, keys are UUID
-            strings; the mechanism's batch position lives in
-            ``MechanismContext.index``.
+            carried them. The keys are UUID strings, not batch positions; the
+            position of a candidate lives in ``MechanismContext.index``.
         """
 
         return self._mechanism_registry
@@ -222,7 +221,7 @@ class World:
     # Use the contextID as mechanismID
     def get_mechanism_by_id(
         self, mechanism_id: int, seed: int, mode: MechanismStatus
-    ) -> MechanismContext:
+    ) -> Optional[MechanismContext]:
         """Fetch the mechanism for ``(mechanism_id, seed)`` and advance its status.
 
         Called by ``MultiAgentEnv.reset`` (``core.envs.marl_regulated``) at the
@@ -246,11 +245,16 @@ class World:
         Returns
         -------
         MechanismContext or None
-            The matching mechanism on the first successful fetch. On later
-            calls with the same arguments the entry is no longer in a
-            predecessor status, so ``None`` is returned; environments treat
-            that as "keep the mechanism you already have". The return
-            annotation does not mention ``None`` but it is a routine outcome.
+            The matching mechanism on the first successful fetch. ``None`` means
+            that the World has nothing new for this ``(mechanism_id, seed)``:
+            a training candidate is handed out once (``published -> train``;
+            ``train -> train`` is not a valid transition), so every later
+            training fetch returns ``None``, and so does a fetch that matches
+            no entry. This is the intended "nothing new" signal, not an
+            error: ``MultiAgentEnv.reset`` fetches at every episode, keeps the
+            last mechanism it received and only replaces it when a new one
+            arrives. An evaluation fetch (``train`` or ``eval`` entries) can
+            be repeated and keeps returning the entry.
 
         Raises
         ------

@@ -61,6 +61,13 @@ def test_generate_uuid_accepts_dict_keys_view():
     assert generate_uuid(registry.keys()) != "x"
 
 
+@pytest.mark.unit
+def test_generate_uuid_accepts_a_dict_itself():
+    """The ``World`` passes its context registry, a ``dict``, not a ``set``."""
+    taken = "00000000-0000-0000-0000-000000000000"
+    assert generate_uuid({taken: object()}) != taken
+
+
 # ---------------------------------------------------------------------------
 # to_float / finite / safe_ratio
 # ---------------------------------------------------------------------------

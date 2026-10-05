@@ -274,10 +274,10 @@ class Context:
         Unique identifier within the World. ``None`` until the context is
         registered; ``World.append_context`` always overwrites it with a new
         UUID string.
-    opt_id : OptimizerID
-        Identifier of the optimizer that owns the context. The annotation is
-        ``str``, but the World also accepts ``None``, in which case the context
-        is stored without an optimizer entry.
+    opt_id : OptimizerID or None
+        Identifier of the optimizer that owns the context. ``None`` means that
+        no optimizer owns it: the World then stores the context without an
+        optimizer entry.
     step : int
         Step counter of the producing environment, dimensionless; ``0`` marks
         the first transition of an episode.
@@ -299,7 +299,7 @@ class Context:
     """
 
     id: ContextID | None
-    opt_id: OptimizerID
+    opt_id: Optional[OptimizerID]
     step: int
     env: str
     payload: ContextSchema

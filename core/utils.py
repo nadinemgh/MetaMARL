@@ -14,8 +14,8 @@ mechanisms contribute to one ``MDPState``.
 
 import re
 import uuid
-from collections.abc import Mapping
-from typing import AbstractSet, Any, Optional
+from collections.abc import Container, Mapping
+from typing import Any, Optional
 
 import numpy as np
 from gymnasium import spaces
@@ -27,7 +27,7 @@ from gymnasium import spaces
 EPS = 1e-8
 
 
-def generate_uuid(registry: AbstractSet[Any]) -> str:
+def generate_uuid(registry: Container[Any]) -> str:
     """Generate a UUID4 string that is not already present in ``registry``.
 
     Draws ``uuid.uuid4()`` values until one is absent from ``registry``, so
@@ -35,9 +35,9 @@ def generate_uuid(registry: AbstractSet[Any]) -> str:
 
     Parameters
     ----------
-    registry : AbstractSet[Any]
-        Existing identifiers to avoid (any container supporting ``in``, such
-        as a set, the keys of a dict or the dict itself).
+    registry : Container[Any]
+        Existing identifiers to avoid: anything that supports ``in``, such as
+        a set, the keys of a dict or the dict itself.
 
     Returns
     -------
@@ -258,8 +258,6 @@ def flatten_numeric(value: Any) -> list[float]:
     >>> flatten_numeric([[1, 2], [3, 4]])
     [1.0, 2.0, 3.0, 4.0]
     """
-
-    import numpy as np
 
     arr = np.asarray(value)
 
