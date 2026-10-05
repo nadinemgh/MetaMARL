@@ -1,4 +1,4 @@
-"""Wait for APPO's background learner thread before its weights are read.
+"""Wait for, and stop, APPO's background learner thread.
 
 APPO (like IMPALA) does not update the policy inside ``Algorithm.train``: the
 learner's ``update`` only appends the batch to a ``CircularBuffer``, and a
@@ -23,6 +23,12 @@ The function relies on private RLlib attributes (``_learner_thread``,
 ``_learner_thread_in_queue``). When they are missing it raises instead of
 skipping the wait, so that an RLlib upgrade cannot silently bring the race
 back.
+
+:func:`stop_learner_thread` ends the thread of a learner that is no longer
+needed. ``Algorithm.stop`` does not do it: RLlib never sets the thread's
+``stopped`` flag, and with a learner running in the calling process (no
+learner actor to kill) the daemon thread would keep polling its empty buffer
+every 0.1 ms for the rest of the run.
 """
 
 from __future__ import annotations
@@ -64,6 +70,39 @@ class _ObservedCircularBuffer(CircularBuffer):
         if size == 0 and threading.current_thread() is self._drain_consumer:
             self._drain_idle.set()
         return size
+
+
+class _StopBatch:
+    """Batch that wakes a blocked learner thread so it can see ``stopped``.
+
+    The thread only checks its ``stopped`` flag after it has taken a batch
+    from its buffer; the buffer asks queued batches for ``env_steps`` when it
+    drops them.
+    """
+
+    def env_steps(self) -> int:
+        return 0
+
+
+def _learner_thread_and_buffer(
+    learner: IMPALALearner,
+) -> tuple[threading.Thread, object]:
+    """Return the learner thread of an IMPALA/APPO learner and its input buffer.
+
+    Raises
+    ------
+    RuntimeError
+        If the private RLlib attributes holding them are missing.
+    """
+
+    try:
+        return learner._learner_thread, learner._learner_thread_in_queue
+    except AttributeError as err:
+        raise RuntimeError(
+            "RLlib's IMPALA/APPO learner no longer exposes the learner thread "
+            + "or its input buffer under the expected private names; update "
+            + f"{__name__} for this RLlib version."
+        ) from err
 
 
 def wait_for_learner_thread(
@@ -128,15 +167,7 @@ def wait_for_learner_thread(
             + "reach it through GPU loader threads (num_gpus_per_learner > 0)."
         )
 
-    try:
-        thread = learner._learner_thread
-        buffer = learner._learner_thread_in_queue
-    except AttributeError as err:
-        raise RuntimeError(
-            "RLlib's IMPALA/APPO learner no longer exposes the learner thread "
-            + "or its input buffer under the expected private names; update "
-            + f"{__name__} for this RLlib version."
-        ) from err
+    thread, buffer = _learner_thread_and_buffer(learner)
 
     wait_for_consumer(thread, buffer, timeout_s)
 
@@ -217,3 +248,107 @@ def wait_for_consumer(
             )
 
     logger.debug("Learner thread drained in %.3f s.", time.monotonic() - start)
+
+
+def stop_learner_thread(
+    learner: Learner, timeout_s: float = LEARNER_DRAIN_TIMEOUT_S
+) -> None:
+    """Stop the learner's background thread, so it stops polling its buffer.
+
+    Learners that update synchronously (every learner outside the IMPALA
+    family, PPO included) have no thread and return immediately. Pending
+    batches are discarded: call it only on a learner that will not be used
+    again.
+
+    Parameters
+    ----------
+    learner : ray.rllib.core.learner.learner.Learner
+        The learner whose thread must end, typically reached through
+        ``LearnerGroup.foreach_learner``.
+    timeout_s : float, optional
+        Maximum wait in seconds for the thread to finish its current update
+        and exit (default :data:`LEARNER_DRAIN_TIMEOUT_S`).
+
+    Raises
+    ------
+    RuntimeError
+        If the private RLlib attributes this function relies on are missing.
+    TimeoutError
+        If the thread is still alive after ``timeout_s``.
+
+    When to use: before ``Algorithm.stop`` on an APPO algorithm whose learner
+    runs in the current process (``num_learners=0``), as ``PolicyActor`` does
+    when it stops or replaces its algorithm. A learner actor is killed by
+    ``Algorithm.stop`` anyway, and its thread with it.
+
+    Examples
+    --------
+    Learners outside the IMPALA family have no thread, so the call returns at
+    once:
+
+    >>> from types import SimpleNamespace
+    >>> stop_learner_thread(SimpleNamespace())
+
+    On a built APPO algorithm the function runs on each learner:
+
+    >>> algo.learner_group.foreach_learner(stop_learner_thread)  # doctest: +SKIP
+    """
+
+    if not isinstance(learner, IMPALALearner):
+        return
+
+    thread, buffer = _learner_thread_and_buffer(learner)
+
+    stop_consumer(thread, buffer, timeout_s)
+
+
+def stop_consumer(thread: threading.Thread, buffer: object, timeout_s: float) -> None:
+    """Make ``thread`` leave its loop and wait for it to exit.
+
+    The ``stopped`` flag is set first, then one :class:`_StopBatch` is added
+    to ``buffer`` so that a thread blocked on an empty buffer takes it and
+    sees the flag; a thread busy with an update sees the flag after that
+    update.
+
+    Parameters
+    ----------
+    thread : threading.Thread
+        The learner thread that consumes ``buffer``.
+    buffer : object
+        The thread's input queue: a ``CircularBuffer`` (APPO) or a ``deque``
+        (IMPALA).
+    timeout_s : float
+        Maximum wait in seconds for the thread to exit.
+
+    Raises
+    ------
+    TimeoutError
+        If ``thread`` is still alive after ``timeout_s``.
+
+    When to use: when you hold the learner thread and its buffer directly, as
+    in a test; ``stop_learner_thread`` finds both on a real learner.
+
+    Examples
+    --------
+    >>> import threading
+    >>> buffer = CircularBuffer(num_batches=2, iterations_per_batch=1)
+    >>> consumer = threading.Thread(target=buffer.sample, daemon=True)
+    >>> consumer.start()
+    >>> stop_consumer(consumer, buffer, timeout_s=10.0)
+    >>> consumer.is_alive()
+    False
+    """
+
+    # A real learner thread reads this flag after every batch it takes; a bare
+    # thread (as in the example) simply returns once the batch is taken.
+    thread.stopped = True
+
+    if isinstance(buffer, CircularBuffer):
+        buffer.add(_StopBatch())
+    else:
+        buffer.append(_StopBatch())
+
+    thread.join(timeout=timeout_s)
+
+    if thread.is_alive():
+        raise TimeoutError(f"The learner thread did not stop within {timeout_s:.0f} s.")

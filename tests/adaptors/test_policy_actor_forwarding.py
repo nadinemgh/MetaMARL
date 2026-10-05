@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from core.adaptors.ray.learner_drain import wait_for_learner_thread
+from core.adaptors.ray.learner_drain import stop_learner_thread, wait_for_learner_thread
 from core.adaptors.ray.policy_actor import PolicyActor
 from core.adaptors.ray.utils import hash_weights
 
@@ -149,11 +149,14 @@ def test_compute_actions_falls_back_to_the_policy_api_without_exploration(failin
 
 
 @pytest.mark.unit
-def test_reset_replaces_the_algorithm_and_restores_the_initial_weights(caplog):
+def test_reset_stops_the_previous_algorithm_then_replaces_it(caplog):
     first, second = MagicMock(name="first"), MagicMock(name="second")
     first.get_weights.return_value = INIT_WEIGHTS
     second.get_weights.return_value = INIT_WEIGHTS
     actor, algo_config, _ = make_actor(first, second)
+    order = MagicMock()
+    order.attach_mock(first.stop, "stop_first")
+    order.attach_mock(algo_config.build_algo, "build_algo")
 
     with caplog.at_level("INFO", logger="core.adaptors.ray.policy_actor"):
         actor.reset()
@@ -163,12 +166,65 @@ def test_reset_replaces_the_algorithm_and_restores_the_initial_weights(caplog):
     second.set_weights.assert_called_once_with(INIT_WEIGHTS)
     first.set_weights.assert_not_called()
     assert f"Initial policy weight hash: {hash_weights(INIT_WEIGHTS)}" in caplog.text
+    # The previous algorithm releases its workers before the new one asks for
+    # the same resources.
+    assert [call[0] for call in order.mock_calls] == ["stop_first", "build_algo"]
+    first.stop.assert_called_once_with()
+    second.stop.assert_not_called()
 
 
 @pytest.mark.unit
-def test_stop_stops_the_current_algorithm():
+def test_reset_ends_the_learner_threads_of_the_previous_algorithm():
+    first, second = MagicMock(name="first"), MagicMock(name="second")
+    first.get_weights.return_value = INIT_WEIGHTS
+    second.get_weights.return_value = INIT_WEIGHTS
+    actor, _, _ = make_actor(first, second)
+
+    actor.reset()
+
+    first.learner_group.foreach_learner.assert_called_once_with(stop_learner_thread)
+    second.learner_group.foreach_learner.assert_not_called()
+
+
+@pytest.mark.unit
+def test_stop_ends_the_learner_threads_then_stops_the_algorithm():
     actor, _, (algo,) = make_actor()
+    order = MagicMock()
+    algo.learner_group.foreach_learner.return_value = [SimpleNamespace(ok=True)]
+    order.attach_mock(algo.learner_group.foreach_learner, "foreach_learner")
+    order.attach_mock(algo.stop, "stop")
 
     actor.stop()
 
+    assert [call[0] for call in order.mock_calls] == ["foreach_learner", "stop"]
+    algo.learner_group.foreach_learner.assert_called_once_with(stop_learner_thread)
     algo.stop.assert_called_once_with()
+
+
+@pytest.mark.unit
+def test_stop_still_stops_the_algorithm_when_a_learner_thread_cannot_be_ended():
+    actor, _, (algo,) = make_actor()
+    failed = MagicMock(ok=False)
+    failed.get.side_effect = TimeoutError("learner thread did not stop")
+    algo.learner_group.foreach_learner.return_value = [failed]
+
+    with pytest.raises(TimeoutError, match="did not stop"):
+        actor.stop()
+
+    algo.stop.assert_called_once_with()
+
+
+@pytest.mark.unit
+def test_reset_builds_no_new_algorithm_when_the_previous_one_cannot_be_ended():
+    first, second = MagicMock(name="first"), MagicMock(name="second")
+    first.get_weights.return_value = INIT_WEIGHTS
+    failed = MagicMock(ok=False)
+    failed.get.side_effect = TimeoutError("learner thread did not stop")
+    first.learner_group.foreach_learner.return_value = [failed]
+    actor, algo_config, _ = make_actor(first, second)
+
+    with pytest.raises(TimeoutError):
+        actor.reset()
+
+    first.stop.assert_called_once_with()
+    assert algo_config.build_algo.call_count == 1

@@ -17,7 +17,7 @@ from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.rllib.utils.typing import ResultDict
 
-from core.adaptors.ray.learner_drain import wait_for_learner_thread
+from core.adaptors.ray.learner_drain import stop_learner_thread, wait_for_learner_thread
 from core.adaptors.ray.utils import hash_weights
 
 logger = logging.getLogger(__name__)
@@ -165,17 +165,22 @@ class PolicyActor:
     def reset(self) -> None:
         """Rebuild the ``Algorithm`` and restore the initial weights.
 
-        A brand-new ``Algorithm`` is built from the stored config, then the
-        weights captured at actor construction are loaded into it, so every
-        outer iteration starts the inner policy from the same parameters. The
-        hash of the restored weights is logged for cross-run comparison.
+        The previous ``Algorithm`` is stopped first (its learner thread, env
+        runners and evaluation env runners are released), then a brand-new one
+        is built from the stored config and the weights captured at actor
+        construction are loaded into it, so every outer iteration starts the
+        inner policy from the same parameters. The hash of the restored
+        weights is logged for cross-run comparison.
 
-        Notes
-        -----
-        The previous ``Algorithm`` is replaced without calling ``stop()`` on
-        it, so its env runners and learner threads are left to garbage
-        collection.
+        Raises
+        ------
+        Exception
+            Whatever ``stop_learner_thread`` raised on a learner of the
+            previous algorithm (for example ``TimeoutError``); the algorithm
+            is stopped all the same and no new one is built.
         """
+
+        self.stop()
 
         self.algo = self.algo_config.build_algo()
 
@@ -186,6 +191,23 @@ class PolicyActor:
         logger.info("[PPO] Initial policy weight hash: %s", hash_weights(weights))
 
     def stop(self) -> None:
-        """Stop the owned ``Algorithm`` and release its workers."""
+        """Stop the owned ``Algorithm`` and release its workers.
 
-        self.algo.stop()
+        The learner threads are ended first: ``Algorithm.stop`` leaves the
+        thread of a learner running in this process polling its empty buffer
+        (see ``stop_learner_thread``). The algorithm is stopped even when
+        ending a thread fails, and that failure is then re-raised.
+
+        Raises
+        ------
+        Exception
+            Whatever ``stop_learner_thread`` raised on a learner (for example
+            ``TimeoutError``), re-raised after the algorithm has been stopped.
+        """
+
+        try:
+            for result in self.algo.learner_group.foreach_learner(stop_learner_thread):
+                if not result.ok:
+                    raise result.get()
+        finally:
+            self.algo.stop()

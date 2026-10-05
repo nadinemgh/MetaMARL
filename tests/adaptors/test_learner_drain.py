@@ -1,5 +1,7 @@
 """``wait_for_learner_thread``: evaluation waits for APPO's background updates.
 
+``stop_learner_thread`` ends the same thread when its learner is retired.
+
 The tests drive RLlib's real ``_LearnerThread`` and ``CircularBuffer``; only
 the gradient step is replaced by a slow stand-in, so that the race between
 ``Algorithm.train`` returning and the last update finishing is wide enough to
@@ -18,7 +20,12 @@ from ray.rllib.algorithms.impala.impala_learner import _LearnerThread
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
 from core.adaptors.ray import learner_drain
-from core.adaptors.ray.learner_drain import wait_for_consumer, wait_for_learner_thread
+from core.adaptors.ray.learner_drain import (
+    stop_consumer,
+    stop_learner_thread,
+    wait_for_consumer,
+    wait_for_learner_thread,
+)
 
 #: Duration of one stand-in update, in seconds: long enough that a caller
 #: returning without waiting would observe it unfinished.
@@ -145,3 +152,78 @@ def test_missing_private_attributes_fail_loudly():
 def test_gpu_loader_path_is_rejected():
     with pytest.raises(NotImplementedError, match="GPU"):
         wait_for_learner_thread(bare_appo_learner(num_gpus_per_learner=1))
+
+
+# --- stopping the learner thread ------------------------------------------- #
+
+
+@pytest.mark.unit
+def test_stop_ends_an_idle_learner_thread(learner_thread):
+    # An idle thread spins on the empty buffer: without the stop it never exits.
+    time.sleep(0.05)
+    assert learner_thread.thread.is_alive()
+
+    stop_consumer(learner_thread.thread, learner_thread.buffer, timeout_s=10)
+
+    assert not learner_thread.thread.is_alive()
+    assert learner_thread.applied == []
+
+
+@pytest.mark.unit
+def test_stop_ends_a_learner_thread_that_is_applying_an_update(learner_thread):
+    learner_thread.buffer.add(Batch())
+    time.sleep(0.05)
+
+    stop_consumer(learner_thread.thread, learner_thread.buffer, timeout_s=10)
+
+    assert not learner_thread.thread.is_alive()
+    # The update that was running completed, and nothing ran after the stop.
+    assert len(learner_thread.applied) == 1
+
+
+@pytest.mark.unit
+def test_stop_ends_a_learner_thread_fed_by_an_impala_deque():
+    buffer = deque(maxlen=4)
+    learner = SimpleNamespace(
+        metrics=MetricsLogger(), _num_updates=0, _num_updates_lock=threading.Lock()
+    )
+    thread = _LearnerThread(
+        update_method=lambda **kwargs: None, in_queue=buffer, learner=learner
+    )
+    thread.start()
+
+    stop_consumer(thread, buffer, timeout_s=10)
+
+    assert not thread.is_alive()
+
+
+@pytest.mark.unit
+def test_stop_times_out_on_a_stuck_update(learner_thread):
+    learner_thread.release.clear()
+    learner_thread.buffer.add(Batch())
+    time.sleep(0.05)
+
+    with pytest.raises(TimeoutError, match="did not stop"):
+        stop_consumer(learner_thread.thread, learner_thread.buffer, timeout_s=0.2)
+
+
+@pytest.mark.unit
+def test_stop_of_a_synchronous_learner_does_nothing():
+    stop_learner_thread(SimpleNamespace())
+
+
+@pytest.mark.unit
+def test_stop_fails_loudly_on_missing_private_attributes():
+    with pytest.raises(RuntimeError, match="private names"):
+        stop_learner_thread(bare_appo_learner(num_gpus_per_learner=0))
+
+
+@pytest.mark.unit
+def test_an_observed_buffer_can_still_be_stopped(learner_thread):
+    # ``PolicyActor.evaluate`` switches the buffer class in place; the stop at
+    # reset time must work on a buffer that went through that.
+    wait_for_consumer(learner_thread.thread, learner_thread.buffer, timeout_s=10)
+
+    stop_consumer(learner_thread.thread, learner_thread.buffer, timeout_s=10)
+
+    assert not learner_thread.thread.is_alive()

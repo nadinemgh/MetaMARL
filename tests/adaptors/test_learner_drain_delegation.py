@@ -19,6 +19,7 @@ from ray.rllib.algorithms.appo.torch.appo_torch_learner import APPOTorchLearner
 from core.adaptors.ray import learner_drain
 from core.adaptors.ray.learner_drain import (
     LEARNER_DRAIN_TIMEOUT_S,
+    stop_learner_thread,
     wait_for_learner_thread,
 )
 
@@ -67,3 +68,18 @@ def test_a_non_impala_learner_never_reaches_the_wait(recorded_waits):
     wait_for_learner_thread(SimpleNamespace(config=SimpleNamespace()))
 
     assert recorded_waits == []
+
+
+@pytest.mark.unit
+def test_an_appo_learner_hands_its_thread_and_buffer_to_the_stop(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        learner_drain, "stop_consumer", lambda *args: calls.append(args)
+    )
+    thread = threading.current_thread()
+    buffer = object()
+
+    stop_learner_thread(appo_learner_with_thread(thread, buffer), timeout_s=3.0)
+    stop_learner_thread(appo_learner_with_thread(thread, buffer))
+
+    assert calls == [(thread, buffer, 3.0), (thread, buffer, LEARNER_DRAIN_TIMEOUT_S)]
