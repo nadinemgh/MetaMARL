@@ -126,9 +126,9 @@ against the tree, execute every notebook, then audit everything by measurement.
   - [x] measured after `5ec6b4d` with the default command (`WANDB_MODE=offline uv run python -m pytest`): 1893 passed, 1 skipped doctest, no failure, 207 s; `core/` at 99 % (5 of 3656 statements missed, all defensive guards that predate this phase); `ruff check --no-fix .` and `ruff format --check .` pass on the whole tree (188 files).
 - [ ] Phase 6 — validation audit by measurement, then push.
   - [x] slot doubt re-measured on 10-05 on `4c0929f` (scripts and logs in the session scratchpad, not kept). The doubt holds, with a different cause than the one noted on 10-04. While the quota does not bind, the fitness of a slot depends only on its index: in the shrunk configuration (`--outer-iters 4 --train-iters 2 --num-agents 2 --horizon 20`) generations 0, 2 and 3 give the same four values `[2.597966, 2.599000, 2.597888, 2.606036]` for candidates between 0.36 and 0.57, and in the full configuration (defaults, 4 generations, 4 min 03 s) slot 0 gives 2.522731 for 0.505, 0.496 and 0.500. The quota starts to bind near 0.56, where the minimum stock of the full run lies (0.56 to 0.58 of capacity); above it the signal is real, since the mean climbed to 0.72 and the fitness from 2.52–2.56 to 2.60–2.61. The slot spread at a non-binding candidate is about 0.036 in the full configuration, the same order as the mechanism effect, and the ES standardises fitness before the update, so the spread drives full-size steps. The four training environments share the seed and the RNG state, so the environment is not the source. Two sources are: the pi and vf output layers, which APPO under RLlib 2.53 builds without the seeded initializer (`PPOCatalog` ignores `head_fcnet_*_initializer`), so each slot draws different head weights from torch's global stream, contradicting the docstring of `_seeded_xavier_uniform`; and the exploration draws during training, which differ per slot. With equal weights and `lr=0` the four fitness values are exactly equal (2.602504); with equal weights and learning the full-configuration spread falls only from 0.036 to 0.029, so the exploration draws dominate. Both sources replay identically every generation, so they never average out;
-  - [ ] seeded initialisation of the output layers, test-first (decided 10-05);
-  - [ ] common random numbers for the exploration draws across slots, test-first (decided 10-05);
-  - [ ] re-measure both configurations after the two changes and record the result in `docs/MERGE_NOTES.md`;
+  - [x] seeded output layers and common random numbers for the exploration draws, test-first, in one commit because both live in `core/adaptors/ray/common_random.py` (`4602e42`). The work found two more defects, fixed in the same commit: the seeded initializer kept its layer counter across builds, so a rebuilt or pickled module did not reproduce its first build, and an unseeded run (`_sNone`) crashed the key piece. An integration test (`tests/integration/test_slot_common_random_numbers.py`) pins that the four slots return identical fitness at a negligible ES spread; it fails on `140c962` with the values of the morning measurement;
+  - [x] keyed draws made faster, measured inside the env runner of the full configuration with and without keys: the first version doubled the full four-generation run (8 min 16 s), because every small torch call in the runner goes through a device-mode override and the version rebuilt the distribution row by row under `torch.manual_seed`. The current version draws one keyed standard-normal vector per row for diagonal-Gaussian actions and derives each key once per (seed, agent); it reproduces the first version's draws bit for bit (full four-generation run: 4 min 32 s and 4 min 11 s, against 4 min 22 s for `140c962` on the same machine the same evening, within the run-to-run spread; the first version of `140c962`'s baseline was invalid because Python loaded the main directory's code ahead of the worktree, so the baseline was rerun from inside the worktree);
+  - [x] both configurations re-measured and recorded in `docs/MERGE_NOTES.md` ("The slots of one policy seed share their randomness"). The full configuration of 10-05 is `--outer-iters 4` on the defaults: the script's default is 1000 generations, and one run launched without the flag was stopped at generation 59 after two hours;
 
 ## Baseline measured on `96294f6` (2026-10-04)
 
@@ -265,7 +265,7 @@ is rewritten in phase 4.)
 
 ## Waiting on
 
-Nothing until the push. The two slot decisions of 10-05 are being implemented.
+Nothing until the push.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -368,10 +368,9 @@ IMPALA's deque queue, which it does not cover.
 ## Next step
 
 Phase 5 is closed. Phase 6 audits by measurement:
-- the slot doubt is re-measured (see the status board); implement the seeded output
-  layers, then the common exploration stream, each test-first, re-measure both
-  configurations and record the result in `docs/MERGE_NOTES.md`;
-- time a fresh-water run at full size;
+- done: the slot doubt, its two fixes and their measurement (see the status board);
+- time a fresh-water run at full size, with an explicit small `--outer-iters`, since the
+  example scripts default to long runs;
 - just before the push, rewrite the six commit trailers that name Sonnet 5.5 and update
   every cited hash;
 - after the rewrite, remap every hash quoted in `docs/MERGE_NOTES.md`, whose preface promises

@@ -135,6 +135,49 @@ it. Social influence sorted the peers by their identifier as a string, which put
 decides, and identifiers without one follow in string order (`14557d7`). The
 single-regulator fishery with fewer than eleven fishers is unchanged by all three.
 
+**The slots of one policy seed share their randomness.** On 4 October the four
+fitness values of a shrunk-fishery generation repeated from one generation to the
+next although the candidates differed. The measurement of 5 October found the
+cause: while the quota does not bind, the fitness of a population slot depended
+only on its index. Two sources of randomness differed between the slots of one
+seed. RLlib's `PPOCatalog` builds the pi and vf output layers without the
+configured initializer, so each slot drew other head weights from torch's global
+stream; and the exploration draws of every slot came from that same stream,
+consumed module after module. Both replay identically every generation, so they
+never average out, and the ES, which standardises fitness before its update, took
+full-size steps on them. In the full configuration the spread between slots at a
+non-binding candidate was about 0.036, the order of the mechanism's own effect.
+The heads are now seeded from a stream of their own, a rebuilt or pickled module
+reproduces its first build, and the exploration draws are keyed by policy seed,
+env runner, step and agent, never by slot (`4602e42`, `core/adaptors/ray/common_random.py`),
+which is the method of common random numbers (Glasserman & Yao, 1992,
+https://doi.org/10.1287/mnsc.38.6.884). The encoder weights are unchanged.
+
+The effect was measured on the same two configurations as before the change. With
+the ES spread forced to 1e-4, the four slots of the shrunk fishery return the
+same fitness to the last bit, 2.619158, where they returned 2.5980, 2.5990,
+2.5979 and 2.6060; an integration test now pins this. At the default spread of
+0.15, the shrunk fishery returns that same value for all four slots in all four
+generations, for candidates between 0.43 and 0.57: the quota does not bind there,
+the landscape is flat, and the mean stays at 0.5 instead of following slot noise.
+In the full configuration (defaults with `--outer-iters 4`), generation 0 gives
+2.543369 for the three candidates at 0.505, 0.438 and 0.495 and 2.543432 for the
+one at 0.562, where the quota starts to bind; before the change the same four
+candidates returned 2.5227, 2.5484, 2.5424 and 2.5587. The mean then climbs to
+0.62, 0.73 and 0.82, where it reached 0.72 after four generations before. A longer run, stopped at
+generation 59, oscillated between 0.71 and 0.84 with the fitness near 2.61 to
+2.62; that is an observation, not yet a result.
+
+Keyed draws cost time in the env runner, where every small torch call goes through
+a device-mode override. A first version, which rebuilt the distribution row by row
+under `torch.manual_seed`, doubled the full run (8 min 16 s). The current version
+builds the distribution once per batch and draws one keyed standard-normal vector
+per row for diagonal-Gaussian actions, the case of all three examples; other
+distributions keep the row-by-row path. It reproduces the first version's draws
+bit for bit. The full four-generation run took 4 min 32 s and, in a second run,
+4 min 11 s, against 4 min 22 s for the code before the change measured on the same
+machine the same evening, so the remaining cost is within the run-to-run spread.
+
 **Averaged curves keep their order.** A `MEAN` reduction over a `SERIES` level
 iterated a set, whose order depends on `PYTHONHASHSEED`, so the order of the
 averaged curves, and with it their colours and their place in the legend, could
@@ -254,14 +297,6 @@ The Raven path of the fresh-water example is tested only against a stand-in
 executable, since the Raven model is not in the repository, and a run with the 500
 farms of the default configuration did not finish within ten minutes. Both need
 your model.
-
-On 4 October, in the shrunk fishery configuration, the four fitness values of a
-generation were bit-identical to those of the previous one although the candidates
-differed. Each population slot trains its own policy module with its own initial
-weights, so the ES gradient may follow the differences between slot initialisations
-rather than the mechanism. The measurement predates the new dynamics and the tail
-window; it is repeated on the shrunk and full configurations before the push, and
-its result will be added here.
 
 The plans at the top of `TODO.md` were reconciled with the branch box by box: each
 box now ends with a marker that names the commit doing it, partly doing it or making
