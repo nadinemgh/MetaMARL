@@ -432,12 +432,14 @@ class World:
     def update_context(self, ctx: Context) -> None:
         """Replace a registered context by an updated one.
 
-        The stored context under ``ctx.id`` is replaced by ``ctx`` and, when the
-        payload is a ``MechanismContext``, the mechanism registry entry is
-        replaced too. A payload of another type does not remove an earlier
-        mechanism entry. The context is replaced before the ``env_id`` check, so
-        a call that raises for a missing ``env_id`` leaves the new context
-        stored while the mechanism registry keeps the previous payload.
+        The stored context under ``ctx.id`` is replaced by ``ctx`` and the
+        mechanism registry follows the new payload: a ``MechanismContext``
+        payload replaces the registry entry, any other payload removes an
+        earlier entry, so the registry only holds the mechanism payloads of
+        contexts that are registered. The checks run before anything is
+        stored, so a call that raises leaves the World unchanged. The
+        optimizer map is not updated: ``ctx.opt_id`` is expected to be the one
+        the context was registered with.
 
         Parameters
         ----------
@@ -455,13 +457,15 @@ class World:
         if ctx.id not in self._contexts:
             raise KeyError(f"Context {ctx.id} not registered")
 
-        self._contexts[ctx.id] = ctx
-
         if isinstance(ctx.payload, MechanismContext):
             if ctx.payload.env_id is None:
                 raise ValueError("MechanismContext must include env_id")
 
             self._mechanism_registry[ctx.id] = ctx.payload
+        else:
+            self._mechanism_registry.pop(ctx.id, None)
+
+        self._contexts[ctx.id] = ctx
 
     def flush(self, status: Optional[MechanismStatus] = None) -> None:
         """Drop mechanisms from the mechanism registry.

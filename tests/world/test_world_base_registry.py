@@ -6,8 +6,7 @@ optimizer-to-contexts map. The tests exercise the public accessors and mutators
 of the plain class behind the Ray actor, including the error paths (singleton
 violation, duplicate IDs, missing ``env_id``, unknown context on update).
 
-One test is an expected failure (``xfail``) that records a defect: a rejected
-update leaves the registries out of sync.
+A rejected update must leave every registry as it was.
 """
 
 from __future__ import annotations
@@ -195,6 +194,8 @@ def test_update_context_replaces_the_payload(
     world.update_context(plain)
 
     assert world.get_context(cid) is plain
+    # A payload that is no longer a mechanism leaves the mechanism registry.
+    assert cid not in world.get_mechanism_registry()
 
 
 @pytest.mark.unit
@@ -214,11 +215,6 @@ def test_update_context_rejects_a_mechanism_without_env_id(
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason="update_context replaces the stored context before it rejects a "
-    + "MechanismContext without env_id, leaving the registries out of sync",
-)
 def test_update_context_keeps_the_old_context_when_it_raises(
     world, make_context, make_mechanism
 ):
