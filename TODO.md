@@ -2914,7 +2914,7 @@ agents' observations is an open design question for the mechanism port.
 - `module level` (line 45): perhaps we would first want an adaptor for core ray algorithm and then the PPO inherits it
 - `RayOptimizer.__init__` (line 84): maybe this either needs to be an actor. or atleast have method to serialize data
 - `RayOptimizer.__init__` (line 88): fallback if rollout_fragment_length not in eval_cfg
-- `RayOptimizer._build_agent_policy_map` (line 134): move to utils
+- `RayOptimizer._build_agent_policy_map` (line 134): move to utils — resolved in `82aaac2`: the helper was never called and is deleted.
 - `RayOptimizer._to_logger_payload` (line 176): (nadine) : in the future this could be separated into a different class if justified
 - `RayOptimizer.train` (line 229): temporary to be moved to a logger Extract metrics
 - `RayOptimizer.evaluate` (line 258): (nadine) future support for async eval, otherwise must publish eval mechanism obj
@@ -2981,7 +2981,7 @@ agents' observations is an open design question for the mechanism port.
 - `MultiAgentEnv.__init__` (line 109): (nadine) later replace with planner_id
 - `MultiAgentEnv.__init__` (line 130): change name to just Status
 - `MultiAgentEnv.__init__` (line 132): (nadine) later replace with planner id
-- `MultiAgentEnv.reset` (line 231): raising error if training started and default mechanism is still on - leads to silent error
+- `MultiAgentEnv.reset` (line 231): raising error if training started and default mechanism is still on - leads to silent error — partly addressed in `472feb1`: leaders now play their mechanism defaults until a candidate is fetched, and each default is logged at INFO; no error is raised, which stays open.
 
 ## `core/envs/regulator.py`
 
@@ -3004,8 +3004,8 @@ agents' observations is an open design question for the mechanism port.
 
 ## `core/mechanism/algorithms/subsidy.py`
 
-- `Subsidy.__post_init__` (line 19): (no text after the TODO token, on the line `assert 0.0 <= self.cost <= 1.0`)
-- `Subsidy.reward` (line 32): fix this, passing action after and before
+- `Subsidy.__post_init__` (line 19): (no text after the TODO token, on the line `assert 0.0 <= self.cost <= 1.0`) — resolved in `d317b9f`: `SubsidyMechanism` raises a `ValueError` for a cost outside `[0, 1]`.
+- `Subsidy.reward` (line 32): fix this, passing action after and before — resolved in `d317b9f`: the reward channel is gone; `SubsidyMechanism.apply` reads the decoded effort of the step and returns a reward residual.
 
 ## `core/mechanism/base.py`
 
@@ -3085,7 +3085,7 @@ agents' observations is an open design question for the mechanism port.
 
 - `ESOptimizer.__init__` (line 89): (nadine) we support only one planning agent in the config. to extend in future
 - `ESOptimizer.__init__` (line 103): (nadine) built-in normalization not supported yet
-- `ESOptimizer._has_converged` (line 666): (nadine) implement early stopping criteria
+- `ESOptimizer._has_converged` (line 666): (nadine) implement early stopping criteria — resolved in `54a70a1` and `f25f223`: a convergence stop on the displacement of the search mean is implemented as a flagged heuristic and is off unless `convergence_eps` is set.
 - `ESOptimizer.train` (line 692): either move this t reset or mutation requires this is always true
 
 ## `core/reporting/base.py`
@@ -3160,7 +3160,7 @@ agents' observations is an open design question for the mechanism port.
 - `Fisherman.observation` (line 64): (nadine) replace usage with inidividual harvest observation
 - `FisheryRegulatedEnv.reset_fishery` (line 141): (nadine) reset should not take mdp and init params should not be stateful
 - `FisheryRegulatedEnv.reset_fishery` (line 148): (nadine) change to scipy truncnorm rather than clip to avoid flat signal
-- `FisheryRegulatedEnv.pella_tomlinson` (line 180): remove clipping (inside commented-out code: the trailing note of the commented-out `fish_next = float(np.clip(fish_next, 0.0, self.K))` line)
+- `FisheryRegulatedEnv.pella_tomlinson` (line 180): remove clipping (inside commented-out code: the trailing note of the commented-out `fish_next = float(np.clip(fish_next, 0.0, self.K))` line) — resolved in `53e5ddd`: the new transition has no upper bound at `K` and keeps only the lower bound at 0.
 - `FisheryRegulatedEnv.pella_tomlinson` (line 196): (nadine) add observation
 
 ## `examples/bilevel_fishery/regulator_env.py`
