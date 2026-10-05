@@ -77,6 +77,16 @@ class TestESConfig:
 
         assert ESConfig(opt_class=Other).opt_class is Other
 
+    def test_an_unknown_constructor_argument_is_rejected(self):
+        with pytest.raises(TypeError, match="sigma"):
+            ESConfig(sigma=0.3)
+
+    def test_a_misspelled_training_argument_is_rejected(self):
+        # ``mean_lr`` misspelled: the run would otherwise keep the default
+        # step size without a word.
+        with pytest.raises(TypeError, match="mean_rl"):
+            ESConfig().training(mean_rl=0.5)
+
 
 @pytest.mark.unit
 class TestHyperparameterValidation:

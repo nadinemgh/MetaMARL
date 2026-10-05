@@ -6,7 +6,7 @@ learning rates, sigma bounds, symmetry and initial mean) on top of the shared
 ``OptimizerConfig`` builders and builds an ``ESOptimizer``.
 """
 
-from typing import Any, Optional, Self
+from typing import Optional, Self
 
 from core.annotations import override
 from core.optimizers.config import OptimizerConfig
@@ -26,8 +26,6 @@ class ESConfig(OptimizerConfig):
     ----------
     opt_class : type[Optimizer], optional
         Optimizer class to build (default ``ESOptimizer``).
-    **kw : Any
-        Accepted and ignored.
 
     Attributes
     ----------
@@ -72,7 +70,7 @@ class ESConfig(OptimizerConfig):
     'ESOptimizer'
     """
 
-    def __init__(self, opt_class: Optional[type[ESOptimizer]] = None, **kw: Any):
+    def __init__(self, opt_class: Optional[type[ESOptimizer]] = None):
         super().__init__(opt_class=opt_class or ESOptimizer)
 
         # Add default or from default
@@ -103,7 +101,6 @@ class ESConfig(OptimizerConfig):
         convergence_eps: Optional[float] = None,
         convergence_patience: Optional[int] = None,
         initial_mean: Optional[list[float]] = None,
-        **kwargs: Any,
     ) -> Self:
         """Set the ES search hyperparameters. Unset arguments keep their current value.
 
@@ -141,8 +138,6 @@ class ESConfig(OptimizerConfig):
             the run even far from the optimum; use a large patience there.
         initial_mean : list[float], optional
             Starting point in ``[0, 1]^dimension`` (default ``0.5`` everywhere).
-        **kwargs : Any
-            Accepted and ignored.
 
         Returns
         -------
