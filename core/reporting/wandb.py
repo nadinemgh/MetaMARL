@@ -207,7 +207,7 @@ class WandbReporter(Reporter):
         settings: Optional[dict[str, Any]] = None,
     ) -> None:
         self._defined_prefixes: set[str] = set()
-        self._run: wandb = None
+        self._run: wandb.Run | None = None
         self._project = project
         self._name = name
         self._run_id = run_id
@@ -215,7 +215,7 @@ class WandbReporter(Reporter):
         self._config = config
         self._settings = settings
 
-    def _init_run(self):
+    def _init_run(self) -> None:
         if self._run is None:
             self._run = wandb.init(
                 project=self._project,

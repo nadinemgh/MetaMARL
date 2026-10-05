@@ -10,7 +10,7 @@ in :mod:`core.reporting.csv`, :mod:`core.reporting.tensor_board` and
 
 import copy
 from abc import ABC, abstractmethod
-from typing import Optional, Self, Union
+from typing import Optional, Self
 
 from core.reporting.base import Reporter
 
@@ -62,11 +62,11 @@ class ReporterConfig(ABC):
 
     def __init__(self, project: str):
         self.project_name: str = project
-        self._world_name: Union[str | None] = None
-        self._outer_iters: Union[int | None] = None
+        self._world_name: Optional[str] = None
+        self._outer_iters: Optional[int] = None
 
     @property
-    def world(self) -> Union[str, None]:
+    def world(self) -> Optional[str]:
         """Name of the world reported on (``None`` until the optimizer sets it)."""
 
         return self._world_name
@@ -78,7 +78,7 @@ class ReporterConfig(ABC):
         self._world_name = world
 
     @property
-    def outer_iters(self) -> Union[int, None]:
+    def outer_iters(self) -> Optional[int]:
         """Number of outer-loop iterations of the run (``None`` until set)."""
 
         return self._outer_iters
