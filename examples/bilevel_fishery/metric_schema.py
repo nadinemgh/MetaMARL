@@ -6,9 +6,10 @@ dynamics (biomass, growth, harvest, reference points) and
 environment pushes one value per step into the stock-level fields, and the
 inner optimizer reduces each field to one value per episode according to its
 declared reduction. The regulator environment reads the reduced
-``fish_norm_next_mean``, ``H_realized`` and ``MSY`` values back to compute a
-candidate's fitness. Several fields are declared here but not pushed by the
-fishery environment of this package; each class says which.
+``fish_norm_next_series``, ``H_realized_series``, ``reward_series`` and ``MSY``
+values back to compute a candidate's fitness: the three ``*_series`` fields
+keep every step of the episode (the ``SERIES`` reduction), so that the fitness
+can be computed on the last steps of each episode.
 """
 
 from typing import Optional, TypeAlias
@@ -25,9 +26,7 @@ class FisheryAgentMetricSchema(AgentEnvStepSchema):
     """Per-fisher harvest metrics, one value per step.
 
     ``FisheryRegulatedEnv`` pushes ``requested_harvest`` and
-    ``delivered_harvest`` for every fisher at every step; the other fields are
-    declared for environments that log more and stay ``None`` in the fishery of
-    this package.
+    ``delivered_harvest`` for every fisher at every step.
 
     Attributes
     ----------
@@ -38,15 +37,6 @@ class FisheryAgentMetricSchema(AgentEnvStepSchema):
         Harvest the fisher actually received: its request, or its pro-rata
         share of the stock when the total request exceeds the stock (biomass
         units per step).
-    requested_frac : float or None
-        Requested harvest as a fraction of the fisher's maximal request, in
-        ``[0, 1]``.
-    quota_violation : float or None
-        Dimensionless violation measure of the quota.
-    quota_penalty : float or None
-        Penalty the quota subtracts from the reward (reward units).
-    risk_penalty : float or None
-        Penalty for risky harvests subtracted from the reward (reward units).
 
     All fields are reduced with ``MEAN`` and inherit the generic per-step
     fields of ``AgentEnvStepSchema``.
@@ -56,26 +46,14 @@ class FisheryAgentMetricSchema(AgentEnvStepSchema):
 
     Examples
     --------
-    >>> FisheryAgentMetricSchema(requested_frac=0.25).requested_frac
-    0.25
+    >>> FisheryAgentMetricSchema(requested_harvest=25.0).requested_harvest
+    25.0
     """
 
     requested_harvest: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
     delivered_harvest: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-    )
-    requested_frac: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-    )
-    quota_violation: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-    )
-    quota_penalty: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-    )
-    risk_penalty: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
@@ -88,17 +66,11 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     ``EpisodeRolloutSchema``. ``FisheryRegulatedEnv`` pushes ``B_msy``,
     ``MSY``, ``F_msy``, ``fish_stock``, ``fish_stock_next``, the four
     ``fish_norm_next_*`` fields, ``growth``, ``growth_noise``, ``H_attempted``,
-    ``H_realized``, ``total_usage_norm`` and the two harvest fields of each
-    fisher in ``by_agent`` at every step. It does not push ``quota_stress``,
-    ``allowed_harvest`` or ``fish_norm``, so those stay ``None``.
+    ``H_realized``, ``total_usage_norm``, the three ``*_series`` fields and the
+    two harvest fields of each fisher in ``by_agent`` at every step.
 
     Attributes
     ----------
-    quota_stress : float or None
-        Allowed harvest fraction of the quota in force (dimensionless). Not
-        pushed.
-    allowed_harvest : float or None
-        Total harvest the quota permits (biomass units per step). Not pushed.
     fish_stock : float or None
         Biomass ``B(t)`` the step starts with, before the catches and the
         restoration of that step (biomass units).
@@ -127,8 +99,6 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
         a constant of the ecology.
     fish_stock_next : float or None
         Biomass ``B(t + 1)`` after the transition (biomass units).
-    fish_norm : float or None
-        Normalized biomass (fraction of ``K``). Not pushed.
     fish_norm_next_mean, fish_norm_next_min, fish_norm_next_max : float or None
         Mean, minimum and maximum over the episode of the normalized biomass
         after the transition (fraction of ``K``). Required fields with no
@@ -136,13 +106,26 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     fish_norm_next_last : float or None
         Normalized biomass after the last transition of the episode
         (fraction of ``K``). Required, with no default.
+    fish_norm_next_series : list[float] or None
+        Normalized biomass after the transition at every step of the episode
+        (fraction of ``K``), kept as a series. The regulator environment
+        computes the biomass part of the fitness on its last steps.
+    H_realized_series : list[float] or None
+        ``H_realized`` at every step of the episode (biomass units per step),
+        kept as a series.
+    reward_series : list[float] or None
+        Mean over the fishers of the reward they received at every step of the
+        episode (reward units), kept as a series.
     by_agent : dict[str, FisheryAgentMetricSchema]
         Per-fisher metrics keyed by agent id (requested and delivered harvest
         in this fishery).
 
     All the stock-level fields are reduced with ``MEAN`` except the four
     ``fish_norm_next_*`` fields, which use ``MEAN``, ``MIN``, ``MAX`` and
-    ``LAST``.
+    ``LAST``, and the three ``*_series`` fields, which keep the whole series.
+    The reduced value of a ``*_series`` field of an episode is the list of its
+    steps; the inner optimizer's logger holds one such list per episode it
+    received, so a peeked leaf is a list of lists.
 
     When to use: as the ``schema`` of the inner environment
     (``APPOptimizerConfig().environment(schema=FisheryMetricSchema)``), so that
@@ -158,12 +141,6 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     0.3
     """
 
-    quota_stress: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-    )
-    allowed_harvest: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-    )
     fish_stock: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
@@ -194,9 +171,6 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     fish_stock_next: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
-    fish_norm: Optional[float] = Field(
-        default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
-    )
     fish_norm_next_mean: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
@@ -208,6 +182,16 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     )
     fish_norm_next_last: Optional[float] = Field(
         json_schema_extra={"reduce": ReduceProtocol.LAST}
+    )
+
+    fish_norm_next_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    H_realized_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    reward_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
     )
 
     by_agent: dict[AgentID, FisheryAgentMetricSchema] = Field(default_factory=dict)

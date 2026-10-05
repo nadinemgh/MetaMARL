@@ -86,3 +86,11 @@ def test_every_es_level_query_resolves(fishery_es, query):
     xs, yss, _, _ = ResolvingReporter()._resolve_query(fishery_es.logger.peek(), query)
 
     assert xs and all(ys for ys in yss)
+
+
+@pytest.mark.unit
+def test_the_quota_query_is_named_after_the_searched_parameter():
+    query = next(q for q in ES_QUERIES if "quota" in q.title)
+
+    assert query.title == "Candidate fitness vs quota"
+    assert query.x_label == "quota"

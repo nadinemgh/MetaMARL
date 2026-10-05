@@ -19,8 +19,9 @@ class FitnessContext(ContextSchema):
     rollouts and consumed by the ES outer loop. ``objective_score`` is
     ``harvest_score + sustainability_weight * mean_fish``; the other fields
     are the statistics reported next to it. The statistics are computed on the
-    series the inner optimizer logged for the candidate, which hold one value
-    per episode (the mean over the steps of that episode).
+    last steps of every evaluation episode (the tail window of
+    ``FisheryRegulatorEnv``), then averaged over the episodes and seeds of the
+    candidate.
 
     Attributes
     ----------
@@ -28,12 +29,11 @@ class FitnessContext(ContextSchema):
         Scalar the ES maximizes (dimensionless), equal to
         ``harvest_score + sustainability_weight * mean_fish``.
     mean_reward : float
-        Mean per-step reward of the fishers (reward units; the delivered
-        harvest fraction in ``[0, 1]`` plus whatever the regulator's
-        mechanisms add). Reported only; it does not enter the objective.
+        Mean per-step reward of the fishers over the tail window (reward
+        units). Reported only; it does not enter the objective.
     collapse_rate : float
-        Fraction in ``[0, 1]`` of the aggregated entries whose normalized
-        biomass is below the sustainability threshold. Reported only.
+        Fraction in ``[0, 1]`` of the tail steps whose normalized biomass is
+        below the sustainability threshold. Reported only.
     sustainability_penalty : float
         Mean relative shortfall of the normalized biomass below the
         threshold, in ``[0, 1]``. Reported only.
@@ -45,8 +45,7 @@ class FitnessContext(ContextSchema):
         ``K``. It enters the objective, weighted by the sustainability
         weight.
     min_fish : float
-        Minimum normalized biomass over the aggregated entries (fraction of
-        ``K``).
+        Minimum normalized biomass over the tail steps (fraction of ``K``).
     mean_realized_harvest : float
         Mean of the logged realized harvest (biomass units per step).
     harvest_score : float
@@ -107,7 +106,7 @@ class FitnessContext(ContextSchema):
         mean_reward : SupportsFloat
             Mean per-step reward of the fishers (reward units).
         collapse_rate : SupportsFloat
-            Fraction in ``[0, 1]`` of entries below the sustainability
+            Fraction in ``[0, 1]`` of tail steps below the sustainability
             threshold.
         sustainability_penalty : SupportsFloat
             Mean relative shortfall below the threshold, in ``[0, 1]``.

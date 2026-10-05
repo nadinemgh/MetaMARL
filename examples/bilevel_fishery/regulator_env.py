@@ -32,21 +32,22 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
     The fitness of a candidate is computed from the inner rollouts of the
     ``train`` or ``eval`` split selected by ``aggregation_status``. For each
-    mechanism, seed and episode the environment reads the logged per-episode
-    series ``reward_mean``, ``fish_norm_next_mean``, ``H_realized`` and
-    ``MSY``, keeps the last ``fitness_tail_steps`` entries of each, and
-    averages them. The per-episode statistics of every episode and seed of a
-    candidate are then averaged and folded into a ``FitnessContext``, whose
-    objective is ``harvest_score + sustainability_weight * mean_fish``.
+    mechanism, seed and episode the environment reads the step-by-step series
+    that the inner environment logged for that episode, ``reward_series``,
+    ``fish_norm_next_series`` and ``H_realized_series``, and the episode's
+    ``MSY``, keeps the last ``fitness_tail_steps`` steps of each series, and
+    summarizes them. The statistics of every episode and seed of a candidate
+    are then averaged and folded into a ``FitnessContext``, whose objective is
+    ``harvest_score + sustainability_weight * mean_fish``.
 
-    The tail window is meant to measure the steady state of the last steps of
-    an episode. In practice the inner optimizer logs one value per episode
-    (the mean over its steps) for each of these series, so in the default
-    ``eval`` split every series has a single entry, the window has no effect,
-    and the objective is computed on whole-episode means: ``mean_fish`` is the
-    mean biomass over the episode, ``min_fish`` is that same episode mean
-    rather than a minimum over steps, and ``collapse_rate`` is the fraction of
-    episodes whose mean normalized biomass is below the threshold.
+    The tail window measures the steady state of the last steps of an episode:
+    ``mean_fish`` is the mean normalized biomass over those steps, ``min_fish``
+    their minimum, ``collapse_rate`` the fraction of them below the
+    sustainability threshold, and ``harvest_score`` the mean realized harvest
+    over them divided by the maximum sustainable yield. An episode shorter than
+    ``fitness_tail_steps`` contributes all its steps. With the ``train`` split
+    an episode that was logged at several iterations contributes once per
+    iteration.
 
     Parameters
     ----------
@@ -59,7 +60,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
         threshold for plots; there is no default, and omitting it raises a
         ``TypeError``), ``aggregation_status`` (``"train"`` or ``"eval"``,
         default ``"eval"``) and ``fitness_tail_steps`` (number of trailing
-        entries averaged, default 50).
+        steps of each episode the fitness is computed on, default 50; an
+        episode with fewer steps contributes all of them).
     **kwargs : Any
         Forwarded to :class:`core.envs.regulator.RegulatorEnv`: ``world``,
         ``optimizer``, ``horizon``, ``agents_cfgs``, ``seeds``, ``schema``,
@@ -78,7 +80,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
     aggregation_status : MechanismStatus
         Split of the inner metrics the fitness is computed from.
     fitness_tail_steps : int
-        Number of trailing entries averaged per series.
+        Number of trailing steps of each episode the fitness is computed on.
     trajectories : dict[int, list[dict[str, Any]]]
         Reset to ``{}`` at every call of :meth:`reward` and never filled.
     last_metrics : list[dict[str, float]]
@@ -100,9 +102,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
     Examples
     --------
     The environment is built with a stand-in World and no inner optimizer, and
-    scores one candidate whose single episode has a mean biomass of half the
-    carrying capacity and a harvest of half the maximum sustainable yield
-    (``0.5 + 2.0 * 0.5``):
+    scores one candidate whose single episode of two steps has a biomass of half
+    the carrying capacity and a harvest of half the maximum sustainable yield
+    at every step (``0.5 + 2.0 * 0.5``):
 
     >>> from types import SimpleNamespace
     >>> from unittest import mock
@@ -119,9 +121,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
     ...     ecology_cfg={"K": 5000.0, "sustainability_weight": 2.0},
     ... )
     >>> episode = SimpleNamespace(
-    ...     reward_mean=[0.5],
-    ...     fish_norm_next_mean=[0.5],
-    ...     H_realized=[37.5],
+    ...     reward_series=[[0.5, 0.5]],
+    ...     fish_norm_next_series=[[0.5, 0.5]],
+    ...     H_realized_series=[[37.5, 37.5]],
     ...     MSY=[75.0],
     ... )
     >>> seed = SimpleNamespace(by_episode={"0": episode})
@@ -179,9 +181,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
         ``metrics`` is the inner ``RaySchema`` peeked after training; the
         ``aggregation_status`` split (``train`` or ``eval``) is read, then the
         rollouts are walked by mechanism, seed and episode. Each episode
-        contributes the mean of the last ``fitness_tail_steps`` entries of its
-        reward, biomass and harvest series (see the class docstring for what
-        those series hold); the episodes of all seeds of a mechanism are
+        contributes the statistics of the last ``fitness_tail_steps`` steps of
+        its reward, biomass and harvest series (all its steps when it is
+        shorter than the window); the episodes of all seeds of a mechanism are
         averaged and folded into a ``FitnessContext``, whose
         ``objective_score`` is the fitness.
 
@@ -199,8 +201,10 @@ class FisheryRegulatorEnv(RegulatorEnv):
             Inner metrics with a ``train`` or ``eval`` branch (the one named by
             ``aggregation_status``), each holding
             ``rollout.by_mechanism[id].by_seed[id].by_episode[id]`` records
-            with ``reward_mean``, ``fish_norm_next_mean``, ``H_realized`` and
-            ``MSY``. Mechanism and seed identifiers must be convertible to
+            with ``reward_series``, ``fish_norm_next_series``,
+            ``H_realized_series`` (each a list holding one list of steps per
+            logged episode) and ``MSY`` (one value per logged episode).
+            Mechanism and seed identifiers must be convertible to
             ``int``.
 
         Returns
@@ -231,59 +235,53 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 seed = int(seed_id)
 
                 for episode_metrics in seed_metrics.by_episode.values():
-                    rewards = np.atleast_1d(
-                        np.asarray(episode_metrics.reward_mean, dtype=np.float32)
+                    # Each leaf holds one entry per logged episode: the list of
+                    # its steps, or its MSY.
+                    logged_episodes = zip(
+                        episode_metrics.reward_series,
+                        episode_metrics.fish_norm_next_series,
+                        episode_metrics.H_realized_series,
+                        np.atleast_1d(episode_metrics.MSY),
+                        strict=True,
                     )
-                    fish = np.atleast_1d(
-                        np.asarray(
-                            episode_metrics.fish_norm_next_mean, dtype=np.float32
+                    for reward_steps, fish_steps, harvest_steps, msy in logged_episodes:
+                        rewards = np.asarray(reward_steps, dtype=np.float64)
+                        fish = np.asarray(fish_steps, dtype=np.float64)
+                        realized_harvest = np.asarray(harvest_steps, dtype=np.float64)
+                        harvest_scores = realized_harvest / max(float(msy), 1e-6)
+                        num_steps = len(fish)
+                        tail_steps = min(self.fitness_tail_steps, num_steps)
+                        tail_start = num_steps - tail_steps
+                        tail_rewards = rewards[tail_start:]
+                        tail_fish = fish[tail_start:]
+                        tail_realized_harvest = realized_harvest[tail_start:]
+                        tail_harvest_scores = harvest_scores[tail_start:]
+                        sustainability_penalties = np.maximum(
+                            0.0,
+                            (self.sustainability_threshold - tail_fish)
+                            / max(1e-6, self.sustainability_threshold),
                         )
-                    )
-                    realized_harvest = np.atleast_1d(
-                        np.asarray(episode_metrics.H_realized, dtype=np.float32)
-                    )
-                    msy = np.atleast_1d(
-                        np.asarray(episode_metrics.MSY, dtype=np.float32)
-                    )
-                    harvest_scores = realized_harvest / np.maximum(msy, 1e-6)
-                    sustainability_penalties = np.maximum(
-                        0.0,
-                        (self.sustainability_threshold - fish)
-                        / max(1e-6, self.sustainability_threshold),
-                    )
-                    num_steps = len(fish)
-                    tail_steps = min(self.fitness_tail_steps, num_steps)
-                    tail_start = num_steps - tail_steps
-                    tail_rewards = rewards[tail_start:]
-                    tail_fish = fish[tail_start:]
-                    tail_realized_harvest = realized_harvest[tail_start:]
-                    tail_harvest_scores = harvest_scores[tail_start:]
-                    sustainability_penalties = np.maximum(
-                        0.0,
-                        (self.sustainability_threshold - tail_fish)
-                        / max(1e-6, self.sustainability_threshold),
-                    )
 
-                    metrics_by_mechanism[idx].append(
-                        {
-                            "seed": seed,
-                            "mean_reward": float(tail_rewards.mean()),
-                            "reward_std": float(tail_rewards.std()),
-                            "mean_realized_harvest": float(
-                                tail_realized_harvest.mean()
-                            ),
-                            "harvest_score": float(tail_harvest_scores.mean()),
-                            "collapse_rate": float(
-                                (tail_fish < self.sustainability_threshold).mean()
-                            ),
-                            "sustainability_penalty": float(
-                                sustainability_penalties.mean()
-                            ),
-                            "min_fish": float(tail_fish.min()),
-                            "mean_fish": float(tail_fish.mean()),
-                            "mean_fines": float(tail_fish.mean()),
-                        }
-                    )
+                        metrics_by_mechanism[idx].append(
+                            {
+                                "seed": seed,
+                                "mean_reward": float(tail_rewards.mean()),
+                                "reward_std": float(tail_rewards.std()),
+                                "mean_realized_harvest": float(
+                                    tail_realized_harvest.mean()
+                                ),
+                                "harvest_score": float(tail_harvest_scores.mean()),
+                                "collapse_rate": float(
+                                    (tail_fish < self.sustainability_threshold).mean()
+                                ),
+                                "sustainability_penalty": float(
+                                    sustainability_penalties.mean()
+                                ),
+                                "min_fish": float(tail_fish.min()),
+                                "mean_fish": float(tail_fish.mean()),
+                                "mean_fines": float(tail_fish.mean()),
+                            }
+                        )
 
         max_idx = max(metrics_by_mechanism)
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)

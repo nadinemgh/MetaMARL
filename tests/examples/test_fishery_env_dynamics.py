@@ -26,6 +26,11 @@ from core.mechanism.base import MDPState
 from core.reporting.base import Reporter
 from core.reporting.config import ReporterConfig
 from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
+from examples.bilevel_fishery.queries import (
+    ES_QUERIES,
+    FISHERY_ENV_QUERIES,
+    INNER_QUERIES,
+)
 from examples.bilevel_fishery.regulated_env import (
     FishermanConfig,
     FisheryRegulatedEnv,
@@ -526,3 +531,49 @@ def test_the_first_noise_draw_is_sigma_times_a_normal_draw_times_the_stock():
     assert logged.growth[0] == pytest.approx(48.0 + noise)
     catch = logged.H_realized[0]
     assert mdp.state["fish"][1] == pytest.approx(800.0 + 48.0 + noise - catch)
+
+
+@pytest.mark.unit
+def test_the_series_fields_keep_every_step_of_the_episode():
+    env = make_env(n=2)
+    steps = 4
+
+    play(env, n=2, steps=steps, harvest=0.0)
+
+    # ``reduce`` collapses the MEAN fields to one number but keeps the series,
+    # and it empties the logger, so the per-step values are peeked first.
+    stepwise = env.logger.peek()
+    reduced = env.logger.reduce()
+    np.testing.assert_allclose(
+        reduced.fish_norm_next_series, np.asarray(stepwise.fish_stock_next) / 1000.0
+    )
+    np.testing.assert_allclose(reduced.H_realized_series, stepwise.H_realized)
+    assert len(reduced.reward_series) == steps
+
+
+@pytest.mark.unit
+def test_every_environment_query_resolves_against_the_environment_logger():
+    env = make_env(n=2)
+    play(env, n=2, steps=3, harvest=0.0)
+
+    for query in FISHERY_ENV_QUERIES:
+        xs, yss, _, _ = SilentReporter("env")._resolve_query(env.logger.peek(), query)
+
+        assert xs and all(ys for ys in yss), query.title
+
+
+@pytest.mark.unit
+def test_every_episode_statistic_named_by_a_query_is_filled_by_the_environment():
+    env = make_env(n=2)
+    play(env, n=2, steps=3, harvest=0.0)
+    logged = env.logger.peek()
+    named = {
+        path[-1]
+        for query in (*ES_QUERIES, *INNER_QUERIES)
+        for path in query.y_paths
+        if "rollout" in path
+    }
+
+    assert {"reward_mean", "fish_norm_next_mean"} <= named
+    for field in named:
+        assert getattr(logged, field), field

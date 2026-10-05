@@ -608,6 +608,35 @@ class FisheryRegulatedEnv(MultiAgentEnv):
             )
         return MDPState(state={"fish": fish_init, "usage": 0.0}, params=self.ecology)
 
+    def step(self, mdp: MDPState) -> MDPState:
+        """Play one step and log the step's reward in ``reward_series``.
+
+        The step is that of :class:`core.envs.marl_regulated.MultiAgentEnv`.
+        Afterwards the mean over the fishers of the reward they received at
+        this step is pushed to ``reward_series``, the series that the regulator
+        environment reads to average the reward over the last steps of an
+        episode (the base class only logs the episode-level reductions of the
+        same value).
+
+        Parameters
+        ----------
+        mdp : MDPState
+            State returned by ``reset`` or by the previous ``step``, holding
+            the fishers' actions of the current step.
+
+        Returns
+        -------
+        MDPState
+            The state after the transition, as returned by the base class.
+        """
+
+        mdp = super().step(mdp)
+        step_reward = float(
+            np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
+        )
+        self.logger.push(key=("reward_series",), value=step_reward)
+        return mdp
+
     @transition
     def pella_tomlinson(self, mdp: MDPState) -> MDPState:
         """Advance the stock one step with the surplus-production equation.
@@ -626,9 +655,10 @@ class FisheryRegulatedEnv(MultiAgentEnv):
 
         The method pushes ``B_msy``, ``MSY``, ``F_msy``, ``fish_stock`` (the
         stock ``B``), ``fish_stock_next``, the four ``fish_norm_next_*``
-        fields, ``growth`` (production plus noise), ``growth_noise``,
-        ``H_attempted`` (the total request), ``H_realized``,
-        ``total_usage_norm`` and, for every fisher,
+        fields and ``fish_norm_next_series``, ``growth`` (production plus
+        noise), ``growth_noise``, ``H_attempted`` (the total request),
+        ``H_realized`` and ``H_realized_series``, ``total_usage_norm`` and,
+        for every fisher,
         ``by_agent[aid].requested_harvest`` and
         ``by_agent[aid].delivered_harvest`` into the environment's metric
         logger.
@@ -716,10 +746,12 @@ class FisheryRegulatedEnv(MultiAgentEnv):
             "fish_norm_next_last",
         ):
             self.logger.push(key=(field,), value=fish_norm_next)
+        self.logger.push(key=("fish_norm_next_series",), value=fish_norm_next)
         self.logger.push(key=("growth",), value=growth)
         self.logger.push(key=("growth_noise",), value=noise)
         self.logger.push(key=("H_attempted",), value=H_attempted)
         self.logger.push(key=("H_realized",), value=H_realized)
+        self.logger.push(key=("H_realized_series",), value=H_realized)
         self.logger.push(key=("total_usage_norm",), value=H_realized / max(EPS, self.K))
         for aid, request in requests.items():
             self.logger.push(key=("by_agent", aid, "requested_harvest"), value=request)

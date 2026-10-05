@@ -6,7 +6,7 @@ described in :mod:`core.reporting.query`.
 
 ``ES_QUERIES`` is rendered by the outer (ES) level against ``ESSchema``. Its
 first two queries read the ES's own series (fitness per candidate, per
-generation and against the searched quota); the other seven read the inner
+generation and against the searched quota); the other five read the inner
 optimizer's metrics under the ``inner`` branch and plot the ``train`` and
 ``eval`` values of one statistic per generation. ``INNER_QUERIES`` is rendered
 by the inner (society) level against ``RaySchema`` and plots the training
@@ -14,21 +14,17 @@ curves of the return, the fish biomass statistics and the learner losses.
 ``FISHERY_ENV_QUERIES`` holds environment-level queries against
 ``FisheryMetricSchema``; neither ``config.yaml`` nor ``debug.py`` wires them.
 
-Two kinds of queries name series that this fishery does not fill. The
-``quota_penalty`` and ``intrinsic_utility`` queries read ``by_agent`` entries
-that ``FisheryRegulatedEnv`` never pushes (its ``by_agent`` mapping stays
-empty), so there is no series for them to plot; the environment-level
-``quota_penalty`` and ``intrinsic_utility`` queries resolve to empty series.
-The ``fish_norm`` query of ``FISHERY_ENV_QUERIES`` names a field the
-environment never pushes, so resolving it against the environment's logger
-raises a ``ValueError`` on the length mismatch.
+Every query names a series that the fishery fills. The environment-level
+``Normalized Fish biomass`` query reads ``fish_norm_next_mean``, the
+normalized biomass after each transition, which ``FisheryRegulatedEnv``
+pushes at every step.
 
 Examples
 --------
 >>> len(ES_QUERIES), len(INNER_QUERIES), len(FISHERY_ENV_QUERIES)
-(9, 11, 3)
+(7, 9, 1)
 >>> [q.title for q in ES_QUERIES if q.y_paths[0][0] != "inner"]
-['Fitness over outer optimization iterations', 'Candidate fitness vs fixed quota']
+['Fitness over outer optimization iterations', 'Candidate fitness vs quota']
 """
 
 from core.metrics.enums import ReduceProtocol
@@ -53,7 +49,7 @@ ES_QUERIES = (
         error_path=("by_mechanism",),
     ),
     Query(
-        title="Candidate fitness vs fixed quota",
+        title="Candidate fitness vs quota",
         x=("by_mechanism", ReduceProtocol.SERIES, "by_parameter", "quota", "value"),
         y=("by_mechanism", ReduceProtocol.SERIES, "fitness"),
         legend_labels=("Evaluated mechanisms",),
@@ -62,7 +58,7 @@ ES_QUERIES = (
         color=("iter",),
         color_label="Outer iteration",
         colorscale="Viridis",
-        x_label="fixed quota",
+        x_label="quota",
         y_label="objective fitness",
     ),
     Query(
@@ -105,76 +101,6 @@ ES_QUERIES = (
             "by_mechanism",
             ReduceProtocol.SERIES,
             "by_seed",
-        ),
-    ),
-    Query(
-        title="Final train vs eval quota penalty",
-        legend_labels=("train", "eval"),
-        x=("iter",),
-        y=(
-            (
-                "inner",
-                "train",
-                "rollout",
-                "by_mechanism",
-                ReduceProtocol.SERIES,
-                "by_seed",
-                ReduceProtocol.MEAN,
-                "by_episode",
-                ReduceProtocol.MEAN,
-                "by_agent",
-                ReduceProtocol.MEAN,
-                "quota_penalty",
-            ),
-            (
-                "inner",
-                "eval",
-                "rollout",
-                "by_mechanism",
-                ReduceProtocol.SERIES,
-                "by_seed",
-                ReduceProtocol.MEAN,
-                "by_episode",
-                ReduceProtocol.MEAN,
-                "by_agent",
-                ReduceProtocol.MEAN,
-                "quota_penalty",
-            ),
-        ),
-    ),
-    Query(
-        title="Final train vs eval intrinsic utility",
-        legend_labels=("train", "eval"),
-        x=("iter",),
-        y=(
-            (
-                "inner",
-                "train",
-                "rollout",
-                "by_mechanism",
-                ReduceProtocol.SERIES,
-                "by_seed",
-                ReduceProtocol.MEAN,
-                "by_episode",
-                ReduceProtocol.MEAN,
-                "by_agent",
-                ReduceProtocol.MEAN,
-                "intrinsic_utility",
-            ),
-            (
-                "inner",
-                "eval",
-                "rollout",
-                "by_mechanism",
-                ReduceProtocol.SERIES,
-                "by_seed",
-                ReduceProtocol.MEAN,
-                "by_episode",
-                ReduceProtocol.MEAN,
-                "by_agent",
-                ReduceProtocol.MEAN,
-                "intrinsic_utility",
-            ),
         ),
     ),
     Query(
@@ -323,66 +249,6 @@ INNER_QUERIES = (
         ),
         x_label="training episode",
         y_label="return mean",
-        error="std",
-        error_path=(
-            "train",
-            "rollout",
-            "by_mechanism",
-            ReduceProtocol.SERIES,
-            "by_seed",
-        ),
-    ),
-    Query(
-        title="Quota penalty mean over training episdoes",
-        legend_labels=("train",),
-        x=("iter",),
-        y=(
-            (
-                "train",
-                "rollout",
-                "by_mechanism",
-                ReduceProtocol.SERIES,
-                "by_seed",
-                ReduceProtocol.MEAN,
-                "by_episode",
-                ReduceProtocol.MEAN,
-                "by_agent",
-                ReduceProtocol.MEAN,
-                "quota_penalty",
-            ),
-        ),
-        x_label="training episode",
-        y_label="quota penalty",
-        error="std",
-        error_path=(
-            "train",
-            "rollout",
-            "by_mechanism",
-            ReduceProtocol.SERIES,
-            "by_seed",
-        ),
-    ),
-    Query(
-        title="Intrinsic utility mean over training episdoes",
-        legend_labels=("train",),
-        x=("iter",),
-        y=(
-            (
-                "train",
-                "rollout",
-                "by_mechanism",
-                ReduceProtocol.SERIES,
-                "by_seed",
-                ReduceProtocol.MEAN,
-                "by_episode",
-                ReduceProtocol.MEAN,
-                "by_agent",
-                ReduceProtocol.MEAN,
-                "intrinsic_utility",
-            ),
-        ),
-        x_label="training episode",
-        y_label="intrinsic_utility",
         error="std",
         error_path=(
             "train",
@@ -621,21 +487,9 @@ INNER_QUERIES = (
 # Environment-level queries against FisheryMetricSchema; not wired by default.
 FISHERY_ENV_QUERIES = (
     Query(
-        title="mean quota penalty over agent",
-        legend_labels=("quota penalty",),
-        x=("iter",),
-        y=("by_agent", ReduceProtocol.MEAN, "quota_penalty"),
-    ),
-    Query(
-        title="intrinsic utility mean over agent",
-        legend_labels=("intrinsic utility",),
-        x=("iter",),
-        y=("by_agent", ReduceProtocol.MEAN, "intrinsic_utility"),
-    ),
-    Query(
         title="Normalized Fish biomass",
         legend_labels=("normalized fish biomass",),
         x=("iter",),
-        y=("fish_norm",),
+        y=("fish_norm_next_mean",),
     ),
 )
