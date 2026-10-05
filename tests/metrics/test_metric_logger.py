@@ -7,6 +7,8 @@ unchanged against the refactored code); the runtime-subtype test now also
 checks the message of the final error.
 """
 
+from typing import Optional
+
 import pytest
 
 from core.metrics.logger import MetricLogger, Node
@@ -192,3 +194,83 @@ class TestPeekReduce:
             Root(static=Leaf(), group=Group(), optional_static=Leaf(mean_value=1.0))
         )
         assert logger.peek().optional_static.mean_value == [1.0]
+
+
+@pytest.mark.unit
+class TestSpecialisationKeepsPushedValues:
+    """Specialising a node to a subclass must not lose what was pushed before."""
+
+    def test_values_pushed_by_path_survive(self, metric_schemas):
+        Leaf, Rich, Group, Root = metric_schemas
+        logger = MetricLogger.from_schema(Root)
+        logger.push(("optional_static", "mean_value"), 1.0)
+        logger.push(("optional_static", "series_value"), 5.0)
+        logger.push(("optional_static", "last_value"), 7)
+
+        logger.push_data(
+            Root(
+                static=Leaf(),
+                group=Group(),
+                optional_static=Rich(mean_value=3.0, extra=9.0),
+            )
+        )
+
+        assert logger._tree["optional_static"].schema is Rich
+        peeked = logger.peek().optional_static
+        assert peeked.mean_value == [1.0, 3.0]
+        assert peeked.series_value == [5.0]
+        assert peeked.last_value == [7]
+        assert peeked.extra == [9.0]
+
+    def test_values_pushed_by_a_declared_schema_survive(self, metric_schemas):
+        Leaf, Rich, Group, Root = metric_schemas
+        logger = MetricLogger.from_schema(Root)
+        logger.push_data(
+            Root(static=Leaf(), group=Group(), optional_static=Leaf(sum_value=2.0))
+        )
+        logger.push_data(
+            Root(
+                static=Leaf(),
+                group=Group(),
+                optional_static=Rich(sum_value=3.0, extra=1.0),
+            )
+        )
+
+        assert logger.reduce().optional_static.sum_value == 5.0
+
+    def test_values_pushed_under_a_dynamic_id_survive(self):
+        from core.metrics.schemas import MetricSchema
+
+        class Item(MetricSchema):
+            value: Optional[float] = None
+
+        class Inner(MetricSchema):
+            by_id: dict[str, Item] = {}
+
+        class RichInner(Inner):
+            extra: Optional[float] = None
+
+        class Slot(MetricSchema):
+            inner: Optional[Inner] = None
+
+        logger = MetricLogger.from_schema(Slot)
+        logger.push(("inner", "by_id", "a", "value"), 1.0)
+        logger.push(("inner", "by_id", "b", "value"), 10.0)
+
+        logger.push_data(Slot(inner=RichInner(by_id={"a": Item(value=3.0)}, extra=2.0)))
+
+        peeked = logger.peek().inner
+        assert type(peeked) is RichInner
+        assert peeked.by_id["a"].value == [1.0, 3.0]
+        assert peeked.by_id["b"].value == [10.0]
+        assert logger.peek_value(("inner", "by_id", "b", "value")) == 10.0
+
+    def test_the_iteration_counter_of_an_open_slot_survives(self, metric_schemas):
+        Leaf, Rich, Group, Root = metric_schemas
+        logger = MetricLogger.from_schema(Root)
+        logger.push(("inner", "iter"), 4)
+
+        logger.push_data(Root(static=Leaf(), group=Group(), inner=Rich(iter=5)))
+
+        assert logger.peek().inner.iter == [4, 5]
+        assert logger.reduce().inner.iter == 5

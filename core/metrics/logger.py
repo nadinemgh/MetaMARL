@@ -368,6 +368,48 @@ class MetricLogger(ABC):
             node=child, path=path, index=index + 1, prefix=child_path
         )
 
+    def _specialise(
+        self, node: Node, field_name: str, schema: type[MetricSchema], path: Path
+    ) -> Node:
+        """Replace a nested node by the sub-tree of a subclass of its schema.
+
+        The new sub-tree is built from ``schema`` and takes the place of
+        ``node[field_name]``. Every value already held under ``path`` is pushed
+        again into the matching metric of the new sub-tree, in its original
+        order, creating the dynamic ids that were already bound, so that
+        nothing pushed before the specialisation is lost.
+        """
+
+        old_node = node[field_name]
+        carried = {
+            key: metric
+            for key, metric in self._refs.items()
+            if key[: len(path)] == path
+        }
+
+        new_node, refs = self._build_from_schema(
+            schema, prefix=path, subtree_reduce=old_node.subtree_reduce
+        )
+        node[field_name] = new_node
+
+        for key in carried:
+            del self._refs[key]
+
+        self._refs.update(refs)
+
+        for key, old_metric in carried.items():
+            new_metric = self._refs.get(key)
+
+            if new_metric is None:
+                new_metric = self._resolve_path(
+                    path=key, node=self._tree, index=0, prefix=()
+                )
+
+            for value in old_metric.peek(compile=False):
+                new_metric.push(value)
+
+        return new_node
+
     def push_data(
         self, data: MetricSchema, prefix: Path = (), node: Node | None = None
     ) -> None:
@@ -376,8 +418,8 @@ class MetricLogger(ABC):
         Nested schemas and dynamic nodes are walked recursively, and the
         children of a dynamic node are created on first use. A nested schema
         that is a subclass of the declared one specialises that sub-tree at
-        runtime (the sub-tree is rebuilt, so values pushed earlier under the
-        declared schema are not kept). ``prefix`` and ``node`` are the
+        runtime (the sub-tree is rebuilt, and the values pushed earlier under the
+        declared schema are carried over to it). ``prefix`` and ``node`` are the
         recursion state and keep their defaults on the first call.
 
         Parameters
@@ -445,13 +487,9 @@ class MetricLogger(ABC):
                             + f"{declared_schema.__name__} at {path}."
                         )
 
-                    subtree_reduce = child_node.subtree_reduce
-                    child_node, refs = self._build_from_schema(
-                        runtime_schema, prefix=path, subtree_reduce=subtree_reduce
+                    child_node = self._specialise(
+                        node, field_name, runtime_schema, path
                     )
-                    node[field_name] = child_node
-
-                    self._refs.update(refs)
 
                 self.push_data(value, prefix=path, node=child_node)
                 continue
