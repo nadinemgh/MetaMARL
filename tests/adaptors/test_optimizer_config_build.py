@@ -210,8 +210,9 @@ class RecordingEnv:
 class WrappedEnv:
     """Stand-in for ``RLlibMultiAgentEnvAdapter``: keeps the wrapped env."""
 
-    def __init__(self, env):
+    def __init__(self, env, worker_index=0):
         self.env = env
+        self.worker_index = worker_index
 
 
 class RecordingReporter(Reporter):
@@ -544,9 +545,12 @@ def test_evaluation_envs_take_their_seeds_from_the_runner_index(
         (4, 1, train_seeds[1], eval_seeds[1]),
     ]
     for worker_index, mechanism_idx, policy_seed, env_seed in cases:
-        env = env_creator(
+        wrapped = env_creator(
             FakeEnvContext({"mode": "eval"}, worker_index=worker_index)
-        ).env
+        )
+        env = wrapped.env
+        # The exploration keys read the runner index from the adapter.
+        assert wrapped.worker_index == worker_index
         assert env.kwargs["mode"] == "eval"
         assert env.kwargs["mechanism_id"] == mechanism_idx
         assert env.kwargs["policy_seed"] == policy_seed

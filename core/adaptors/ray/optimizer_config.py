@@ -35,7 +35,6 @@ from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAl
 
 import numpy as np
 import ray
-import torch
 from gymnasium import spaces
 from ray.actor import ActorHandle
 from ray.rllib.algorithms.algorithm import Algorithm
@@ -46,6 +45,13 @@ from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.tune.registry import register_env
 
+from core.adaptors.ray.common_random import (
+    HEAD_STREAM,
+    SeededHeadsPPOCatalog,
+    SeededXavierUniform,
+    common_random_module_class,
+    with_exploration_keys,
+)
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.agents.base import AgentConfig
@@ -741,7 +747,9 @@ class RayOptimizerConfig(OptimizerConfig):
 
         return identity
 
-    def _seeded_xavier_uniform(self, seed: Optional[int]):
+    def _seeded_xavier_uniform(
+        self, seed: Optional[int], stream: Optional[str] = None
+    ) -> "SeededXavierUniform | str":
         """Build a deterministic Xavier-uniform initializer for one seed.
 
         Parameters
@@ -749,37 +757,27 @@ class RayOptimizerConfig(OptimizerConfig):
         seed : int or None
             Base seed. ``None`` returns the string ``"xavier_uniform_"`` so
             RLlib uses its default (unseeded) initializer.
+        stream : str or None, optional
+            Seed stream: ``None`` for the encoder layers (layer ``i`` seeded
+            with ``seed + i``), ``HEAD_STREAM`` for the pi and vf heads.
 
         Returns
         -------
-        callable or str
-            An ``init_(tensor, **kwargs)`` function. Each call seeds torch's
-            CPU generator with ``seed + i`` (``i`` counting calls on this
-            closure), applies ``torch.nn.init.xavier_uniform_`` and restores
-            the previous RNG state, so the global stream is left untouched.
-            Because a fresh closure (with its own counter) is created per
-            RLModule, two modules built with the same seed and the same layer
-            order receive identical weights, which is what makes the same
-            policy seed comparable across mechanism candidates.
+        SeededXavierUniform or str
+            An ``init_(tensor, **kwargs)`` callable. Each call seeds torch's
+            CPU generator for its layer, applies
+            ``torch.nn.init.xavier_uniform_`` and restores the generator, so
+            the global stream is left untouched. ``SeededHeadsPPOCatalog``
+            restarts its layer count before every module build, so two
+            modules built with the same seed and the same layer order, or two
+            builds of one module, receive identical weights, which is what
+            makes the same policy seed comparable across mechanism candidates.
         """
 
         if seed is None:
             return "xavier_uniform_"
 
-        counter = {"i": 0}
-
-        def init_(tensor, **kwargs):
-            """Seeded in-place Xavier init; advances the per-closure counter."""
-
-            layer_seed = int(seed) + counter["i"]
-            counter["i"] += 1
-            state = torch.random.get_rng_state()
-
-            torch.manual_seed(layer_seed)
-            torch.nn.init.xavier_uniform_(tensor, **kwargs)
-            torch.random.set_rng_state(state)
-
-        return init_
+        return SeededXavierUniform(seed, stream=stream)
 
     def _apply_agents_to_rllib(self) -> dict[str, AgentConfig]:
         """Expand ``agents_cfgs`` into per-(mechanism, seed) RLModules.
@@ -834,6 +832,14 @@ class RayOptimizerConfig(OptimizerConfig):
         module_specs = {}
         agents_cfgs = {}
 
+        # Keyed exploration draws and seeded heads, so that the slots of one
+        # policy seed differ only by their mechanism (see common_random).
+        module_class = common_random_module_class(
+            self.algo_class.get_default_config()
+            .get_default_rl_module_spec()
+            .module_class
+        )
+
         for aid, agent in self.agents_cfgs.items():
             obs_space = agent.observation_space
             act_space = spaces.Dict({m.id: m.action_space for m in agent.mechanisms})
@@ -845,6 +851,8 @@ class RayOptimizerConfig(OptimizerConfig):
                     policy_id = f"{base_policy}_m{m_idx}_s{seed}"
                     policies[policy_id] = (None, obs_space, act_space, {})
                     module_specs[policy_id] = RLModuleSpec(
+                        module_class=module_class,
+                        catalog_class=SeededHeadsPPOCatalog,
                         observation_space=obs_space,
                         action_space=act_space,
                         model_config=DefaultModelConfig(
@@ -852,7 +860,7 @@ class RayOptimizerConfig(OptimizerConfig):
                             fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
                             fcnet_bias_initializer="zeros_",
                             head_fcnet_kernel_initializer=self._seeded_xavier_uniform(
-                                seed
+                                seed, stream=HEAD_STREAM
                             ),
                             head_fcnet_bias_initializer="zeros_",
                         ),
@@ -867,6 +875,11 @@ class RayOptimizerConfig(OptimizerConfig):
 
         self.rllib_cfg = self.rllib_cfg.rl_module(
             rl_module_spec=MultiRLModuleSpec(rl_module_specs=module_specs)
+        )
+        self.rllib_cfg = self.rllib_cfg.env_runners(
+            env_to_module_connector=with_exploration_keys(
+                self.rllib_cfg._env_to_module_connector
+            )
         )
 
         self.env_config.update({"observation_spaces": observation_spaces})
@@ -1118,7 +1131,7 @@ class RayOptimizerConfig(OptimizerConfig):
                 schema=self._reporting_schema_env,
                 **dict(env_ctx),
             )
-            return RLlibMultiAgentEnvAdapter(env)
+            return RLlibMultiAgentEnvAdapter(env, worker_index=env_ctx.worker_index)
 
         register_env(env_name, env_creator)
 

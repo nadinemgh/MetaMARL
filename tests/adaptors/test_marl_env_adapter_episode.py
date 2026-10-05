@@ -183,6 +183,15 @@ def test_identity_logger_and_reporter_come_from_the_wrapped_env(adapter):
     assert adapter.reporter is env.reporter
 
 
+@pytest.mark.unit
+def test_worker_index_defaults_to_the_local_runner_and_is_recorded():
+    assert RLlibMultiAgentEnvAdapter(StepEnv(ScriptedWorld([]))).worker_index == 0
+
+    hosted = RLlibMultiAgentEnvAdapter(StepEnv(ScriptedWorld([])), worker_index=3)
+
+    assert hosted.worker_index == 3
+
+
 # ---------------------------------------------------------------------------
 # reset
 # ---------------------------------------------------------------------------
