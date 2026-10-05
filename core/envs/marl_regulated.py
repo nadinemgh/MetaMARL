@@ -1,31 +1,33 @@
 """Multi-agent environment regulated by a published mechanism.
 
-``MultiAgentRegulatedEnv`` is the RLlib-facing environment of the inner
-optimization level. It combines :class:`core.envs.regulated.RegulatedEnv`
-(mechanism lifecycle and regulated reward) with RLlib's ``MultiAgentEnv``. A
-concrete benchmark implements the abstract pieces of the step:
-``transition_kernel`` (``S_{t+1} = T(S_t, A_t)``), ``intrinsic_utility``
-(``u_i = U(a_i, S_t)``), ``violation_signal`` and ``penalty`` (the regulated
-reward ``u_i - lambda(M) * v_i``), ``_observation`` (``o_i = O_i(S_t)``) and
-``_is_truncated``. The base class owns the step lifecycle: it computes the
-intrinsic utilities, shapes and aggregates the rewards, advances the state,
-appends the mechanism vector ``theta`` to every observation and publishes an
-``EnvStepContext`` to the ``World``.
+``MultiAgentEnv`` is the inner-level environment of the bilevel framework. It
+is a plain class, not an RLlib environment: the adapter
+``core.adaptors.ray.marl_env.RLlibMultiAgentEnvAdapter`` wraps it for RLlib and
+passes it the shared ``MDPState`` at every ``reset`` and ``step``. The
+environment holds two groups of agents built from configurations: the
+followers, whose policies RLlib trains, and the leaders, the regulator whose
+mechanisms the outer optimizer searches. A concrete benchmark subclasses it and
+marks two methods with the decorators of :mod:`core.envs.hooks`: a ``reset``
+hook that draws the initial state of an episode and a ``transition`` hook that
+advances the state by one step.
 
-The mechanism in force is fetched from the ``World`` at ``reset`` by
-``mechanism_id``. Until one is published the environment returns zero rewards
-and does not advance its dynamics, so RLlib's environment checks can run
-before training starts.
+The mechanism in force is fetched from the ``World`` at every ``reset`` by
+``mechanism_id``, and given to the leaders as their action. Until one is
+published the leaders hold no action, so the mechanisms contribute nothing.
+Each ``step`` lets every agent apply its mechanisms and earn its reward,
+applies the transition, flags the time limit, logs the step and rebuilds the
+observations, to which the leaders' mechanisms add their own contribution.
 
-Metrics are optional: with a ``schema`` the env owns a ``MetricLogger`` fed by
-``_log`` (episode identity at ``reset``, rewards and ``iter`` at every step),
-and with a ``reporter_cfg`` a ``Reporter`` renders the configured ``queries``
-against it (see ``core.callbacks``).
+Metrics are optional in the constructor, but ``reset`` and ``step`` push to the
+logger without checking for it: with a ``schema`` the env owns a
+``MetricLogger`` (episode identity at ``reset``; ``iter`` and the reward series
+at every step), and with a ``reporter_cfg`` a ``Reporter`` renders the
+configured ``queries`` against it (see ``core.callbacks``).
 """
 
 import logging
 from abc import ABC
-from typing import ClassVar, Optional
+from typing import Any, ClassVar, Optional
 
 import gymnasium as gym
 import numpy as np
@@ -51,38 +53,163 @@ logger = logging.getLogger(__name__)
 
 
 class MultiAgentEnv(ABC):
-    """Base class for mechanism-regulated multi-agent benchmarks.
+    """Base class of mechanism-regulated multi-agent benchmarks.
+
+    The environment owns the leaders and the followers, the episode's random
+    generator, the mechanism candidate in force and the optional logger and
+    reporter. It does not own the MDP state: the caller (the RLlib adapter)
+    creates an ``MDPState``, hands it to ``reset`` and passes the returned state
+    back to ``step`` after writing the followers' actions into it. Subclasses
+    supply the dynamics through two hooks, marked with
+    :func:`core.envs.hooks.reset` and :func:`core.envs.hooks.transition`; the
+    class itself has no abstract method, and without a hook it starts from the
+    state it is given and leaves it unchanged at every transition.
 
     Parameters
     ----------
     world : World
-        Ray actor handle of the shared blackboard.
+        Handle of the ``World`` Ray actor holding the published mechanism
+        candidates.
     opt_id : OptimizerID, optional
-        Identifier of the optimizer owning this env (set on published contexts).
+        Identifier of the optimizer that owns this env (default ``None``).
     env_name : str, optional
-        Label prefix of the env-level reporter.
+        Prefix of the label of the env-level reporter (default ``None``).
     horizon : int, optional
-        Episode length in steps.
+        Episode length in steps; the episode is flagged as truncated once the
+        state reaches it. ``None`` never truncates (default ``None``).
+    agents_cfg_dict : dict[AgentID, AgentConfig]
+        Configurations of the followers, keyed by agent identifier. Required.
+    leaders_cfg_dict : dict[AgentID, AgentConfig], optional
+        Configurations of the leaders. The default ``None`` is not supported:
+        the constructor iterates over the dictionary, so pass an empty
+        dictionary to build an environment without leaders.
     mechanism_id : str
-        Identifier of the candidate mechanism this env instance trains
-        against; used to fetch its ``MechanismContext`` from the ``World``.
-    seed, policy_seed : int, optional
-        Environment RNG seed and seed of the associated policy.
-    mode : {"train", "eval"}
-        Lifecycle status stamped on published contexts.
+        Identifier of the candidate mechanism this env instance trains against
+        (the Ray optimizer configuration passes the integer index of the
+        candidate in the generation). Used to fetch the candidate from the
+        ``World``. Required, and ``reset`` raises when it is ``None``.
+    seed : int, optional
+        Seed of the environment's random generator ``rng``, created once at
+        construction (default ``None``, which draws fresh entropy).
+    policy_seed : int, optional
+        Seed of the policy trained in this env; also the seed under which the
+        candidate is fetched from the ``World`` (default ``None``).
+    mode : {"train", "eval"}, optional
+        Lifecycle status of the candidate to fetch, converted to a
+        ``MechanismStatus`` (default ``"train"``).
     reporter_cfg : ReporterConfig, optional
-        Builds the env-level ``Reporter``; ``None`` disables reporting.
-    queries : tuple[AnyQuery, ...], optional
-        Queries rendered by the env-level reporter.
+        Builds the env-level ``Reporter``; ``None`` disables reporting
+        (default ``None``).
+    queries : tuple of Query, optional
+        Queries added to the reporter when there is one (default ``None``).
     schema : type[MetricSchema], optional
-        Metric schema of the env logger; ``None`` disables logging.
-    agents : list[AgentID]
-        Agent identifiers; ``possible_agents`` is a copy of this list.
-    action_spaces, observation_spaces : dict, optional
-        Per-agent gymnasium spaces read from ``kwargs`` (forwarded by the
-        RLlib env creator); they also build the ``Dict`` spaces of the env.
+        Metric schema from which the logger is built and which is handed to the
+        reporter. With ``None`` there is no logger, and ``reset`` and ``step``
+        then fail with ``AttributeError`` because they push to it (default
+        ``None``).
     **kwargs
-        Forwarded to :class:`MultiAgentEnv`.
+        Accepted and ignored. RLlib's environment context (worker index,
+        observation and action spaces, and so on) reaches the constructor
+        through it.
+
+    Attributes
+    ----------
+    world : World
+        The ``World`` handle.
+    horizon : int or None
+        Episode length in steps.
+    seed, policy_seed : int or None
+        Environment and policy seeds.
+    rng : numpy.random.Generator
+        Random generator seeded with ``seed``; never reseeded by ``reset``.
+    mode : MechanismStatus
+        Status of the candidate fetched at reset.
+    mechanism_id : str
+        Identifier of the candidate this env trains against.
+    m_ctx : MechanismContext or None
+        Context of the last candidate fetched from the ``World``.
+    m : dict or None
+        Mechanism of that candidate (a dictionary from mechanism identifier to
+        action array), or ``None`` until one was fetched.
+    followers, leaders : dict[AgentID, Agent]
+        The agents built from ``agents_cfg_dict`` and ``leaders_cfg_dict``.
+    lids : set[AgentID]
+        Identifiers of the leaders.
+    agents : dict[AgentID, Agent]
+        Leaders first, then followers: the order in which ``step`` lets them
+        act.
+    logger : MetricLogger or None
+        Episode logger built from ``schema``.
+    reporter : Reporter or None
+        Env-level reporter, labelled
+        ``"<env_name>|mode=<mode>|m=<mechanism_id>|ps=<policy_seed>|ss=<seed>"``
+        (the ``m=`` part is omitted when ``mechanism_id`` is ``None``).
+
+    When to use: as the base class of the inner environment of a benchmark. A
+    fishery, for instance, subclasses it, declares a ``reset`` hook that draws
+    the initial fish stock and a ``transition`` hook that applies the stock
+    dynamics, and lists the fishers as followers and the regulator as leader.
+
+    Examples
+    --------
+    A one-fisher environment played for one step. The ``World`` is replaced by
+    a stand-in that has published nothing, and ``ray.get`` by the identity for
+    the duration of the reset, so no Ray runtime is needed.
+
+    >>> from types import SimpleNamespace
+    >>> from typing import ClassVar
+    >>> from unittest.mock import patch
+    >>> from gymnasium import spaces
+    >>> from core.agents.base import Agent, AgentConfig
+    >>> from core.envs.hooks import reset, transition
+    >>> from core.envs.schema import EpisodeRolloutSchema
+    >>> from core.mechanism.config import MechanismConfig
+    >>> class Harvest(Mechanism):
+    ...     def apply(self, mdp, action):
+    ...         return MDPState(state={"stock": -float(np.asarray(action)[0])})
+    >>> class HarvestConfig(MechanismConfig):
+    ...     mechanism_cls: ClassVar[type[Mechanism]] = Harvest
+    >>> class Fisher(Agent):
+    ...     def reward(self, mdp):
+    ...         harvest = mdp.actions[self.id]["harvest"][mdp.t]
+    ...         return MDPState(rewards={self.id: float(harvest[0])})
+    ...     def observation(self, mdp):
+    ...         stock = mdp.state["stock"][mdp.t]
+    ...         return MDPState(obs={self.id: np.asarray([stock], dtype=np.float32)})
+    >>> class FisherConfig(AgentConfig):
+    ...     agent_cls: ClassVar[type[Agent]] = Fisher
+    >>> class Fishery(MultiAgentEnv):
+    ...     @reset
+    ...     def start(self, mdp):
+    ...         return MDPState(state={"stock": 1.0})
+    ...     @transition
+    ...     def carry_stock(self, mdp):
+    ...         return mdp.advance(state={"stock": mdp.state["stock"][mdp.t]})
+    >>> box = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
+    >>> fisher = FisherConfig(
+    ...     id="f0", policy_id="fisher", mechanisms=HarvestConfig(box, id="harvest")
+    ... )
+    >>> nothing_published = SimpleNamespace(
+    ...     get_mechanism_by_id=SimpleNamespace(remote=lambda **kwargs: None)
+    ... )
+    >>> env = Fishery(
+    ...     world=nothing_published,
+    ...     mechanism_id=0,
+    ...     horizon=2,
+    ...     agents_cfg_dict={"f0": fisher},
+    ...     leaders_cfg_dict={},
+    ...     schema=EpisodeRolloutSchema,
+    ... )
+    >>> with patch.object(ray, "get", lambda ref: ref):
+    ...     mdp = env.reset(MDPState(aids={"f0"}))
+    >>> mdp.obs["f0"][0].tolist()
+    [1.0]
+    >>> mdp = mdp.update(actions={"f0": {"harvest": np.asarray([0.25])}})
+    >>> mdp = env.step(mdp)
+    >>> mdp.t, float(mdp.rewards["f0"][0]), mdp.state["stock"]
+    (1, 0.25, [0.75, 0.75])
+    >>> env.logger.peek().reward_mean, mdp.truncateds["__all__"]
+    ([0.25], False)
     """
 
     _state: StateType | None = None
@@ -106,7 +233,7 @@ class MultiAgentEnv(ABC):
         reporter_cfg: Optional[ReporterConfig] = None,
         queries: Optional[tuple[Query]] = None,
         schema: Optional[MetricSchema] = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         self._t = 0
         self.world = world
@@ -154,6 +281,15 @@ class MultiAgentEnv(ABC):
             self.reporter.add_query(*(queries or ()))
 
     def __init_subclass__(cls, **kwargs):
+        """Record the names of the methods marked with a hook decorator.
+
+        Each attribute of the new class that carries the ``reset``,
+        ``transition`` or ``state_space`` mark is recorded by name in
+        ``_reset``, ``_transition`` or ``_state_space``. Hooks are inherited;
+        when a class body holds several methods with the same mark, the last
+        one wins. ``core.envs.hooks`` offers no decorator for ``state_space``,
+        so that mark has to be set by hand and nothing reads the recorded name.
+        """
         super().__init_subclass__(**kwargs)
         for name, func in tuple(cls.__dict__.items()):
             if getattr(func, "reset", False):
@@ -165,15 +301,31 @@ class MultiAgentEnv(ABC):
 
     @property
     def mechanism(self) -> Mechanism:
+        """Mechanism of the candidate in force, or ``None`` before the first fetch.
+
+        This is the dictionary from mechanism identifier to action array that
+        the leaders hold as their action; it is the same object as ``m``.
+        """
         if self.m is not None:
             return self.m
 
     @property
     def published_mechanism_assigned(self) -> bool:
+        """Whether a candidate published to the ``World`` has been fetched.
+
+        ``False`` until a ``reset`` receives a candidate; then ``True`` for the
+        rest of the env's life, even when later fetches return nothing.
+        """
         return self.m is not None and not self._using_default_mechanism
 
     @property
     def opt_id(self) -> OptimizerID:
+        """Identifier of the optimizer that owns this environment.
+
+        Reading this property currently raises ``RecursionError``, because the
+        getter returns the property itself. The value is held in the private
+        attribute ``_opt_id``; assigning to the property works.
+        """
         return self.opt_id
 
     @opt_id.setter
@@ -183,6 +335,47 @@ class MultiAgentEnv(ABC):
 
     @override(gym.Env)
     def reset(self, mdp: MDPState) -> None:
+        """Start an episode: log its identity, fetch the candidate, observe.
+
+        The logger is emptied first and receives the ``mechanism_id``,
+        ``seed`` and ``policy_seed`` of the episode, so its content covers one
+        episode only. RLlib's environment check resets and steps every new
+        environment once outside any episode; the empty logger keeps that step
+        out of the first real episode.
+
+        The candidate is then fetched from the ``World`` (blocking), for this
+        env's ``mechanism_id``, ``policy_seed`` and ``mode``, at every reset.
+        The ``World`` hands a training candidate out on its first fetch only
+        and returns ``None`` afterwards. A candidate that is returned replaces
+        the one kept (``m_ctx`` and ``m``); otherwise the kept one stays in
+        force. When a mechanism is held, it is written as the action of every
+        leader at the current step. The ``reset`` hook, when the subclass
+        declares one, is called with the state and its result is added. The
+        initial observation is built last, from the followers' ``observation``
+        and the leaders' ``mechanism_observations``.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Fresh state created by the caller, with ``aids`` (and the spaces)
+            filled in. It is not modified.
+
+        Returns
+        -------
+        MDPState
+            A new state holding the hook's initial state, the leaders' action
+            when a candidate is in force, and the initial observations.
+
+        Raises
+        ------
+        RuntimeError
+            If ``mechanism_id`` is ``None``.
+        AttributeError
+            If the environment has no logger (built with ``schema=None``). The
+            same error is raised when the fetch from the ``World`` fails: the
+            handler meant to re-raise it as a ``RuntimeError`` naming the
+            mechanism calls ``self._debug_remote``, which no class defines.
+        """
         # The logger holds one episode. RLlib's environment check resets and
         # steps every new environment once with an unseeded random action,
         # outside any episode; without this reset that step would be reduced
@@ -241,11 +434,47 @@ class MultiAgentEnv(ABC):
         )
 
     def transition(self, mdp: MDPState) -> MDPState:
+        """Advance the shared state by one step with the benchmark's hook.
+
+        Calls the method marked with :func:`core.envs.hooks.transition`, passing
+        the state by the keyword ``mdp``, and returns its result.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            State after every agent applied its mechanisms at step ``mdp.t``.
+
+        Returns
+        -------
+        MDPState
+            The hook's result, which is expected to be the state advanced by
+            one step (for example through ``MDPState.advance``). When the
+            subclass declares no transition hook, ``mdp`` itself is returned
+            unchanged and the clock does not advance.
+        """
         if self._transition is not None:
             return getattr(self, self._transition)(mdp=mdp)
         return mdp
 
     def termination(self, mdp: MDPState) -> MDPState:
+        """Set the termination and truncation flags of every agent.
+
+        No agent is ever terminated. All agents, leaders included, are flagged
+        as truncated once ``mdp.t`` has reached ``horizon``, and never when
+        ``horizon`` is ``None``. The flags are RLlib's: one entry per agent
+        plus ``"__all__"``.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            State after the transition; its ``t`` is compared to ``horizon``.
+
+        Returns
+        -------
+        MDPState
+            The same ``mdp`` object, modified in place: its ``terminateds`` and
+            ``truncateds`` are replaced by new dictionaries.
+        """
         time_limit = self.horizon is not None and mdp.t >= self.horizon
         terminateds = {aid: False for aid in self.agents}
         terminateds["__all__"] = False
@@ -256,6 +485,40 @@ class MultiAgentEnv(ABC):
         return mdp
 
     def step(self, mdp: MDPState) -> MDPState:
+        """Play one step of the environment.
+
+        The caller has written the followers' actions of the step into
+        ``mdp``. In order, ``step``:
+
+        1. lets every agent, leaders first, apply its mechanisms
+           (``Agent.action``) and add its reward (``Agent.reward``);
+        2. applies the transition hook and sets the termination flags;
+        3. pushes the new step index to ``iter`` and the mean over the
+           followers of the reward the followers received at this step to the
+           reward fields of the logger (``reward_total``, ``reward_mean``,
+           ``reward_min``, ``reward_max`` and ``reward_terminal``). Leaders do
+           not count in that mean, and rewards are per-step values, never
+           running sums;
+        4. rebuilds the observations on the new step from the followers'
+           ``observation`` and the leaders' ``mechanism_observations``, so the
+           contribution of the leaders' mechanisms reaches the policies at the
+           next step;
+        5. increments the step counter ``_t``.
+
+        Nothing is published to the ``World`` by this method.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            State returned by ``reset`` or by the previous ``step``, holding
+            the followers' actions of the current step.
+
+        Returns
+        -------
+        MDPState
+            The state after the transition, with the rewards of the step,
+            the new observations and the termination and truncation flags.
+        """
         for agent in self.agents.values():
             mdp = agent.action(mdp)
             mdp = mdp.add(agent.reward(mdp))
