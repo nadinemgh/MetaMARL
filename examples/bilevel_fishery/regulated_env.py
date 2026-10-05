@@ -32,8 +32,11 @@ The environment itself applies no regulation, no fine and no restoration cost.
 The leaders' mechanisms of ``core.mechanism.algorithms`` (quota, subsidy,
 penalty, social influence) act on the fishers' actions and rewards through the
 ``MultiAgentEnv`` step, which runs the leaders before the fishers. A fisher's
-reward is the harvest fraction it chose, plus whatever the leaders' mechanisms
-add.
+reward is its harvest fraction after the leaders' mechanisms have acted on it
+(a quota lowers it), plus whatever those mechanisms add to the reward. It is
+computed before the transition, so it ignores the pro-rata rationing described
+below: when the stock cannot cover every request, a fisher is still paid the
+fraction the quota let it request.
 
 Within one step all the fishers act at the same time on the stock ``B(t)``
 that the step starts with. A fisher's ``Fishing`` mechanism records the catch
@@ -141,9 +144,13 @@ class Fisherman(Agent):
         """Pay the fisher its harvest fraction of the current step.
 
         The reward is the ``harvest`` action stored in ``mdp.actions`` at
-        ``mdp.t``. After the ``Fishing`` mechanism has decoded the action, that
-        value is the fraction in ``(0, 1)`` the fisher harvests, so the reward
-        is dimensionless and grows with the catch.
+        ``mdp.t``. After the leaders' mechanisms and the ``Fishing`` mechanism
+        have acted, that value is the fraction in ``(0, 1)`` the fisher
+        requests once a quota has lowered it, so the reward is dimensionless.
+        The pro-rata rationing of ``pella_tomlinson`` happens later, in the
+        transition, and does not lower the reward
+        (``tests/integration/test_fishery_regulator_composition.py`` checks the
+        reward against these formulas).
 
         Parameters
         ----------
