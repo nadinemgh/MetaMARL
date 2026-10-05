@@ -49,7 +49,6 @@ env/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
 
 # Testing
 .coverage
