@@ -181,3 +181,12 @@ def test_a_missing_capacity_is_reported_by_name():
             seeds=[0],
             ecology_cfg={"sustainability_weight": WEIGHT},
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("split", ["train", "eval"])
+def test_a_split_without_rollouts_is_reported_by_name(split):
+    env = make_env(aggregation_status=split)
+
+    with pytest.raises(ValueError, match=f"No rollout found for the '{split}' split"):
+        env.reward(metrics_of({}, split=split))
