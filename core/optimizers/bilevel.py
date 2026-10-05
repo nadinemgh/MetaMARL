@@ -337,11 +337,13 @@ class BilevelOptimizer(Optimizer):
         Optimizer whose ``train()`` returns a dict with ``episodes``,
         ``converged``, ``best_mechanism`` and ``best_fitness`` (the ES). Its
         ``episodes`` attribute is the number of generations.
-    inner : Optimizer
+    inner : Optimizer or None
         Inner optimizer, driven by the outer env; kept for lifecycle access.
-    reporter : Reporter
+        ``None`` is accepted: :meth:`train` then stops only the outer level.
+    reporter : Reporter or None
         Primary (bilevel-level) reporter built from ``config.reporter_cfg``;
         closed at the end of :meth:`train`, after both levels are stopped.
+        ``None`` means there is nothing to close.
 
     Attributes
     ----------
@@ -383,8 +385,8 @@ class BilevelOptimizer(Optimizer):
         self,
         config: BilevelConfig,
         outer: Optimizer,
-        inner: Optimizer,
-        reporter: Reporter,
+        inner: Optional[Optimizer],
+        reporter: Optional[Reporter],
     ):
         super().__init__(config)
 

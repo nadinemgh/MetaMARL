@@ -140,7 +140,7 @@ class OptimizerConfig(_Config, ABC):
         # environment
         self.env: Optional[Union[str, EnvType]] = None
         self.env_config: dict = {}
-        self.horizon: int = None
+        self.horizon: Optional[int] = None
         self.disable_env_checking: Optional[bool] = None
         self.agents_cfgs: Optional[dict[AgentID, AgentConfig]] = None
 
@@ -161,7 +161,7 @@ class OptimizerConfig(_Config, ABC):
         self._reporting_schema: Optional[type[MetricSchema]] = None
         self._reporting_queries: Optional[tuple[Query, ...]] = None
         self._reporting_schema_env: Optional[type[MetricSchema]] = None
-        self._reporting_queries_env: Optional[tuple[Query]] = None
+        self._reporting_queries_env: Optional[tuple[Query, ...]] = None
 
     @property
     def reporter_cfg(self) -> Optional[ReporterConfig]:
@@ -173,16 +173,16 @@ class OptimizerConfig(_Config, ABC):
         return self._reporter_cfg
 
     @reporter_cfg.setter
-    def reporter_cfg(self, reporter_cfg: ReporterConfig) -> None:
+    def reporter_cfg(self, reporter_cfg: Optional[ReporterConfig]) -> None:
         """Attach a reporter configuration.
 
         ``BilevelConfig`` copies one to each level.
 
         Parameters
         ----------
-        reporter_cfg : ReporterConfig
+        reporter_cfg : ReporterConfig or None
             Configuration from which ``build_optimizer`` builds the
-            optimizer-level reporter.
+            optimizer-level reporter; ``None`` disables reporting.
         """
 
         self._reporter_cfg = reporter_cfg
@@ -404,7 +404,7 @@ class OptimizerConfig(_Config, ABC):
         self,
         env: Optional[Union[str, EnvType]] = None,
         horizon: Optional[int] = None,
-        queries: Optional[tuple[Query]] = None,
+        queries: Optional[tuple[Query, ...]] = None,
         schema: Optional[type[MetricSchema]] = None,
         *,
         env_config: Optional[EnvConfigDict] = None,
@@ -531,7 +531,7 @@ class OptimizerConfig(_Config, ABC):
 
     def reporting(
         self,
-        queries: Optional[tuple[Query]],
+        queries: Optional[tuple[Query, ...]],
         schema: Optional[type[MetricSchema]] = None,
     ) -> Self:
         """Declare the optimizer-level metric schema and the queries to render.

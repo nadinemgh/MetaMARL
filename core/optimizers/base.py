@@ -92,10 +92,10 @@ class Optimizer(ABC):
     """
 
     # data owned by the optimizer
-    config: OptimizerConfig
-    opt_id: OptimizerID
-    logger: MetricLogger
-    reporting: Reporter
+    config: Optional[OptimizerConfig]
+    opt_id: Optional[OptimizerID]
+    logger: Optional[MetricLogger]
+    reporting: Optional[Reporter]
 
     # this is the default configuration as soon as an optimizer is created
 
@@ -107,7 +107,7 @@ class Optimizer(ABC):
         **kwargs: Any,
     ):
         self.episodes: Optional[int] = config.episodes if config else None
-        self.config: OptimizerConfig = config
+        self.config: Optional[OptimizerConfig] = config
         self.world = world
         self.reporting: Optional[Reporter] = reporting
         self.logger: Optional[MetricLogger] = None
@@ -344,7 +344,7 @@ class Optimizer(ABC):
         self.reporting.report(self.logger.peek())
 
     @abstractmethod
-    def train(self) -> None:
+    def train(self) -> Any:
         """Run the optimizer; every concrete level implements this method.
 
         The base class prescribes no execution flow and no return value: an
@@ -353,6 +353,11 @@ class Optimizer(ABC):
         ``World`` actor, in any order. ``ESOptimizer`` and
         ``BilevelOptimizer`` return a summary dictionary; the class docstring
         has a small runnable example.
+
+        Returns
+        -------
+        Any
+            Whatever the implementation reports; subclasses document it.
 
         Raises
         ------
@@ -367,8 +372,20 @@ class Optimizer(ABC):
 
         pass
 
-    def save(self) -> None:
-        """Persist the optimizer state; a no-op by default."""
+    def save(self, checkpoint_dir: Optional[str | Path] = None) -> Any:
+        """Persist the optimizer state; a no-op by default.
+
+        Parameters
+        ----------
+        checkpoint_dir : str or pathlib.Path, optional
+            Directory to write the checkpoint to; ignored by the base class.
+
+        Returns
+        -------
+        Any
+            ``None`` here; an implementation may return a description of what
+            it saved.
+        """
 
         pass
 
@@ -377,7 +394,14 @@ class Optimizer(ABC):
 
         pass
 
-    def stop(self) -> None:
-        """Release resources held by the optimizer (no-op by default)."""
+    def stop(self) -> Any:
+        """Release resources held by the optimizer (no-op by default).
+
+        Returns
+        -------
+        Any
+            ``None`` here; an implementation may return a last result (the
+            RLlib optimizer returns its final metrics).
+        """
 
         pass
