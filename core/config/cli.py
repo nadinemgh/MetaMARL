@@ -4,16 +4,19 @@ The module exposes the ``metamarl`` command with two sub-commands, ``run`` and
 ``check``, on top of the declarative loader in ``core.config.yaml``. ``check``
 validates a configuration and constructs its ``experiment`` object without
 running it; ``run`` additionally applies the file's ``run`` section. Run it as
-``python -m core.config.cli run config.yaml``; started this way it first calls
-``ensure_hash_seed``, which restarts the process with a fixed string-hash seed
-so that runs with equal seeds are reproducible.
+``metamarl run config.yaml`` once the project is installed (``uv sync``), or as
+``python -m core.config.cli run config.yaml``. Both go through :func:`entry`,
+which first calls ``ensure_hash_seed``; that call restarts the process with a
+fixed string-hash seed so that runs with equal seeds are reproducible.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+from typing import NoReturn
 
 from core.config.hash_seed import ensure_hash_seed
 from core.config.yaml import ConfigError, load_experiment, run_experiment
@@ -102,7 +105,41 @@ def main() -> int:
         return 130
 
 
-if __name__ == "__main__":
+def entry() -> NoReturn:
+    """Run the ``metamarl`` command as a process: logging, hash seed, then ``main``.
+
+    The function puts the current directory first on ``sys.path``, as
+    ``python -m`` does, so that a configuration can name modules of the
+    directory the command is run from (``examples.bilevel_fishery`` from the
+    repository root; an installed console script would otherwise only see
+    installed packages). It then configures the root logger at INFO level,
+    calls ``ensure_hash_seed`` (which restarts the process when
+    ``PYTHONHASHSEED`` is unset, so it may never return) and exits with the
+    status of :func:`main`.
+
+    Raises
+    ------
+    SystemExit
+        Always, with the status returned by :func:`main` (``0``, ``2`` or
+        ``130``), or with ``2`` from ``argparse`` on invalid arguments.
+
+    When to use: only as the console script ``metamarl`` declared in
+    ``pyproject.toml`` and as the body of ``python -m core.config.cli``. From
+    Python, call :func:`main`, which neither restarts nor exits the process.
+
+    Examples
+    --------
+    The installed command and the module form are equivalent::
+
+        uv run metamarl check examples/bilevel_fishery/config.yaml
+        uv run python -m core.config.cli check examples/bilevel_fishery/config.yaml
+    """
+
+    # ``python -m`` puts the working directory first on the path; a console
+    # script puts its own bin directory there instead. Restore the former so
+    # both entry points resolve the same ``_target_`` modules.
+    if os.getcwd() not in sys.path:
+        sys.path.insert(0, os.getcwd())
     # The library modules leave logging to the entry point, so configure it
     # here, before the hash-seed check, whose notice must be visible.
     logging.basicConfig(
@@ -111,3 +148,7 @@ if __name__ == "__main__":
     # Before any work: the call restarts the process when the seed is unset.
     ensure_hash_seed()
     sys.exit(main())
+
+
+if __name__ == "__main__":
+    entry()

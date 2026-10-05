@@ -36,6 +36,9 @@ dependencies = [
     "scikit-learn>=1.9.0",
 ]
 
+[project.scripts]
+metamarl = "core.config.cli:entry"
+
 [project.urls]
 Homepage = "https://github.com/deep-introspection/MetaMARL"
 Repository = "https://github.com/deep-introspection/MetaMARL"
