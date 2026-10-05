@@ -5,6 +5,12 @@ axis. Standard-deviation series are logged under a ``/std`` suffix.
 
 TensorBoard scalar plots do not support per-point colour, so query ``color``
 values are ignored.
+
+The module is the TensorBoard backend of the reporting layer:
+:class:`TensorBoardConfig` is the serialisable factory carried by the optimizer
+and environment configs, and :class:`TensorBoardReporter` writes event files
+that ``tensorboard --logdir`` can display. The ``tensorboard`` package is an
+optional extra, imported only when the first scalar is written.
 """
 
 from __future__ import annotations
@@ -29,24 +35,122 @@ logger = logging.getLogger(__name__)
 
 
 class TensorBoardConfig(ReporterConfig):
+    """Configuration of a :class:`TensorBoardReporter`.
+
+    The reporters it builds write event files under
+    ``<log_dir>/<project>/<world>[-<label>]``. ``world`` is filled in by the
+    optimizer that owns the config, and ``label`` is the owner (an optimizer
+    class or an environment id), so that two owners never share a run
+    directory.
+
+    Parameters
+    ----------
+    project : str
+        Name of the project; the first directory level under ``log_dir``.
+    log_dir : str, default "runs"
+        Root directory of the event files, relative to the working directory
+        unless absolute.
+
+    Attributes
+    ----------
+    log_dir : pathlib.Path
+        Root directory as a path.
+
+    When to use: when you want to follow the curves of a run live with
+    TensorBoard, without a Weights & Biases account.
+
+    Examples
+    --------
+    Building a reporter touches neither the disk nor the ``tensorboard``
+    package; the event directory is only created by the first report:
+
+    >>> config = TensorBoardConfig(project="fishery", log_dir="runs")
+    >>> config.world = "lake"
+    >>> reporter = config.build(label="env0")
+    >>> reporter.log_dir.as_posix()
+    'runs/fishery/lake-env0'
+    """
+
     def __init__(self, *, project: str, log_dir: str = "runs") -> None:
         super().__init__(project=project)
 
         self.log_dir = Path(log_dir)
 
     def build(self, *, label: Optional[str] = None) -> TensorBoardReporter:
+        """Create a :class:`TensorBoardReporter` for one owner.
+
+        Parameters
+        ----------
+        label : str or None, default None
+            Suffix identifying the owner; the run directory is named
+            ``<world>-<label>``, or ``<world>`` without a label. ``world``
+            must have been set beforehand.
+
+        Returns
+        -------
+        TensorBoardReporter
+            A reporter writing under ``<log_dir>/<project>/<name>``.
+        """
+
         name = f"{self.world}-{label}" if label is not None else self.world
 
         return TensorBoardReporter(log_dir=self.log_dir / self.project_name / name)
 
 
 class TensorBoardReporter(Reporter):
+    """Reporter logging each resolved series as TensorBoard scalars.
+
+    Every y series becomes the scalar tag ``<sanitised title>/<sanitised
+    series label>``, where the label is the query's legend label or the y path
+    joined by ``/``, followed by ``[junction=id, ...]`` for a dynamic group.
+    The step of a point is its integer x value, so the x path must resolve to
+    integers (a non-integer value raises ``TypeError``, which
+    :meth:`~core.reporting.base.Reporter.report` logs). A standard-deviation
+    series is written under the same tag plus ``/std``. The colour path of a
+    query is ignored with an info message.
+
+    Each report call writes every point of every series again, so the event
+    file accumulates repeated steps. The ``SummaryWriter`` is created on the
+    first non-empty report and released by :meth:`close`; if the
+    ``tensorboard`` package is missing, that first report raises
+    ``ImportError`` (which :meth:`~core.reporting.base.Reporter.report` logs).
+
+    Parameters
+    ----------
+    log_dir : pathlib.Path
+        Directory of the event files; created by the ``SummaryWriter`` on the
+        first report.
+
+    When to use: for live curves of a long run viewed with TensorBoard. Prefer
+    the CSV reporter when you want the values themselves in a table.
+
+    Examples
+    --------
+    >>> from pathlib import Path
+    >>> reporter = TensorBoardReporter(log_dir=Path("runs") / "demo")
+    >>> reporter.log_dir.as_posix()
+    'runs/demo'
+
+    Reporting needs the ``tensorboard`` extra and writes event files, so the
+    example is not run here:
+
+    >>> from core.metrics.schemas import MetricSchema
+    >>> class Run(MetricSchema):
+    ...     iter: list[int] = []
+    ...     loss: list[float] = []
+    >>> reporter.add_query(Query(title="Loss", x=("iter",), y=("loss",)))
+    >>> reporter.report(Run(iter=[0, 1], loss=[3.0, 2.0]))  # doctest: +SKIP
+    >>> reporter.close()
+    """
+
     def __init__(self, *, log_dir: Path) -> None:
         self._log_dir = Path(log_dir)
         self._writer: SummaryWriter | None = None
 
     @property
     def log_dir(self) -> Path:
+        """Return the directory the event files are written to."""
+
         return self._log_dir
 
     def _get_writer(self) -> SummaryWriter:
@@ -169,6 +273,11 @@ class TensorBoardReporter(Reporter):
         writer.flush()
 
     def close(self) -> None:
+        """Close the ``SummaryWriter`` if one was created.
+
+        A later report creates a new writer on the same directory.
+        """
+
         if self._writer is not None:
             self._writer.close()
 

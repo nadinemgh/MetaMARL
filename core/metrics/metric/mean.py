@@ -15,6 +15,18 @@ class MeanMetric(SeriesMetric):
 
     When to use: the default protocol, for per-step quantities averaged over an
     iteration (rewards, catches, losses).
+
+    Examples
+    --------
+    >>> metric = MeanMetric()
+    >>> metric.push(1.0)
+    >>> metric.push(4)
+    >>> metric.peek()
+    2.5
+    >>> metric.reduce()
+    2.5
+    >>> metric.peek() is None
+    True
     """
 
     @override(SeriesMetric)
@@ -22,6 +34,16 @@ class MeanMetric(SeriesMetric):
         """Append a number.
 
         Booleans and non-numeric values are rejected with ``TypeError``.
+
+        Parameters
+        ----------
+        value : int or float
+            The number to record.
+
+        Raises
+        ------
+        TypeError
+            If ``value`` is a ``bool`` or not an ``int`` or ``float``.
         """
 
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -35,6 +57,17 @@ class MeanMetric(SeriesMetric):
         """Return the arithmetic mean (``None`` when empty).
 
         When ``compile`` is false, the history is returned instead.
+
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, the mean; if false, a copy of the history.
+
+        Returns
+        -------
+        float or list[float] or None
+            The mean of the pushed values, ``None`` while empty, or the
+            history.
         """
 
         if not compile:
@@ -49,7 +82,19 @@ class MeanMetric(SeriesMetric):
         """Return the arithmetic mean and clear the history.
 
         With ``compile`` false a new ``MeanMetric`` holding only that value is
-        returned instead; an empty metric reduces to ``None``.
+        returned instead. An empty metric returns ``None``, or a new empty
+        ``MeanMetric`` when ``compile`` is false.
+
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, return the mean; if false, a new ``MeanMetric``.
+
+        Returns
+        -------
+        float or MeanMetric or None
+            The mean (or a metric holding it); ``None`` when empty and
+            ``compile`` is true.
         """
 
         if not self.values:

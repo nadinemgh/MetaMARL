@@ -1,9 +1,16 @@
 """Weights & Biases reporter: one Plotly figure per query, logged to a run.
 
-A :class:`Query` with a ``color`` path is drawn as a marker-only scatter whose
-points are coloured on a shared Viridis colour axis; a
-:class:`ParallelCoordinatesQuery` becomes a ``go.Parcoords`` trace with one
-axis per table column and lines coloured by the table colour.
+Every :class:`~core.reporting.query.Query` becomes one Plotly figure logged
+under ``plots/<sanitised title>``: one trace per y series and dynamic group,
+drawn with the query's plot modes, plus a translucent band for a requested
+standard deviation. A query with a ``color`` path colours the points of every
+trace on one shared colour axis (the query's ``colorscale``, or Plotly's
+default when none is given).
+
+The module is the Weights & Biases backend of the reporting layer:
+:class:`WandbConfig` is the serialisable factory carried by the optimizer and
+environment configs, and :class:`WandbReporter` owns one W&B run. The run is
+started on the first report, never when the reporter is built.
 """
 
 from __future__ import annotations
@@ -25,6 +32,57 @@ from core.utils import sanitize_key
 
 
 class WandbConfig(ReporterConfig):
+    """Configuration of a :class:`WandbReporter`.
+
+    The reporters it builds each start their own W&B run, named
+    ``<world>[-<label>]`` and grouped by world, so the runs of one experiment
+    appear together. ``world`` and ``outer_iters`` are filled in by the
+    optimizer that owns the config and are recorded in the run configuration.
+    The keyword arguments after ``project`` become the W&B client settings.
+
+    Parameters
+    ----------
+    project : str
+        Name of the W&B project that receives the runs.
+    x_disable_stats : bool or None, default True
+        W&B setting ``x_disable_stats``: do not collect system metrics.
+    x_disable_meta : bool or None, default True
+        W&B setting ``x_disable_meta``: do not collect system metadata.
+    quiet : bool or None, default True
+        W&B setting ``quiet``: suppress the non-essential output of the client.
+    max_end_of_run_summary_metrics : int or None, default 0
+        W&B setting: maximum number of summary metrics displayed at the end of a
+        run.
+    max_end_of_run_history_metrics : int or None, default 0
+        W&B setting: maximum number of history sparklines displayed at the end of
+        a run.
+    **kwargs : Any
+        Accepted and ignored; they do not reach the W&B settings.
+
+    Attributes
+    ----------
+    settings : dict[str, Any]
+        The five W&B settings above, passed to ``wandb.Settings`` when a run
+        starts.
+
+    When to use: when you want the curves of a run in the W&B web interface,
+    grouped per world; it needs a W&B login, or offline mode
+    (``WANDB_MODE=offline``).
+
+    Examples
+    --------
+    Building a reporter does not start a run:
+
+    >>> config = WandbConfig(project="fishery", quiet=False)
+    >>> config.world = "lake"
+    >>> config.outer_iters = 50
+    >>> reporter = config.build(label="ES")
+    >>> isinstance(reporter, WandbReporter)
+    True
+    >>> config.settings["quiet"]
+    False
+    """
+
     def __init__(
         self,
         *,
@@ -49,7 +107,20 @@ class WandbConfig(ReporterConfig):
     def build(self, *, label: Optional[str] = None) -> WandbReporter:
         """Create a :class:`WandbReporter` with a fresh random run id.
 
-        The run is grouped by world.
+        The run is named ``<world>-<label>`` (``<world>`` without a label),
+        grouped by world, and its configuration records ``outer_iters`` and
+        ``world_name``. No run is started yet.
+
+        Parameters
+        ----------
+        label : str or None, default None
+            Suffix identifying the owner (an optimizer class or an
+            environment id).
+
+        Returns
+        -------
+        WandbReporter
+            A reporter that starts its W&B run on the first report.
         """
 
         name = f"{self.world}-{label}" if label is not None else self.world
@@ -67,8 +138,54 @@ class WandbConfig(ReporterConfig):
 class WandbReporter(Reporter):
     """Reporter rendering each query as a Plotly figure logged to one W&B run.
 
-    The run is created lazily on the first ``report`` call so that building
-    a reporter never touches the network.
+    The run is created lazily on the first report call, so that building a
+    reporter never touches the network. Each query is drawn as one figure
+    logged under ``plots/<sanitised title>``: every y path and dynamic group
+    is a trace, the dash pattern distinguishes groups, a standard deviation
+    is a filled band of plus and minus one deviation, and a colour path
+    colours the markers on a shared colour axis. A query that resolves to no
+    series logs nothing, but still starts the run. If ``wandb.init`` returns
+    no run, the report raises ``RuntimeError``, which
+    :meth:`~core.reporting.base.Reporter.report` logs.
+
+    Parameters
+    ----------
+    project : str
+        W&B project name.
+    name : str
+        Display name of the run.
+    run_id : str
+        Identifier of the run (a fresh UUID hex string when built by
+        :class:`WandbConfig`).
+    group : str
+        W&B group of the run (the world name when built by
+        :class:`WandbConfig`).
+    config : dict[str, Any] or None, default None
+        Run configuration recorded by W&B; an empty dictionary when ``None``.
+    settings : dict[str, Any] or None, default None
+        Keyword arguments of ``wandb.Settings``; defaults when ``None``.
+
+    When to use: through :class:`WandbConfig`, to get interactive Plotly
+    figures per query in the W&B interface.
+
+    Examples
+    --------
+    Constructing the reporter is free of network access:
+
+    >>> reporter = WandbReporter(
+    ...     project="fishery", name="lake-ES", run_id="a1b2", group="lake"
+    ... )
+
+    Reporting starts a W&B run, so the example is not run here:
+
+    >>> from core.metrics.schemas import MetricSchema
+    >>> from core.reporting.query import Query
+    >>> class Run(MetricSchema):
+    ...     iter: list[int] = []
+    ...     loss: list[float] = []
+    >>> reporter.add_query(Query(title="Loss", x=("iter",), y=("loss",)))
+    >>> reporter.report(Run(iter=[0, 1], loss=[3.0, 2.0]))  # doctest: +SKIP
+    >>> reporter.close()
     """
 
     def __init__(
@@ -311,7 +428,7 @@ class WandbReporter(Reporter):
     def close(self) -> None:
         """Finish the W&B run if one was started.
 
-        A later ``report`` calls ``wandb.init`` again.
+        A later report calls ``wandb.init`` again with the same run id.
         """
 
         if self._run is not None:

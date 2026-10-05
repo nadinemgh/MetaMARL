@@ -21,12 +21,32 @@ class Metric(ABC):
     Each subclass implements one reduction protocol (see
     :class:`~core.metrics.enums.ReduceProtocol`). ``float()`` and ``int()``
     on a metric return its compiled value and raise ``ValueError`` when that
-    value is a list.
+    value is a list. The class is abstract: ``len``, ``push``, ``peek``,
+    ``reduce`` and ``flush`` are implemented by the subclasses.
+
+    When to use: you rarely instantiate a metric yourself; the logger creates
+    one per schema field through
+    :class:`~core.metrics.metric.factory.MetricFactory`. Subclass it to add a
+    reduction, and register that reduction in the factory.
+
+    Examples
+    --------
+    The concrete :class:`~core.metrics.metric.mean.MeanMetric` shows the
+    contract:
+
+    >>> from core.metrics.metric.mean import MeanMetric
+    >>> metric = MeanMetric()
+    >>> metric.push(1.0)
+    >>> metric.push(3.0)
+    >>> len(metric), float(metric)
+    (2, 2.0)
+    >>> metric.empty_copy()
+    MeanMetric(None; len=0)
     """
 
     @abstractmethod
     def __len__(self) -> int:
-        """Returns the length of the internal values list."""
+        """Return the number of values currently held."""
 
         ...
 
@@ -47,55 +67,76 @@ class Metric(ABC):
         return int(value)
 
     def empty_copy(self) -> Self:
-        """Return a fresh, empty metric of the same class."""
+        """Return a fresh, empty metric of the same class.
+
+        Returns
+        -------
+        Metric
+            A new instance created with no argument; the values of this metric
+            are not copied.
+        """
 
         return type(self)()
 
     @abstractmethod
     def peek(self, compile: bool = True) -> Union[PrimitiveType, list[PrimitiveType]]:
-        """Returns the result of reducing the internal values list.
+        """Return the reduction of the values without altering them.
 
-        Note that this method does NOT alter the internal values list in this process.
-        Thus, users can call this method to get an accurate look at the reduced value(s)
-        given the current internal values list.
+        Users can call this method to look at the reduced value(s) of the
+        current history; the history is left as it is.
 
-        Args:
-            compile: If True, the result is compiled into a single value if possible.
-        Returns:
-            The result of reducing the internal values list on CPU memory.
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, the result is the compiled value of the protocol (a mean,
+            a sum, ...); if false, the raw history as a list.
+
+        Returns
+        -------
+        int or float or bool or str or list
+            The compiled value, or the history when ``compile`` is false.
+            Subclasses return ``None`` for the compiled value of an empty
+            history, except the sum, which is ``0``.
         """
 
     @abstractmethod
     def reduce(
         self, compile: bool = True
     ) -> Union[PrimitiveType, list[PrimitiveType], Metric]:
-        """Reduces the internal values.
+        """Reduce the values, clear the history and return the result.
 
-        This method should NOT be called directly by users.
-        It can be used as a hook to prepare the stats object for sending it to the root
-        metrics logger and starting a new 'reduce cycle'.
+        Users do not normally call this method: the logger calls it on every
+        leaf when it reduces, which also starts a new accumulation cycle.
+        What the reduction returns depends on the subclass: most reduce to a
+        single value, the series metric returns its history.
 
-        The reduction logic depends on the implementation of the subclass.
-        Meaning that some classes may reduce to a single value, while others do not or
-        don't even contain values.
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, the result is the compiled value. If false, the result is
+            a new metric of the same class holding the reduced value(s).
 
-        Args:
-            compile: If True, the result is compiled into a single value if possible.
-                If False, the result is a Stats object similar to itself, but with
-                the internal values reduced.
-        Returns:
-            The reduced value or a Stats object similar to itself, but with the
-            internal values reduced.
+        Returns
+        -------
+        int or float or bool or str or list or Metric
+            The compiled value, or a new metric holding it when ``compile`` is
+            false.
         """
 
     @abstractmethod
     def push(self, value: PrimitiveType) -> None:
-        """Append one value to the internal history."""
+        """Append one value to the internal history.
+
+        Parameters
+        ----------
+        value : int or float or bool or str
+            The value to record. Subclasses may reject some types.
+        """
 
         ...
 
     @abstractmethod
     def flush(self) -> None:
-        """Discard every accumulated value."""
+        """Discard every accumulated value, leaving the metric empty."""
 
     ...

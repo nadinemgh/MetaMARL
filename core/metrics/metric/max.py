@@ -15,6 +15,19 @@ class MaxMetric(SeriesMetric):
 
     When to use: for peak values over an iteration, such as the best reward of a
     batch of episodes.
+
+    Examples
+    --------
+    >>> metric = MaxMetric()
+    >>> metric.push(2.0)
+    >>> metric.push(5)
+    >>> metric.push(3.5)
+    >>> metric.peek()
+    5
+    >>> metric.reduce()
+    5
+    >>> metric.peek() is None
+    True
     """
 
     @override(SeriesMetric)
@@ -22,6 +35,16 @@ class MaxMetric(SeriesMetric):
         """Append a number.
 
         Booleans and non-numeric values are rejected with ``TypeError``.
+
+        Parameters
+        ----------
+        value : int or float
+            The number to record.
+
+        Raises
+        ------
+        TypeError
+            If ``value`` is a ``bool`` or not an ``int`` or ``float``.
         """
 
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -35,6 +58,16 @@ class MaxMetric(SeriesMetric):
         """Return the maximum (``None`` when empty).
 
         When ``compile`` is false, the history is returned instead.
+
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, the maximum; if false, a copy of the history.
+
+        Returns
+        -------
+        int or float or list or None
+            The largest pushed value, ``None`` while empty, or the history.
         """
 
         if not compile:
@@ -49,7 +82,19 @@ class MaxMetric(SeriesMetric):
         """Return the maximum and clear the history.
 
         With ``compile`` false a new ``MaxMetric`` holding only that value is
-        returned instead; an empty metric reduces to ``None``.
+        returned instead. An empty metric returns ``None``, or a new empty
+        ``MaxMetric`` when ``compile`` is false.
+
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, return the maximum; if false, a new ``MaxMetric``.
+
+        Returns
+        -------
+        int or float or MaxMetric or None
+            The maximum (or a metric holding it); ``None`` when empty and
+            ``compile`` is true.
         """
 
         if not self.values:

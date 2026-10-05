@@ -14,6 +14,19 @@ class MinMetric(SeriesMetric):
     returns ``None`` while empty.
 
     When to use: for floor values over an iteration, such as the lowest stock observed.
+
+    Examples
+    --------
+    >>> metric = MinMetric()
+    >>> metric.push(2.0)
+    >>> metric.push(5)
+    >>> metric.push(3.5)
+    >>> metric.peek()
+    2.0
+    >>> metric.reduce()
+    2.0
+    >>> metric.peek() is None
+    True
     """
 
     @override(SeriesMetric)
@@ -21,6 +34,16 @@ class MinMetric(SeriesMetric):
         """Append a number.
 
         Booleans and non-numeric values are rejected with ``TypeError``.
+
+        Parameters
+        ----------
+        value : int or float
+            The number to record.
+
+        Raises
+        ------
+        TypeError
+            If ``value`` is a ``bool`` or not an ``int`` or ``float``.
         """
 
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -34,6 +57,16 @@ class MinMetric(SeriesMetric):
         """Return the minimum (``None`` when empty).
 
         When ``compile`` is false, the history is returned instead.
+
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, the minimum; if false, a copy of the history.
+
+        Returns
+        -------
+        int or float or list or None
+            The smallest pushed value, ``None`` while empty, or the history.
         """
 
         if not compile:
@@ -48,7 +81,19 @@ class MinMetric(SeriesMetric):
         """Return the minimum and clear the history.
 
         With ``compile`` false a new ``MinMetric`` holding only that value is
-        returned instead; an empty metric reduces to ``None``.
+        returned instead. An empty metric returns ``None``, or a new empty
+        ``MinMetric`` when ``compile`` is false.
+
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, return the minimum; if false, a new ``MinMetric``.
+
+        Returns
+        -------
+        int or float or MinMetric or None
+            The minimum (or a metric holding it); ``None`` when empty and
+            ``compile`` is true.
         """
 
         if not self.values:

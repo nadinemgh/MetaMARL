@@ -2,7 +2,10 @@
 
 A ``ReporterConfig`` travels through the optimizer configs and is copied into
 every environment; ``build(label=...)`` creates the backend-specific reporter
-for one owner (an optimizer or an environment instance).
+for one owner (an optimizer or an environment instance). This module holds the
+abstract base class; the concrete configurations live next to their reporters
+in :mod:`core.reporting.csv`, :mod:`core.reporting.tensor_board` and
+:mod:`core.reporting.wandb`.
 """
 
 import copy
@@ -15,10 +18,46 @@ from core.reporting.base import Reporter
 class ReporterConfig(ABC):
     """Serializable description of a reporter, built into one instance per owner.
 
-    ``project`` names the run group of the backend. ``world`` and
-    ``outer_iters`` are filled in later by the optimizer that owns the config,
-    before :meth:`build` is called; :meth:`copy` gives each environment its
-    own instance.
+    A configuration holds what is known when an experiment is declared (the
+    project name and the backend options) and is cheap to copy; the reporter
+    itself, which may open files or a network connection, is only created by
+    :meth:`build`. ``world`` and ``outer_iters`` are filled in later by the
+    optimizer that owns the config, before :meth:`build` is called;
+    :meth:`copy` gives each environment its own instance. The class is
+    abstract: a backend subclasses it and implements :meth:`build`.
+
+    Parameters
+    ----------
+    project : str
+        Name of the project or run group of the backend.
+
+    Attributes
+    ----------
+    project_name : str
+        The ``project`` argument.
+    world : str or None
+        Name of the world reported on; ``None`` until the optimizer sets it.
+    outer_iters : int or None
+        Number of outer-loop iterations of the run (a count, no unit); ``None``
+        until the optimizer sets it.
+
+    When to use: subclass it to add a backend; otherwise use one of the
+    concrete configurations (CSV, TensorBoard, Weights & Biases) in the
+    experiment configuration.
+
+    Examples
+    --------
+    A copy is independent of the original:
+
+    >>> from core.reporting.csv import CSVConfig
+    >>> config = CSVConfig(project="fishery")
+    >>> config.world is None
+    True
+    >>> config.world = "lake"
+    >>> clone = config.copy()
+    >>> clone.world = "other"
+    >>> config.world
+    'lake'
     """
 
     def __init__(self, project: str):
@@ -57,8 +96,16 @@ class ReporterConfig(ABC):
 
     @abstractmethod
     def build(self) -> Reporter:
-        """
-        Compiles config based on the reporter type and initiates the reporter
+        """Create the backend-specific reporter described by this config.
+
+        The concrete configurations of this package take a keyword-only
+        ``label`` (the owner of the reporter) that the optimizers and
+        environments pass; this abstract signature does not declare it.
+
+        Returns
+        -------
+        Reporter
+            A new reporter, not yet shared with any other owner.
         """
 
         ...

@@ -15,6 +15,18 @@ class SumMetric(SeriesMetric):
 
     When to use: for quantities accumulated over an iteration (total catch,
     number of episodes, environment steps).
+
+    Examples
+    --------
+    >>> metric = SumMetric()
+    >>> metric.peek()
+    0
+    >>> metric.push(2)
+    >>> metric.push(1.5)
+    >>> metric.reduce()
+    3.5
+    >>> metric.peek()
+    0
     """
 
     @override(SeriesMetric)
@@ -22,6 +34,16 @@ class SumMetric(SeriesMetric):
         """Append a number.
 
         Booleans and non-numeric values are rejected with ``TypeError``.
+
+        Parameters
+        ----------
+        value : int or float
+            The number to record.
+
+        Raises
+        ------
+        TypeError
+            If ``value`` is a ``bool`` or not an ``int`` or ``float``.
         """
 
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -35,6 +57,16 @@ class SumMetric(SeriesMetric):
         """Return the sum (``0`` when empty).
 
         When ``compile`` is false, the history is returned instead.
+
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, the sum; if false, a copy of the history.
+
+        Returns
+        -------
+        int or float or list
+            The sum of the pushed values (``0`` while empty), or the history.
         """
 
         if not compile:
@@ -47,6 +79,16 @@ class SumMetric(SeriesMetric):
 
         With ``compile`` false a new ``SumMetric`` holding only the sum is
         returned instead.
+
+        Parameters
+        ----------
+        compile : bool, default True
+            If true, return the sum; if false, a new ``SumMetric``.
+
+        Returns
+        -------
+        int or float or SumMetric
+            The sum (``0`` when empty), or a metric holding it.
         """
 
         sum = self.peek(compile=True)

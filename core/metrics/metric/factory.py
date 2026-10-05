@@ -11,11 +11,38 @@ from core.metrics.metric.sum import SumMetric
 
 
 class MetricFactory:
-    """Instantiate the :class:`Metric` matching a :class:`ReduceProtocol`."""
+    """Instantiate the :class:`Metric` matching a :class:`ReduceProtocol`.
+
+    The logger asks the factory for one metric per leaf of a schema, using the
+    protocol declared on the field. ``MEAN``, ``SERIES``, ``LAST``, ``MAX``,
+    ``MIN`` and ``SUM`` are implemented; ``EMA`` is not.
+
+    When to use: when you build metrics by hand, or when you add a reduction
+    and need it created from its protocol.
+
+    Examples
+    --------
+    >>> MetricFactory.create(ReduceProtocol.MAX)
+    MaxMetric(None; len=0)
+    >>> MetricFactory.create(ReduceProtocol.EMA)
+    Traceback (most recent call last):
+        ...
+    NotImplementedError: Reduce protocol 'ema' is not implemented.
+    """
 
     @staticmethod
     def create(protocol: ReduceProtocol) -> Metric:
         """Return a new, empty metric for ``protocol``.
+
+        Parameters
+        ----------
+        protocol : ReduceProtocol
+            The reduction the metric implements.
+
+        Returns
+        -------
+        Metric
+            A new metric of the matching class, holding no value.
 
         Raises
         ------

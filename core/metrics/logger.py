@@ -6,12 +6,13 @@ reducer comes from ``Field(json_schema_extra={"reduce": ReduceProtocol.X})``
 ``dict[ID, MetricSchema]`` is a *dynamic* node whose children are created on
 first use (one per agent, policy, candidate, ...). :class:`MetricLogger` builds
 the matching tree of :class:`~core.metrics.metric.base.Metric` objects,
-accumulates values through :meth:`~MetricLogger.push` / :meth:`~MetricLogger.push_data`,
-and returns populated schema instances through :meth:`~MetricLogger.peek`
-(non-destructive, raw histories) or :meth:`~MetricLogger.reduce` (destructive,
-reduced values). Pushing a *subclass* of a declared schema specializes that
-sub-tree at runtime, which is how an ES logger ends up holding the concrete
-RLlib and environment schemas of the inner level.
+accumulates values through :meth:`~MetricLogger.push` and
+:meth:`~MetricLogger.push_data`, and returns populated schema instances through
+:meth:`~MetricLogger.peek` (non-destructive, raw histories) or
+:meth:`~MetricLogger.reduce` (destructive, reduced values). Pushing a *subclass*
+of a declared schema specializes that sub-tree at runtime, which is how an ES
+logger ends up holding the concrete RLlib and environment schemas of the inner
+level.
 """
 
 from __future__ import annotations
@@ -36,6 +37,45 @@ class Node(dict[str, "Node | Metric"]):
     nodes or :class:`Metric` leaves. ``schema`` is the pydantic class that the
     node rebuilds in :meth:`construct`; ``dynamic`` marks a
     ``dict[ID, MetricSchema]`` field whose children are created on first push.
+
+    Parameters
+    ----------
+    *args : Any
+        Positional arguments of ``dict``.
+    schema : type[MetricSchema] or None, default None
+        The schema class the node mirrors (the value schema of a dynamic
+        node). A static node without one cannot ``construct``.
+    dynamic : bool, default False
+        Whether the node is the ``dict[ID, MetricSchema]`` of a schema field.
+    subtree_reduce : ReduceProtocol or None, default None
+        Protocol imposed on every leaf below this node, overriding the
+        protocols of the schema fields.
+    **kwargs : Any
+        Keyword arguments of ``dict``: the initial children.
+
+    Attributes
+    ----------
+    schema : type[MetricSchema] or None
+        The schema class of the node.
+    dynamic : bool
+        Whether the children are keyed by runtime ids.
+    subtree_reduce : ReduceProtocol or None
+        The protocol forced on the leaves below the node, if any.
+
+    When to use: you normally get nodes from :class:`MetricLogger`, which
+    builds the tree; create one by hand only to test tree-walking code.
+
+    Examples
+    --------
+    >>> from typing import Optional
+    >>> from core.metrics.metric.mean import MeanMetric
+    >>> from core.metrics.schemas import MetricSchema
+    >>> class Rollout(MetricSchema):
+    ...     reward: Optional[float] = None
+    >>> node = Node(schema=Rollout)
+    >>> node["reward"] = MeanMetric()
+    >>> node.construct({"reward": 2.0})
+    Rollout(iter=None, reward=2.0)
     """
 
     schema: type[MetricSchema]
@@ -44,11 +84,11 @@ class Node(dict[str, "Node | Metric"]):
 
     def __init__(
         self,
-        *args,
+        *args: Any,
         schema: type[MetricSchema] | None = None,
         dynamic: bool = False,
         subtree_reduce: ReduceProtocol | None = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__(*args, **kwargs)
 
@@ -63,6 +103,18 @@ class Node(dict[str, "Node | Metric"]):
         value or the nested dictionary of a child node. A dynamic node returns
         a plain ``dict`` keyed by runtime id; a static node returns
         ``schema.model_construct(**values)``, so no pydantic validation runs.
+
+        Parameters
+        ----------
+        data : dict[str, Any]
+            Values laid out like the node: a key per child, holding a leaf
+            value or the nested dictionary of a child node.
+
+        Returns
+        -------
+        MetricSchema or dict[str, Any]
+            A schema instance for a static node, a dictionary of rebuilt
+            children keyed by runtime id for a dynamic node.
 
         Raises
         ------
@@ -103,6 +155,35 @@ class MetricLogger(ABC):
     ``MetricSchema`` declares, ``MetricLogger`` accumulates,
     :class:`~core.reporting.query.Query` selects and
     :class:`~core.reporting.base.Reporter` renders.
+
+    A path is a tuple of field names, with the runtime id after each dynamic
+    node, for example ``("by_mechanism", "quota", "fitness")``. Ids are
+    created the first time a value is pushed under them.
+
+    When to use: wherever values are produced piecemeal during an iteration
+    (per step, per episode, per candidate) and must be reduced once before
+    being reported: the optimizers and the environments each own one.
+
+    Examples
+    --------
+    >>> from typing import Optional
+    >>> from pydantic import Field
+    >>> from core.metrics.schemas import MetricSchema
+    >>> class Rollout(MetricSchema):
+    ...     reward: Optional[float] = None
+    ...     steps: Optional[int] = Field(
+    ...         default=None, json_schema_extra={"reduce": ReduceProtocol.SUM}
+    ...     )
+    >>> logger = MetricLogger.from_schema(Rollout)
+    >>> logger.push(("reward",), 1.0)
+    >>> logger.push_data(Rollout(reward=3.0, steps=10))
+    >>> logger.peek().reward
+    [1.0, 3.0]
+    >>> reduced = logger.reduce()
+    >>> reduced.reward, reduced.steps
+    (2.0, 10)
+    >>> logger.peek_value(("reward",)) is None
+    True
     """
 
     _TOKEN: ClassVar[object] = object()
@@ -133,6 +214,26 @@ class MetricLogger(ABC):
 
         This is the only supported constructor: it builds the ``Node`` tree and
         the flat ``path -> Metric`` index that :meth:`push` looks up first.
+
+        Parameters
+        ----------
+        schema : type[MetricSchema]
+            The schema class to mirror. A leaf takes the metric of its
+            ``reduce`` extra (``MEAN`` by default).
+
+        Returns
+        -------
+        MetricLogger
+            A logger holding an empty metric per leaf; dynamic nodes have no
+            child yet.
+
+        Raises
+        ------
+        TypeError
+            If a field is a dictionary whose values are not ``MetricSchema``
+            subclasses.
+        NotImplementedError
+            If a field asks for a protocol without an implementation (``EMA``).
         """
 
         tree, refs = cls._build_from_schema(schema)
@@ -270,7 +371,36 @@ class MetricLogger(ABC):
     def push_data(
         self, data: MetricSchema, prefix: Path = (), node: Node | None = None
     ) -> None:
-        """Push all leaf values of a MetricSchema into their correspondi ng metrics."""
+        """Push every non-``None`` leaf of a schema instance into its metric.
+
+        Nested schemas and dynamic nodes are walked recursively, and the
+        children of a dynamic node are created on first use. A nested schema
+        that is a subclass of the declared one specialises that sub-tree at
+        runtime (the sub-tree is rebuilt, so values pushed earlier under the
+        declared schema are not kept). ``prefix`` and ``node`` are the
+        recursion state and keep their defaults on the first call.
+
+        Parameters
+        ----------
+        data : MetricSchema
+            The values to push; at the root it must be exactly the schema the
+            logger was built from.
+        prefix : Path, default ()
+            Path of ``data`` inside the tree.
+        node : Node or None, default None
+            The tree node matching ``data``; the root when ``None``.
+
+        Raises
+        ------
+        TypeError
+            If the root is not exactly the logger's schema, a nested
+            schema is not a subclass of the declared one, a dynamic id changes
+            schema, or a value does not match the shape of the tree.
+        KeyError
+            If ``data`` has a field the tree does not know.
+        RuntimeError
+            If a node has no declared schema.
+        """
 
         if node is None:
             if not prefix and type(data) is not self._schema:
@@ -390,7 +520,23 @@ class MetricLogger(ABC):
             child_node.push(value)
 
     def push(self, key: Path, value: Any) -> None:
-        """Logs a new value or item under a (strictly existing) path to the logger"""
+        """Push one value under a path.
+
+        The leaf must exist in the schema; the id of a dynamic node is created
+        if it is new.
+
+        Parameters
+        ----------
+        key : Path
+            Path of the leaf, with the runtime id after each dynamic node.
+        value : Any
+            The value to record; the metric of the leaf may reject its type.
+
+        Raises
+        ------
+        KeyError
+            If the path is unknown, stops before a leaf or continues past one.
+        """
 
         metric = self._refs.get(key)
 
@@ -401,8 +547,28 @@ class MetricLogger(ABC):
 
     def peek_value(self, key: Path) -> Any:
         # NOTE this does not work for sub trees as of now !
-        """
-        Reads a metric value given its path without destructively reducing it
+        """Read the compiled value of one leaf without clearing it.
+
+        Unlike :meth:`peek`, the value is the reduction of the leaf (its mean,
+        sum, ...), not its history. Only leaves that exist can be read: a path
+        to a sub-tree, or under a dynamic id that has not been pushed yet, is
+        unknown.
+
+        Parameters
+        ----------
+        key : Path
+            Path of the leaf.
+
+        Returns
+        -------
+        Any
+            The compiled value of the leaf (``None`` for an empty mean, max,
+            min or last).
+
+        Raises
+        ------
+        KeyError
+            If no leaf exists at ``key``.
         """
 
         metric = self._refs.get(key)
@@ -413,9 +579,23 @@ class MetricLogger(ABC):
         return metric.peek()
 
     def peek(self) -> MetricSchema:
-        """
-        Returns all accumulated values as a MetricSchema
-        without destructively reducing them.
+        """Return the raw history of every leaf as a schema instance.
+
+        Nothing is reduced or cleared: each leaf of the returned schema holds
+        the list of every value pushed since the last reduction, whatever its
+        protocol. This is what the reporters resolve their queries against.
+        The instance is built without pydantic validation.
+
+        Returns
+        -------
+        MetricSchema
+            An instance of the logger's schema (specialised sub-trees
+            included) whose leaves are lists.
+
+        Raises
+        ------
+        ValueError
+            If a leaf cannot be read.
         """
 
         def _peek(path: Path, metric: Metric):
@@ -431,9 +611,22 @@ class MetricLogger(ABC):
         return self._tree.construct(peeked)
 
     def reduce(self) -> MetricSchema:
-        """
-        Reduces all logged values based on their settings and returns a MetricSchema
-        object.
+        """Reduce every leaf, clear the accumulators and return the result.
+
+        Each leaf collapses its values according to its protocol (a mean, a
+        sum, the last value, the history of a series...), and an empty leaf
+        gives ``None`` (or ``0`` for a sum). The next push starts a new
+        accumulation cycle.
+
+        Returns
+        -------
+        MetricSchema
+            An instance of the logger's schema holding the reduced values.
+
+        Raises
+        ------
+        ValueError
+            If a leaf cannot be reduced.
         """
 
         def _reduce(path: Path, metric: Metric):
@@ -450,15 +643,29 @@ class MetricLogger(ABC):
         return self._tree.construct(reduced)
 
     def compile(self) -> dict:
-        """
-        Compiles all current values and throughputs into a single dictionary.
+        """Reduce every leaf and return the result as a dictionary.
+
+        Equivalent to ``reduce().model_dump(serialize_as_any=True)``: like
+        :meth:`reduce`, it clears the accumulators.
+
+        Returns
+        -------
+        dict
+            The reduced values, keyed by field name and runtime id.
         """
 
         return self.reduce().model_dump(serialize_as_any=True)
 
     def reset(self) -> None:
-        """
-        Resets all data stored in this MetricLogger.
+        """Clear every accumulator without reducing it.
+
+        The tree keeps its shape: dynamic ids already created stay, with
+        empty metrics.
+
+        Raises
+        ------
+        ValueError
+            If a leaf cannot be cleared.
         """
 
         for path, metric in self._refs.items():
@@ -471,8 +678,19 @@ class MetricLogger(ABC):
                 ) from e
 
     def flush(self, key: Path) -> None:
-        """
-        Flush all accumulated values for the metric at `key`.
+        """Clear the accumulated values of the leaf at ``key``.
+
+        Parameters
+        ----------
+        key : Path
+            Path of the leaf.
+
+        Raises
+        ------
+        KeyError
+            If no leaf exists at ``key``.
+        ValueError
+            If the leaf cannot be cleared.
         """
 
         metric = self._refs.get(key)

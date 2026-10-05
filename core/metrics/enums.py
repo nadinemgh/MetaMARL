@@ -12,6 +12,18 @@ class ReduceProtocol(Enum):
     no implementation yet, so :class:`~core.metrics.metric.factory.MetricFactory`
     raises ``NotImplementedError`` for it. The protocol is attached to a
     schema field through ``Field(json_schema_extra={"reduce": ...})``.
+
+    When to use: to choose how a leaf of a metric schema collapses its values
+    (a mean reward, a summed catch, the last iteration index, a full series
+    to plot) and to name the reduction in a query path, where ``SERIES`` and
+    ``MEAN`` also select how a dynamic node is expanded.
+
+    Examples
+    --------
+    >>> ReduceProtocol("max") is ReduceProtocol.MAX
+    True
+    >>> [protocol.name for protocol in ReduceProtocol]
+    ['MEAN', 'SUM', 'MAX', 'MIN', 'LAST', 'EMA', 'SERIES']
     """
 
     MEAN = "mean"
