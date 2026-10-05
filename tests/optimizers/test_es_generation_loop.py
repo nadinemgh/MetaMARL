@@ -168,6 +168,18 @@ class TestFailures:
         with pytest.raises(RuntimeError, match="requires a RegulatorEnv"):
             es_factory().train()
 
+    def test_a_regulator_without_horizon_is_rejected(self, es_factory, scripted_env):
+        # RegulatorEnv(horizon=None) never terminates, so the generation loop
+        # would step forever; the ES refuses it before the first generation.
+        opt = es_factory()
+        opt.env = scripted_env(quota_fitness(0.8))
+        opt.env.horizon = None
+
+        with pytest.raises(ValueError, match="finite horizon"):
+            opt.train()
+
+        assert opt.env.resets == 0
+
     def test_truncation_before_a_terminal_fitness(self, es_factory, scripted_env):
         opt = es_factory()
         opt.env = scripted_env(quota_fitness(0.8), end="truncated")

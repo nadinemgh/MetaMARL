@@ -888,10 +888,21 @@ class ESOptimizer(Optimizer):
             without a fitness.
         TypeError
             If ``self.episodes`` is ``None``.
+        ValueError
+            If the environment declares ``horizon=None``: such a regulator never
+            terminates its episode, so a generation would never end.
         """
 
         if self.env is None:
             raise RuntimeError("ESOptimizer requires a RegulatorEnv")
+
+        # RegulatorEnv(horizon=None) means "never terminate", which the
+        # generation loop below cannot handle.
+        if getattr(self.env, "horizon", 1) is None:
+            raise ValueError(
+                "ESOptimizer requires a regulator with a finite horizon; "
+                + "got horizon=None"
+            )
 
         converged = False
         generations_run = 0
