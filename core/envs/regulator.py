@@ -27,7 +27,6 @@ optimizer hands it candidates that are already mechanisms.
 from typing import Any, Optional, SupportsFloat
 
 import gymnasium as gym
-import numpy as np
 import ray
 from gymnasium.core import ActType, ObsType, WrapperObsType
 
@@ -217,10 +216,10 @@ class RegulatorEnv(gym.Env):
         Parameters
         ----------
         seed : int, optional
-            Accepted for the Gymnasium signature. The environment never
-            assigns a ``seed`` attribute, so passing a value other than
-            ``None`` raises ``AttributeError``; the branch that would follow
-            does nothing anyway.
+            Accepted for the Gymnasium signature and ignored. The environment
+            draws no random number: the policy seeds of the training are the
+            ``seeds`` fixed at construction, and the optimizer owns the random
+            generator of the search.
         options : dict, optional
             ``{"persist_agents_policy": True}`` keeps the inner policy
             instead of resetting it (default: an empty dictionary).
@@ -230,10 +229,7 @@ class RegulatorEnv(gym.Env):
         tuple
             ``(None, {})``: the environment has no observation and no info.
         """
-        if seed is not None and self.seed is not None and seed != self.seed:
-            self.seed = seed
-            self.rng = np.random.default_rng(seed)
-            pass  # do not mutate seed after construction
+        # The seed is fixed at construction (``seeds``); a per-call seed is ignored.
         self._t = 0
 
         if not options.get("persist_agents_policy", False):

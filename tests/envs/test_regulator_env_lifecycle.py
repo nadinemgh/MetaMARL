@@ -1,4 +1,4 @@
-"""``RegulatorEnv``: construction, reset, step bookkeeping and known defects.
+"""``RegulatorEnv``: construction, reset, step bookkeeping and opt_id.
 
 The publication of one context per (candidate, policy seed) is pinned by
 ``test_regulator_publish.py``. The August tests of this class decoded
@@ -7,8 +7,6 @@ optimizer vectors through a mechanism template, ran ``inner.run()`` for
 publishes the candidates the optimizer already decoded, calls ``inner.train()``
 once and returns ``reward(results)``, so those tests were dropped and the new
 contract is tested here with a recording inner optimizer.
-
-One test is an expected failure (see its reason): ``reset(seed=...)``.
 """
 
 import pytest
@@ -120,18 +118,15 @@ def test_reset_resets_the_inner_policy_unless_asked_to_persist(toy, inner):
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    raises=AttributeError,
-    reason=(
-        "reset(seed=...) reads self.seed, which RegulatorEnv never assigns, so "
-        + "the Gymnasium reset signature raises AttributeError"
-    ),
-)
-def test_reset_accepts_a_seed(toy, inner):
-    env = make_env(toy, inner)
+def test_reset_accepts_a_seed_and_ignores_it(toy, inner):
+    env = make_env(toy, inner, seeds=[7, 8])
 
     assert env.reset(seed=3) == (None, {})
+
+    # The policy seeds are fixed at construction; the call's seed changes nothing.
+    assert env.seeds == [7, 8]
+    assert not hasattr(env, "seed")
+    assert (env._t, inner.resets) == (0, 1)
 
 
 @pytest.mark.unit
