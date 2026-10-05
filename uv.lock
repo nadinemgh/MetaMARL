@@ -182,7 +182,6 @@ dependencies = [
     { name = "scipy" },
     { name = "seaborn" },
     { name = "sentencepiece" },
-    { name = "spacing" },
     { name = "torch" },
     { name = "transformers" },
     { name = "wandb" },
@@ -201,6 +200,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "spacing" },
     { name = "tensorboard" },
 ]
 
@@ -221,7 +221,6 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.17.0" },
     { name = "seaborn", specifier = ">=0.13.2" },
     { name = "sentencepiece", specifier = ">=0.2.1" },
-    { name = "spacing", specifier = ">=1.0.3" },
     { name = "tensorboard", marker = "extra == 'tensorboard'", specifier = ">=2.16" },
     { name = "torch", specifier = ">=2.10.0" },
     { name = "transformers", specifier = ">=5.4.0" },
@@ -237,6 +236,7 @@ dev = [
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "ruff", specifier = ">=0.14.13" },
+    { name = "spacing", specifier = ">=1.0.3" },
     { name = "tensorboard", specifier = ">=2.16" },
 ]
 
