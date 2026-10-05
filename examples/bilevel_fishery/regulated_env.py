@@ -506,8 +506,8 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         ``unregulated_f_multiplier`` and ``restoration_effectiveness``.
 
     When to use: as the ``env`` of the inner (society) optimizer of a fishery
-    experiment, with ``FisheryMetricSchema`` as its schema and an ``ecology_cfg``
-    whose ``K`` matches the regulator environment's.
+    experiment, with ``FisheryMetricSchema`` as its schema. The carrying
+    capacity ``K`` lives only here: the regulator environment reads none.
 
     Examples
     --------
