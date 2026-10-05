@@ -40,8 +40,10 @@ day 273 of the year (May to September) and lasts ``horizon`` days.
 The observation of a farm has twelve entries: the filled fraction of the
 reservoir, the release pressure (the share of the inflow that is released), the
 allowed fraction at the current level (filled in by the policy), the total
-volume withdrawn the previous day (cubic metres per day, not normalized) and the
-eight normalized rules (filled in by the policy).
+volume withdrawn the previous day divided by the largest volume all the farms
+can need in a day (``WaterRegulatedEnv.max_daily_need_m3_day``, so that the
+entry lies in [0, 1] like the others) and the eight normalized rules (filled in
+by the policy).
 
 References
 ----------
@@ -69,6 +71,7 @@ from core.mechanism.config import MechanismConfig
 from examples.fresh_water.hydrology import (
     RAVEN_ORIGIN,
     SECONDS_PER_DAY,
+    TEMP_C_BY_MONTH,
     LakeModel,
     LakeReading,
     RavenLake,
@@ -121,6 +124,51 @@ DEFAULT_ECOLOGY = {
     "max_farm_area_m2": 1_000_000.0,
 }
 """Reservoir and farm constants of the Belwood Lake setup of the first version."""
+
+
+def reference_evapotranspiration(temp_c: float, month: int) -> float:
+    """Return the reference evapotranspiration of a day (Blaney-Criddle form).
+
+    Parameters
+    ----------
+    temp_c : float
+        Monthly mean air temperature (degrees Celsius).
+    month : int
+        Month of the day, 1 to 12; it selects the daylight share in
+        ``P_BY_MONTH_45N``.
+
+    Returns
+    -------
+    float
+        ``max(0, p * (0.46 * T + 8))`` in millimetres per day.
+
+    When to use: it is the ``ETo`` of :func:`crop_demand` and of the largest
+    daily crop need ``PEAK_CROP_NEED_MM_DAY``.
+
+    Examples
+    --------
+    >>> round(reference_evapotranspiration(23.0, 7), 4)
+    6.3172
+    """
+    return max(0.0, P_BY_MONTH_45N[month] * (0.46 * temp_c + 8.0))
+
+
+PEAK_ETO_MM_DAY = max(
+    reference_evapotranspiration(TEMP_C_BY_MONTH[month], month)
+    for month in P_BY_MONTH_45N
+)
+"""Largest reference evapotranspiration of the year (millimetres per day).
+
+It is reached in July, with 23 degrees and a daylight share of 0.34: 6.3172.
+"""
+
+PEAK_CROP_NEED_MM_DAY = max(CORN_GRAIN_KC.values()) * PEAK_ETO_MM_DAY
+"""Largest crop evapotranspiration a day can have (millimetres per day).
+
+The peak crop coefficient (1.15, mid season) times ``PEAK_ETO_MM_DAY``. The two
+peaks need not fall on the same day, so this is an upper bound of the crop need
+``ETc`` of :func:`crop_demand`; it is about 7.265.
+"""
 
 PLANTING_DAY_OF_YEAR = (121, 274)
 """Half-open range of the planting day of the year (May 1 to September 30)."""
@@ -261,7 +309,7 @@ def crop_demand(
     temp_c = estimate_temp_c(date)
     stage = crop_stage(days_after_planting)
     kc = CORN_GRAIN_KC[stage]
-    eto = max(0.0, P_BY_MONTH_45N[date.month] * (0.46 * temp_c + 8.0))
+    eto = reference_evapotranspiration(temp_c, date.month)
     etcrop = eto * kc
     deficit = max(0.0, etcrop - precip_mm_day)
     return CropDemand(
@@ -300,11 +348,11 @@ class Utilizer(Agent):
     ...     state={
     ...         "reservoir_level_norm": 0.9,
     ...         "release_pressure": 0.5,
-    ...         "usage_m3_day": 120.0,
+    ...         "usage_norm": 0.25,
     ...     }
     ... )
     >>> farm.observation(mdp).obs["utilizer:0"][0].tolist()[:4]
-    [0.8999999761581421, 0.5, 0.0, 120.0]
+    [0.8999999761581421, 0.5, 0.0, 0.25]
     """
 
     def observation(self, mdp: MDPState) -> MDPState:
@@ -315,8 +363,9 @@ class Utilizer(Agent):
         mdp : MDPState
             Shared state with ``reservoir_level_norm`` (filled fraction),
             ``release_pressure`` (share of the inflow released) and
-            ``usage_m3_day`` (total volume withdrawn the previous day, cubic
-            metres per day) at ``mdp.t``.
+            ``usage_norm`` (total volume withdrawn the previous day over the
+            largest volume the farms can need in a day, dimensionless, about in
+            [0, 1]) at ``mdp.t``.
 
         Returns
         -------
@@ -328,7 +377,7 @@ class Utilizer(Agent):
         observation = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
         observation[0] = mdp.state["reservoir_level_norm"][mdp.t]
         observation[1] = mdp.state["release_pressure"][mdp.t]
-        observation[3] = mdp.state["usage_m3_day"][mdp.t]
+        observation[3] = mdp.state["usage_norm"][mdp.t]
         return MDPState(obs={self.id: observation})
 
 
@@ -504,6 +553,13 @@ class WaterRegulatedEnv(MultiAgentEnv):
         The lake model in use.
     max_farm_area_m2 : float
         Area of every farm (square metres).
+    max_daily_need_m3_day : float
+        Largest volume all the farms can need in one day (cubic metres per
+        day): ``number of farms * max_farm_area_m2 * PEAK_CROP_NEED_MM_DAY /
+        1000``. It is computed once at construction. A farm is never delivered
+        more than its crop need, so the total delivered volume divided by this
+        constant, the entry 3 of the observation, lies in [0, 1]. With 500 farms
+        of one million square metres it is about 3.632e6.
 
     Raises
     ------
@@ -545,6 +601,9 @@ class WaterRegulatedEnv(MultiAgentEnv):
 
         ecology = {**DEFAULT_ECOLOGY, **(ecology_cfg or {})}
         self.max_farm_area_m2 = float(ecology["max_farm_area_m2"])
+        self.max_daily_need_m3_day = (
+            len(self.followers) * self.max_farm_area_m2 * PEAK_CROP_NEED_MM_DAY / 1000.0
+        )
         lake_args = dict(
             full_stage_m=float(ecology["full_stage_m"]),
             max_depth_m=float(ecology["max_depth_m"]),
@@ -619,8 +678,8 @@ class WaterRegulatedEnv(MultiAgentEnv):
         MDPState
             A residual with ``state``: ``reservoir_level_norm``,
             ``release_pressure``, ``full_required_m3_day``,
-            ``crop_water_need_m3_day``, ``precip_water_m3_day`` and
-            ``usage_m3_day`` (zero).
+            ``crop_water_need_m3_day``, ``precip_water_m3_day``,
+            ``usage_m3_day`` (zero) and ``usage_norm`` (zero).
 
         Examples
         --------
@@ -649,7 +708,7 @@ class WaterRegulatedEnv(MultiAgentEnv):
         self._reading = reading
         self._crop = self._demand(self._date, reading)
         entries = self._state_entries(reading, self._crop)
-        return MDPState(state={**entries, "usage_m3_day": 0.0})
+        return MDPState(state={**entries, "usage_m3_day": 0.0, "usage_norm": 0.0})
 
     def _rules(self, mdp: MDPState) -> np.ndarray:
         """Return the rules in force: the leader's decoded action or the defaults."""
@@ -686,7 +745,8 @@ class WaterRegulatedEnv(MultiAgentEnv):
         -------
         MDPState
             The state advanced by one day, with the next day's entries appended
-            and the delivered volume as ``usage_m3_day``.
+            and the delivered volume as ``usage_m3_day`` and, divided by
+            ``max_daily_need_m3_day``, as ``usage_norm``.
 
         Examples
         --------
@@ -760,7 +820,14 @@ class WaterRegulatedEnv(MultiAgentEnv):
         self._log_reached_day(reading, entries)
 
         mdp = mdp.add(MDPState(rewards=satisfaction))
-        return mdp.advance(state={**entries, "usage_m3_day": total_usage_m3_day})
+        usage_norm = total_usage_m3_day / max(EPS, self.max_daily_need_m3_day)
+        return mdp.advance(
+            state={
+                **entries,
+                "usage_m3_day": total_usage_m3_day,
+                "usage_norm": usage_norm,
+            }
+        )
 
     def _log_played_day(
         self,

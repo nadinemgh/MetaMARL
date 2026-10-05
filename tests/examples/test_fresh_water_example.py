@@ -622,8 +622,44 @@ def test_observation_carries_the_level_the_allowed_fraction_and_the_rules(build_
         assert vector[0] == pytest.approx(day["reservoir_level_norm"], abs=1e-5)
         assert vector[1] == pytest.approx(day["release_pressure"], abs=1e-5)
         assert vector[2] == pytest.approx(allowed, abs=1e-5)
-        assert vector[3] == pytest.approx(delivered_yesterday, rel=1e-6)
+        assert vector[3] == pytest.approx(
+            delivered_yesterday / env.max_daily_need_m3_day, rel=1e-6
+        )
         np.testing.assert_allclose(vector[4:], TIGHT, atol=1e-6)
+
+
+@pytest.mark.unit
+def test_the_daily_need_normalizer_is_the_peak_crop_need_of_all_the_farms(build_env):
+    # July: ETo = 0.34 * (0.46 * 23 + 8) = 6.3172 mm/day, and the peak crop
+    # coefficient is 1.15 in the mid season, so a square metre needs at most
+    # 7.26478 mm/day, that is 7.26478e-3 m3/day.
+    peak_m3_day_per_m2 = 1.15 * 0.34 * (0.46 * 23.0 + 8.0) / 1000.0
+    env = build_env(farms=3, ecology_cfg={"max_farm_area_m2": 250_000.0})
+    assert env.max_daily_need_m3_day == pytest.approx(
+        3 * 250_000.0 * peak_m3_day_per_m2
+    )
+    # The 500 farms of one million square metres of the full run.
+    full = build_env(farms=500)
+    assert full.max_daily_need_m3_day == pytest.approx(3.63239e6, rel=1e-5)
+
+
+@pytest.mark.unit
+def test_the_usage_entry_of_the_observation_stays_within_zero_and_one(build_env):
+    env = build_env(rules=LOOSE, farms=4, horizon=40)
+    adapter = RLlibMultiAgentEnvAdapter(env)
+    obs, _ = adapter.reset()
+    usage = [obs[farm_ids(4)[0]][3]]
+    for _ in range(40):
+        every_request = {
+            aid: {IRRIGATE_ID: np.asarray([1.0], dtype=np.float32)}
+            for aid in farm_ids(4)
+        }
+        obs, *_ = adapter.step(every_request)
+        usage.append(obs[farm_ids(4)[0]][3])
+    assert usage[0] == 0.0
+    assert all(0.0 <= value <= 1.0 for value in usage)
+    # Every farm asks for everything, so water is delivered on some days.
+    assert max(usage) > 0.0
 
 
 @pytest.mark.unit
