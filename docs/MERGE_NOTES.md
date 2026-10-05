@@ -10,7 +10,7 @@ left for you to decide. Every change is its own commit with its own test, so any
 them can be reverted on its own; the hashes below are those of the branch when it is
 pushed.
 
-The state at the end of the pass is the following. The suite has about 1860 tests,
+The state at the end of the pass is the following. The suite has about 1870 tests,
 including the doctests of `core/` and `examples/`, and covers 99 % of `core/`. The
 three examples run end to end, and two runs with the same seeds give bit-identical
 fitness. `ruff check --no-fix .` and `ruff format --check .` pass on the whole tree
@@ -173,6 +173,15 @@ train or eval (`5a2f552`), an unknown `WandbConfig` argument (`86b0c80`) and a
 negative `influence_weight` (`dbe2338`) raise as well. A failed mechanism fetch
 names the mechanism (`5f2b295`, `4efe1de`).
 
+`ESConfig` and its `training` builder accepted any keyword and ignored it, so a
+misspelled option such as `mean_rl` kept the default without a word; an unknown
+argument now raises `TypeError` (`bbd97a8`). On Rémy's decision,
+`ESConfig.debugging` also rejects `num_seeds` (`2ff20a1`). The outer level never
+read its own seeds: the regulator publishes one context per training seed of the
+society, which `BilevelConfig` passes to it, so an outer seed count had no effect.
+The debug scripts, the fishery YAML and two tutorial cells dropped their outer
+`num_seeds=1`; set the count on the society configuration.
+
 ## Kept on Rémy's decision
 
 These choices were discussed and kept as they are; they are listed so you can
@@ -238,6 +247,13 @@ commits resolved say so. Notebooks are no longer git-ignored (`ff67552`). No lib
 module configures the root logger at import any more; the entry points do it, before
 the hash-seed check so that its notice is printed (`da92de8`, `00e40ec`). The
 messages of the Ray optimizer start with `[Ray]` instead of `[PPO]`, since it
-trains APPO as well (`f172c1d`). Every
+trains APPO as well (`f172c1d`). `MultiAgentEnv.reset` no longer carries
+`@override(gym.Env)`, since the class does not derive from `gym.Env`, and a test
+checks that every `@override` names a base of its class (`a0dc6cc`). The
+`# Deprecated` comment above the `to_float` import of the Ray optimizer was removed
+on Rémy's decision, because the function is used and nothing marks it as deprecated;
+tell us if you meant to replace it (`fa3085e`). The example of the `Query` module
+docstring used a path that no schema resolves; it is now one of the fishery's
+queries, checked by a test (`d3e3b0b`). Every
 public symbol of `core/` and of the examples has a NumPy docstring with a runnable
 example, and the public classes and functions say when to use them.
