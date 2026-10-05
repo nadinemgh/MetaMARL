@@ -1,320 +1,549 @@
-from dataclasses import dataclass
+"""The regulator's water policy: a demand quota and two penalties, eight numbers.
+
+The regulator of the fresh-water example searches one vector ``u`` in
+``[0, 1]^8``. :func:`decode_rules` maps it to eight physical *rules*, in the
+order of ``RULE_NAMES``:
+
+- ``fixed_quota``: ``0.6 + 0.35 u`` (default 0.85);
+- ``min_demand_frac``: ``0.35 u`` (default 0.05);
+- ``max_demand_frac``: ``0.35 + 0.65 u`` (default 1.0);
+- ``fine_amount``: ``0.1 u`` (default 0.05);
+- ``risk_penalty_scale``: ``u`` (default 0.5);
+- ``risk_penalty_power``: ``1 + 4 u`` (default 2.0);
+- ``under_irrigation_penalty_scale``: ``u`` (default 0.25);
+- ``max_farm_area_m2``: ``1e5 + u (2e7 - 1e5)`` (default 500000).
+
+``max_demand_frac`` is raised to ``min_demand_frac`` when the draw puts it
+below, so that the quota curve stays monotonic. The rules
+``under_irrigation_penalty_scale`` and ``max_farm_area_m2`` are searched but
+have no effect in the dynamics, exactly as in the first version of the example,
+which read the farm area from its own configuration and never used the
+under-irrigation penalty.
+
+With ``L`` the filled fraction of the reservoir and ``q`` the fixed quota, the
+policy allows each farm the fraction of its crop water deficit
+
+    allowed = min_demand + s * (max_demand - min_demand),
+    s = clip((L - q) / (1 - q), 0, 1),
+
+so that a reservoir at or below ``q`` leaves only the minimum and a full one
+leaves the maximum. A farm that requests the fraction ``f`` of its deficit and
+asks for more than it is allowed pays a fine, and a farm that requests a large
+fraction while the river depends on the release pays a risk penalty:
+
+    quota_penalty = min(1, fine_amount * excess / deficit),
+    flow_penalty = risk_penalty_scale * release_pressure * f ** risk_penalty_power,
+    penalty = min(1, quota_penalty + flow_penalty),
+
+where ``excess`` is the requested volume above the allowed one and
+``release_pressure`` the share of the inflow that the reservoir releases. The
+reward of a farm is its crop satisfaction minus this penalty. These rules are
+the design of the example and are not taken from a published model.
+"""
+
+from typing import ClassVar, NamedTuple
 
 import numpy as np
-from core.mechanism.space import MechanismSpace
-from numpy.typing import NDArray
+from gymnasium import spaces
+from gymnasium.core import ActType
 
-from core.annotations import override
-from core.mechanism.base import Mechanism
+from core.mechanism.base import MDPState, Mechanism
+from core.mechanism.config import MechanismConfig
+
+EPS = 1e-8
+
+RULE_NAMES = (
+    "fixed_quota",
+    "min_demand_frac",
+    "max_demand_frac",
+    "fine_amount",
+    "risk_penalty_scale",
+    "risk_penalty_power",
+    "under_irrigation_penalty_scale",
+    "max_farm_area_m2",
+)
+"""Names of the eight rules, in the order of the searched vector."""
+
+DEFAULT_RULES = np.asarray([0.85, 0.05, 1.0, 0.05, 0.5, 2.0, 0.25, 500_000.0])
+"""Rules in force when no candidate has reached the environment yet."""
+
+OBSERVATION_SIZE = 4 + len(RULE_NAMES)
+"""Length of a farm's observation: four state entries and the normalized rules."""
+
+WATER_POLICY_ID = "water_policy"
+"""Mechanism identifier of the policy, the key of the regulator's action."""
+
+IRRIGATE_ID = "irrigate"
+"""Mechanism identifier of a farm's irrigation request."""
+
+RULES_SPACE = spaces.Box(low=0.0, high=1.0, shape=(len(RULE_NAMES),), dtype=np.float32)
+"""Search space of the policy: the eight normalized rules in ``[0, 1]``."""
+
+_FARM_AREA_RANGE = (100_000.0, 20_000_000.0)
 
 
-@dataclass(frozen=True)
-class WaterMechanism(Mechanism):
-    fixed_quota: float
+def decode_rules(u: np.ndarray | list[float]) -> np.ndarray:
+    """Map the normalized search vector to the eight physical rules.
 
-    # CHANGED:
-    # Replaced prop_quota + min_stock with demand-fraction quota parameters.
-    #
-    # Old behavior:
-    #   allowed_m3_day was based on excess reservoir storage:
-    #       prop_quota * excess_norm * max_depth_m * lake_area_m2
-    #   This often collapsed to ~0 when reservoir_level_norm <= fixed_quota,
-    #   forcing the mechanism to always use the tiny floor.
-    #
-    # New behavior:
-    #   allowed_m3_day is directly a fraction of the crop water deficit:
-    #       allowed_frac * full_required_m3_day
-    #   This makes the mechanism interpretable and prevents the quota from
-    #   being clipped to near-zero absolute volumes.
-    min_demand_frac: float
-    max_demand_frac: float
-    fine_amount: float
-    risk_penalty_scale: float
-    risk_penalty_power: float
-    under_irrigation_penalty_scale: float
-    max_farm_area_m2: float
+    Parameters
+    ----------
+    u : array-like, shape (8,)
+        Normalized rules; values are clipped to ``[0, 1]`` first.
 
-    def __post_init__(self) -> None:
-        # fixed_quota = protected reservoir fullness threshold.
-        # If reservoir_level_norm <= fixed_quota, agents receive only min_demand_frac.
-        # If reservoir_level_norm approaches 1.0, agents approach max_demand_frac.
-        assert 0.6 <= self.fixed_quota <= 0.95
+    Returns
+    -------
+    numpy.ndarray, shape (8,)
+        The rules of ``RULE_NAMES``, as ``float64``.
 
-        # CHANGED:
-        # These are fractions of crop irrigation demand, not fractions of reservoir
-        # storage.
-        assert 0.0 <= self.min_demand_frac <= 1.0
-        assert 0.05 <= self.max_demand_frac <= 1.0
-        assert self.min_demand_frac <= self.max_demand_frac
-        assert 0.0 <= self.fine_amount <= 0.1
-        assert 0.0 <= self.risk_penalty_scale <= 1.0
-        assert 1.0 <= self.risk_penalty_power <= 5.0
-        assert 0.0 <= self.under_irrigation_penalty_scale <= 1.0
-        assert 100_000 <= self.max_farm_area_m2 <= 20_000_000
+    Raises
+    ------
+    ValueError
+        If ``u`` does not hold eight values.
 
-    @override(Mechanism)
-    def to_vector(self) -> np.ndarray:
-        return np.array(
-            [
-                self.fixed_quota,
-                self.min_demand_frac,
-                self.max_demand_frac,
-                self.fine_amount,
-                self.risk_penalty_scale,
-                (self.risk_penalty_power - 1.0) / 4.0,  # maps [1,5] -> [0,1]
-                self.under_irrigation_penalty_scale,
-                self.max_farm_area_m2,
-            ],
-            dtype=np.float32,
-        )
+    When to use: to read what a regulator candidate means; the mechanism and the
+    environment call it for you.
 
-    def param_names(self) -> list[str]:
-        return [
-            "fixed_quota",
-            "min_demand_frac",
-            "max_demand_frac",
-            "fine_amount",
-            "risk_penalty_scale",
-            "risk_penalty_power",
-            "under_irrigation_penalty_scale",
-            "max_farm_area_m2",
+    Examples
+    --------
+    >>> rules = decode_rules(np.full(8, 0.5))
+    >>> dict(zip(RULE_NAMES, rules.round(4).tolist()))["fixed_quota"]
+    0.775
+    >>> float(decode_rules(np.zeros(8))[2])  # at least the minimum
+    0.35
+    """
+    u = np.clip(np.asarray(u, dtype=np.float64).reshape(-1), 0.0, 1.0)
+    if u.size != len(RULE_NAMES):
+        raise ValueError(f"Expected {len(RULE_NAMES)} normalized rules, got {u.size}.")
+
+    min_demand = 0.35 * u[1]
+    area_low, area_high = _FARM_AREA_RANGE
+    return np.asarray(
+        [
+            0.6 + 0.35 * u[0],
+            min_demand,
+            max(0.35 + 0.65 * u[2], min_demand),
+            0.10 * u[3],
+            u[4],
+            1.0 + 4.0 * u[5],
+            u[6],
+            area_low + u[7] * (area_high - area_low),
         ]
+    )
 
 
-class WaterMechanismSpace(MechanismSpace):
-    # CHANGED:
-    # prop_quota and min_stock removed.
-    # min_demand_frac and max_demand_frac added.
-    ALL_PARAMS = [
-        "fixed_quota",
-        "min_demand_frac",
-        "max_demand_frac",
-        "fine_amount",
-        "risk_penalty_scale",
-        "risk_penalty_power",
-        "under_irrigation_penalty_scale",
-        "max_farm_area_m2",
-    ]
+def encode_rules(rules: np.ndarray | list[float]) -> np.ndarray:
+    """Map physical rules back to the normalized search vector.
 
-    def __init__(
-        self,
-        use_stochastic_rounding: bool = True,
-        optimize_params: list[str] | None = None,
-        default_fixed_quota: float = 0.85,
-        # CHANGED:
-        # Defaults now mean:
-        #   under stress: at least 5% of full required irrigation can be delivered
-        #   when reservoir is healthy: up to 100% of full required irrigation can be
-        #   delivered
-        default_min_demand_frac: float = 0.05,
-        default_max_demand_frac: float = 1.0,
-        default_fine_amount: float = 0.05,
-        default_risk_penalty_scale: float = 0.5,
-        default_risk_penalty_power: float = 2.0,
-        default_under_irrigation_penalty_scale: float = 0.25,
-        default_max_farm_area_m2: float = 500_000,
-    ):
-        super().__init__()
+    Parameters
+    ----------
+    rules : array-like, shape (8,)
+        The rules of ``RULE_NAMES``.
 
-        self.use_stochastic_rounding = use_stochastic_rounding
-        self.optimize_params = optimize_params or [
-            "fixed_quota",
-            "min_demand_frac",
-            "max_demand_frac",
-            "fine_amount",
-            "risk_penalty_scale",
-            "risk_penalty_power",
-            "under_irrigation_penalty_scale",
-            "max_farm_area_m2",
-        ]
-        self.dimension = len(self.optimize_params)
-        self.full_dimension = len(self.ALL_PARAMS)
-        self.defaults = {
-            "fixed_quota": default_fixed_quota,
-            "min_demand_frac": default_min_demand_frac,
-            "max_demand_frac": default_max_demand_frac,
-            "fine_amount": default_fine_amount,
-            "risk_penalty_scale": default_risk_penalty_scale,
-            "risk_penalty_power": default_risk_penalty_power,
-            "under_irrigation_penalty_scale": default_under_irrigation_penalty_scale,
-            "max_farm_area_m2": default_max_farm_area_m2,
-        }
+    Returns
+    -------
+    numpy.ndarray, shape (8,)
+        The normalized vector, as ``float32``. It is the inverse of
+        :func:`decode_rules` except where ``max_demand_frac`` was raised to the
+        minimum.
 
-    def _denormalize_param(self, name: str, value: float, u: np.ndarray) -> float | int:
-        if name == "fixed_quota":
-            return 0.6 + value * (0.95 - 0.6)
+    When to use: to turn the default rules into a starting candidate.
 
-        # CHANGED:
-        # min_demand_frac controls the floor of allowed irrigation demand.
-        if name == "min_demand_frac":
-            return value * 0.35  # maps [0,1] -> [0,0.35]
+    Examples
+    --------
+    >>> encode_rules(DEFAULT_RULES).astype(float).round(4).tolist()
+    [0.7143, 0.1429, 1.0, 0.5, 0.5, 0.25, 0.25, 0.0201]
+    """
+    r = np.asarray(rules, dtype=np.float64).reshape(-1)
+    area_low, area_high = _FARM_AREA_RANGE
+    return np.asarray(
+        [
+            (r[0] - 0.6) / 0.35,
+            r[1] / 0.35,
+            (r[2] - 0.35) / 0.65,
+            r[3] / 0.10,
+            r[4],
+            (r[5] - 1.0) / 4.0,
+            r[6],
+            (r[7] - area_low) / (area_high - area_low),
+        ],
+        dtype=np.float32,
+    )
 
-        # CHANGED:
-        # max_demand_frac controls the ceiling of allowed irrigation demand.
-        # We enforce max_demand_frac >= min_demand_frac after decoding.
-        if name == "max_demand_frac":
-            return 0.35 + value * (1.0 - 0.35)  # maps [0,1] -> [0.35,1.0]
 
-        if name == "fine_amount":
-            return value * 0.10
+def quota_stress(level_norm: float, fixed_quota: float) -> float:
+    """Return how far the reservoir is above the protected level.
 
-        if name == "risk_penalty_scale":
-            return value
+    Parameters
+    ----------
+    level_norm : float
+        Filled fraction of the reservoir.
+    fixed_quota : float
+        Protected fraction ``q`` of the policy.
 
-        if name == "risk_penalty_power":
-            return 1.0 + 4.0 * value
+    Returns
+    -------
+    float
+        ``clip((L - q) / (1 - q), 0, 1)``: ``0`` at or below the protected level
+        and ``1`` for a full reservoir.
 
-        if name == "under_irrigation_penalty_scale":
-            return value
+    When to use: it is the weight that interpolates the allowed demand.
 
-        if name == "max_farm_area_m2":
-            return 100_000 + value * (20_000_000 - 100_000)
+    Examples
+    --------
+    >>> round(quota_stress(0.9, 0.85), 4)
+    0.3333
+    >>> quota_stress(0.5, 0.85)
+    0.0
+    """
+    return float(
+        np.clip((level_norm - fixed_quota) / max(EPS, 1.0 - fixed_quota), 0.0, 1.0)
+    )
 
-        return value
 
-    def _denormalize(self, u: np.ndarray) -> dict:
-        result = {}
+def allowed_fraction(level_norm: float, rules: np.ndarray) -> float:
+    """Return the share of its crop deficit a farm may take.
 
-        for i, name in enumerate(self.optimize_params):
-            result[name] = self._denormalize_param(name, float(u[i]), u)
+    Parameters
+    ----------
+    level_norm : float
+        Filled fraction of the reservoir.
+    rules : numpy.ndarray, shape (8,)
+        Decoded rules.
 
-        # CHANGED:
-        # Keep the quota curve monotonic.
-        if "min_demand_frac" in result and "max_demand_frac" in result:
-            result["max_demand_frac"] = max(
-                result["max_demand_frac"], result["min_demand_frac"]
+    Returns
+    -------
+    float
+        ``min_demand + stress * (max_demand - min_demand)``.
+
+    When to use: for the quota the policy enforces at the current level; the
+    observation and the penalty use it.
+
+    Examples
+    --------
+    >>> round(allowed_fraction(0.9, DEFAULT_RULES), 4)
+    0.3667
+    >>> allowed_fraction(1.0, DEFAULT_RULES)
+    1.0
+    """
+    stress = quota_stress(level_norm, float(rules[0]))
+    return float(rules[1] + stress * (rules[2] - rules[1]))
+
+
+def irrigation_fraction(action: ActType) -> float:
+    """Read a farm's irrigation request as a fraction in ``[0, 1]``.
+
+    Parameters
+    ----------
+    action : ActType
+        Policy output: a float or an array whose first element is read.
+
+    Returns
+    -------
+    float
+        The first element, clipped to ``[0, 1]``.
+
+    When to use: wherever the raw irrigation action is turned into a request.
+
+    Examples
+    --------
+    >>> irrigation_fraction(np.asarray([1.4], dtype=np.float32))
+    1.0
+    >>> irrigation_fraction(0.25)
+    0.25
+    """
+    return float(np.clip(np.asarray(action, dtype=np.float64).reshape(-1)[0], 0.0, 1.0))
+
+
+class Violation(NamedTuple):
+    """Outcome of a request measured against the policy.
+
+    Attributes
+    ----------
+    requested_m3_day : float
+        Volume requested (cubic metres per day).
+    allowed_m3_day : float
+        Volume the quota allows (cubic metres per day).
+    delivered_m3_day : float
+        ``min(requested, allowed)``.
+    quota_violation_m3_day : float
+        Requested volume above the allowed one.
+    requested_frac : float
+        Request as a fraction of the crop deficit.
+    quota_penalty, flow_penalty, total_penalty : float
+        The two penalties and their capped sum, in reward units.
+
+    When to use: it is what :func:`violation_signal` returns.
+
+    Examples
+    --------
+    >>> Violation(1.0, 2.0, 1.0, 0.0, 0.5, 0.0, 0.1, 0.1).total_penalty
+    0.1
+    """
+
+    requested_m3_day: float
+    allowed_m3_day: float
+    delivered_m3_day: float
+    quota_violation_m3_day: float
+    requested_frac: float
+    quota_penalty: float
+    flow_penalty: float
+    total_penalty: float
+
+
+def violation_signal(
+    fraction: float,
+    *,
+    full_required_m3_day: float,
+    level_norm: float,
+    release_pressure: float,
+    rules: np.ndarray,
+) -> Violation:
+    """Measure one farm's request against the quota and the release risk.
+
+    Parameters
+    ----------
+    fraction : float
+        Requested share of the crop deficit, in ``[0, 1]``.
+    full_required_m3_day : float
+        Water the whole farm area needs to cover the deficit (cubic metres per
+        day).
+    level_norm : float
+        Filled fraction of the reservoir.
+    release_pressure : float
+        Share of the inflow the reservoir releases, in ``[0, 1]``.
+    rules : numpy.ndarray, shape (8,)
+        Decoded rules.
+
+    Returns
+    -------
+    Violation
+        Volumes, the request fraction and the penalties.
+
+    When to use: to price a request; the policy mechanism calls it for the
+    reward and the environment calls it to log the same quantities.
+
+    Examples
+    --------
+    >>> v = violation_signal(
+    ...     0.8,
+    ...     full_required_m3_day=1000.0,
+    ...     level_norm=0.9,
+    ...     release_pressure=0.5,
+    ...     rules=DEFAULT_RULES,
+    ... )
+    >>> round(v.allowed_m3_day, 3), round(v.quota_penalty, 6), round(v.flow_penalty, 3)
+    (366.667, 0.021667, 0.16)
+    """
+    requested = fraction * full_required_m3_day
+    allowed = allowed_fraction(level_norm, rules) * full_required_m3_day
+    delivered = min(requested, allowed)
+    violation = max(0.0, requested - allowed)
+    quota_penalty = min(
+        1.0, float(rules[3]) * (violation / max(EPS, full_required_m3_day))
+    )
+    requested_frac = requested / max(EPS, full_required_m3_day)
+    flow_penalty = (
+        float(rules[4]) * release_pressure * requested_frac ** float(rules[5])
+    )
+    return Violation(
+        requested_m3_day=requested,
+        allowed_m3_day=allowed,
+        delivered_m3_day=delivered,
+        quota_violation_m3_day=violation,
+        requested_frac=requested_frac,
+        quota_penalty=quota_penalty,
+        flow_penalty=flow_penalty,
+        total_penalty=min(1.0, quota_penalty + flow_penalty),
+    )
+
+
+class WaterPolicy(Mechanism):
+    """Leader mechanism: prices the farms' requests and tells them the rules.
+
+    The mechanism is the regulator's action. ``decode`` turns the searched
+    vector into the physical rules. ``apply`` runs before the farms' actions are
+    played: it reads the request each targeted farm has recorded for the current
+    step (clipped to ``[0, 1]``), measures it with :func:`violation_signal` and
+    returns the negative of the total penalty as the farm's reward. The crop
+    satisfaction is added by the environment's transition. ``observe`` fills the
+    entries of the farms' observations that the farm leaves at zero: the
+    allowed fraction at the current level (entry 2) and the normalized rules
+    (entries 4 to 11).
+
+    The mechanism needs ``acts_on=("utilizer", "irrigate")`` (the agent type and
+    the mechanism it targets).
+
+    When to use: as the only mechanism of the regulator agent of the fresh-water
+    experiment, through ``WaterPolicyConfig``.
+
+    Examples
+    --------
+    >>> policy = WaterPolicyConfig(
+    ...     id=WATER_POLICY_ID,
+    ...     action_space=RULES_SPACE,
+    ...     acts_on=("utilizer", IRRIGATE_ID),
+    ... ).build("regulator")
+    >>> mdp = MDPState(
+    ...     state={
+    ...         "reservoir_level_norm": 0.9,
+    ...         "release_pressure": 0.5,
+    ...         "full_required_m3_day": 1000.0,
+    ...     },
+    ...     actions={"utilizer:0": {IRRIGATE_ID: 0.8}},
+    ... )
+    >>> round(policy.apply(mdp, DEFAULT_RULES).rewards["utilizer:0"][0], 6)
+    -0.181667
+    """
+
+    def decode(self, mdp: MDPState, action: ActType) -> np.ndarray:
+        """Turn the searched vector into the eight physical rules.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Unused.
+        action : ActType
+            Normalized rules, eight values.
+
+        Returns
+        -------
+        numpy.ndarray
+            The rules, see :func:`decode_rules`.
+        """
+        return decode_rules(action)
+
+    def apply(self, mdp: MDPState, action: ActType) -> MDPState:
+        """Return the penalty each targeted farm receives at this step.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state: ``reservoir_level_norm``, ``release_pressure`` and
+            ``full_required_m3_day`` at ``mdp.t`` in ``state``, and the farms'
+            requests in ``actions``.
+        action : ActType
+            Decoded rules, as returned by :meth:`decode`.
+
+        Returns
+        -------
+        MDPState
+            A residual whose ``rewards`` hold, for every targeted farm that has
+            a request, minus its total penalty.
+
+        Raises
+        ------
+        ValueError
+            If ``acts_on`` is missing.
+        """
+        if self.acts_on is None:
+            raise ValueError("WaterPolicy requires `acts_on`.")
+
+        target_agent, target_mechanism = self.acts_on
+        t = mdp.t
+        level_norm = float(mdp.state["reservoir_level_norm"][t])
+        release_pressure = float(mdp.state["release_pressure"][t])
+        full_required = float(mdp.state["full_required_m3_day"][t])
+        rules = np.asarray(action, dtype=np.float64)
+
+        rewards = {}
+        for aid, actions in (mdp.actions.data or {}).items():
+            if not str(aid).startswith(f"{target_agent}:"):
+                continue
+            if target_mechanism not in actions:
+                continue
+            violation = violation_signal(
+                irrigation_fraction(actions[target_mechanism][t]),
+                full_required_m3_day=full_required,
+                level_norm=level_norm,
+                release_pressure=release_pressure,
+                rules=rules,
             )
+            rewards[aid] = -violation.total_penalty
+        return MDPState(rewards=rewards)
 
-        return result
+    def observe(self, mdp: MDPState) -> MDPState:
+        """Return the policy's contribution to the farms' observations.
 
-    def _normalize_param(self, name: str, value: float | int) -> float:
-        if name == "fixed_quota":
-            return (float(value) - 0.6) / (0.95 - 0.6)
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state after the transition or the reset: the agents in
+            ``aids``, the level at ``mdp.t`` in ``state`` and the candidate in
+            ``raw_actions``.
 
-        # CHANGED:
-        # Normalize demand-fraction quota parameters.
-        if name == "min_demand_frac":
-            return float(value) / 0.35
+        Returns
+        -------
+        MDPState
+            A residual whose ``obs`` hold, for every targeted farm, a
+            ``float32`` vector of ``OBSERVATION_SIZE`` entries: the allowed
+            fraction at index 2 and the normalized rules at indices 4 to 11,
+            zero elsewhere. Empty when no candidate is held.
 
-        if name == "max_demand_frac":
-            return (float(value) - 0.35) / (1.0 - 0.35)
+        Raises
+        ------
+        ValueError
+            If ``acts_on`` is missing.
+        """
+        if self.acts_on is None:
+            raise ValueError("WaterPolicy requires `acts_on`.")
 
-        if name == "fine_amount":
-            return float(value) / 0.10
+        history = mdp.raw_actions.data.get(self.aid, {}).get(self.id)
+        if not history:
+            return MDPState()
 
-        if name == "risk_penalty_scale":
-            return float(value)
-
-        if name == "risk_penalty_power":
-            return (float(value) - 1.0) / 4.0
-
-        if name == "under_irrigation_penalty_scale":
-            return float(value)
-
-        if name == "max_farm_area_m2":
-            return (float(value) - 100_000) / (20_000_000 - 100_000)
-
-        return float(value)
-
-    def default(self) -> WaterMechanism:
-        return WaterMechanism(
-            fixed_quota=self.defaults["fixed_quota"],
-            min_demand_frac=self.defaults["min_demand_frac"],
-            max_demand_frac=self.defaults["max_demand_frac"],
-            fine_amount=self.defaults["fine_amount"],
-            risk_penalty_scale=self.defaults["risk_penalty_scale"],
-            risk_penalty_power=self.defaults["risk_penalty_power"],
-            under_irrigation_penalty_scale=self.defaults[
-                "under_irrigation_penalty_scale"
-            ],
-            max_farm_area_m2=self.defaults["max_farm_area_m2"],
+        # The candidate is carried forward: the last recorded value is in force.
+        normalized = np.clip(
+            np.asarray(history[min(mdp.t, len(history) - 1)], dtype=np.float64),
+            0.0,
+            1.0,
         )
+        rules = self.decode(mdp, normalized)
+        level_norm = float(mdp.state["reservoir_level_norm"][mdp.t])
+        contribution = np.zeros(OBSERVATION_SIZE, dtype=np.float32)
+        contribution[2] = allowed_fraction(level_norm, rules)
+        contribution[4:] = normalized
 
-    def encode(self, m: WaterMechanism) -> NDArray[np.float32]:
-        values = []
-
-        for name in self.optimize_params:
-            raw = getattr(m, name)
-
-            values.append(self._normalize_param(name, raw))
-
-        return np.array(values, dtype=np.float32)
-
-    def decode(self, x: NDArray[np.float32]) -> Mechanism:
-        u = np.clip(self._validate(x), 0.0, 1.0)
-        params = dict(self.defaults)
-
-        for i, name in enumerate(self.optimize_params):
-            params[name] = self._denormalize_param(name, float(u[i]), u)
-
-        # CHANGED:
-        # Make sure min <= max even when only one of the two params is optimized.
-        params["max_demand_frac"] = max(
-            params["max_demand_frac"], params["min_demand_frac"]
+        target_agent = self.acts_on[0]
+        farms = sorted(
+            aid for aid in mdp.aids if str(aid).startswith(f"{target_agent}:")
         )
-        mech = WaterMechanism(
-            fixed_quota=params["fixed_quota"],
-            min_demand_frac=params["min_demand_frac"],
-            max_demand_frac=params["max_demand_frac"],
-            fine_amount=params["fine_amount"],
-            risk_penalty_scale=params["risk_penalty_scale"],
-            risk_penalty_power=params["risk_penalty_power"],
-            under_irrigation_penalty_scale=params["under_irrigation_penalty_scale"],
-            max_farm_area_m2=params["max_farm_area_m2"],
-        )
+        return MDPState(obs={aid: contribution.copy() for aid in farms})
 
-        return self.clip(mech)
 
-    def clip(self, m: WaterMechanism) -> WaterMechanism:
-        min_demand_frac = float(np.clip(m.min_demand_frac, 0.0, 1.0))
-        max_demand_frac = float(np.clip(m.max_demand_frac, 0.05, 1.0))
+class WaterPolicyConfig(MechanismConfig):
+    """Configuration that builds the ``WaterPolicy`` mechanism.
 
-        # CHANGED:
-        # Preserve monotonicity after clipping.
-        max_demand_frac = max(max_demand_frac, min_demand_frac)
+    A frozen dataclass inherited from
+    :class:`core.mechanism.config.MechanismConfig`; only ``mechanism_cls``
+    changes.
 
-        return WaterMechanism(
-            fixed_quota=float(np.clip(m.fixed_quota, 0.6, 0.95)),
-            min_demand_frac=min_demand_frac,
-            max_demand_frac=max_demand_frac,
-            fine_amount=float(np.clip(m.fine_amount, 0.0, 0.1)),
-            risk_penalty_scale=float(np.clip(m.risk_penalty_scale, 0.0, 1.0)),
-            risk_penalty_power=float(np.clip(m.risk_penalty_power, 1.0, 5.0)),
-            under_irrigation_penalty_scale=float(
-                np.clip(m.under_irrigation_penalty_scale, 0.0, 1.0)
-            ),
-            max_farm_area_m2=float(np.clip(m.max_farm_area_m2, 100_000, 20_000_000)),
-        )
+    Attributes
+    ----------
+    action_space : gymnasium.spaces.Box
+        ``RULES_SPACE``, eight coordinates in ``[0, 1]``.
+    id : str or None
+        Mechanism identifier, ``WATER_POLICY_ID``. The ES optimizer names the
+        searched parameters ``water_policy[0]`` to ``water_policy[7]``, in the
+        order of ``RULE_NAMES``.
+    acts_on : tuple[str, str] or None
+        ``("utilizer", "irrigate")``: the farms and the request it prices.
+    obs_map : dict[str, str] or None
+        Unused (default ``None``).
+    default : numpy.ndarray or None
+        Unused (default ``None``).
 
-    def from_dict(self, cfg: dict) -> WaterMechanism:
-        # CHANGED:
-        # Backward-compatible migration for old configs.
-        # If old prop_quota/min_stock appear, ignore them and use the new defaults.
-        cfg = dict(cfg)
+    When to use: in the ``mechanisms`` of the regulator ``AgentConfig`` of the ES
+    optimizer.
 
-        cfg.pop("prop_quota", None)
-        cfg.pop("min_stock", None)
+    Examples
+    --------
+    >>> config = WaterPolicyConfig(
+    ...     id=WATER_POLICY_ID,
+    ...     action_space=RULES_SPACE,
+    ...     acts_on=("utilizer", IRRIGATE_ID),
+    ... )
+    >>> type(config.build("regulator")).__name__
+    'WaterPolicy'
+    """
 
-        if "min_demand_frac" not in cfg:
-            cfg["min_demand_frac"] = self.defaults["min_demand_frac"]
-
-        if "max_demand_frac" not in cfg:
-            cfg["max_demand_frac"] = self.defaults["max_demand_frac"]
-
-        if "risk_penalty_scale" not in cfg:
-            cfg["risk_penalty_scale"] = self.defaults["risk_penalty_scale"]
-
-        if "risk_penalty_power" not in cfg:
-            cfg["risk_penalty_power"] = self.defaults["risk_penalty_power"]
-
-        if "under_irrigation_penalty_scale" not in cfg:
-            cfg["under_irrigation_penalty_scale"] = self.defaults[
-                "under_irrigation_penalty_scale"
-            ]
-
-        if "max_farm_area_m2" not in cfg:
-            cfg["max_farm_area_m2"] = self.defaults["max_farm_area_m2"]
-
-        mech = WaterMechanism(**cfg)
-
-        return self.clip(mech)
+    mechanism_cls: ClassVar[type[Mechanism]] = WaterPolicy
