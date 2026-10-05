@@ -1,10 +1,33 @@
-"""Bilevel fishery experiment with the typed metrics/reporting stack.
+"""Bilevel fishery experiment: an ES regulator over a quota, APPO fishers inside.
 
-The outer Evolution Strategies optimizer searches ``fixed_quota`` and
-``restoration_subsidy``; the inner APPO optimizer trains the fishers against
-each candidate. Every level logs a typed ``MetricSchema`` and renders the
-queries of :mod:`examples.bilevel_fishery.queries` through the configured
-reporter (Weights & Biases by default, CSV with ``--reporter csv``).
+This script builds the experiment in Python and runs it; it is the programmatic
+counterpart of ``config.yaml``. The outer Evolution Strategies optimizer
+searches one parameter, the ``quota`` mechanism of ``core.mechanism.algorithms``
+(a value in ``[0, 1]`` acting on the fishers' ``harvest``, started from 0.56224),
+with a constant search spread of 0.15. The inner APPO optimizer trains ten
+fishers by default against each candidate, on ``FisheryRegulatedEnv`` with a
+carrying capacity of 5000 that the regulator environment must repeat in its own
+``K``. Every level logs a typed ``MetricSchema`` and renders the queries of
+:mod:`examples.bilevel_fishery.queries` through the configured reporter
+(Weights & Biases by default, CSV with ``--reporter csv``).
+
+Importing this module runs the whole experiment: the options are parsed, the
+optimizers are built and trained at import time, and ``ensure_hash_seed()``
+may restart the process first. For that reason the module is excluded from the
+doctest run and carries no example. Run it as a script.
+
+Options (``--help`` prints the same list):
+
+``--outer-iters`` : int, default 1000
+    ES generations of the outer level.
+``--train-iters`` : int, default 50
+    APPO iterations the inner level runs for each generation.
+``--num-agents`` : int, default 10
+    Number of fishers.
+``--horizon`` : int, default 100
+    Episode length of the fishery, in steps.
+``--reporter`` : ``{wandb, csv}``, default ``wandb``
+    Where the queries are rendered.
 
 Smoke configuration::
 

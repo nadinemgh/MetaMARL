@@ -1,6 +1,40 @@
+"""Reporting queries of the bilevel fishery experiment.
+
+Three tuples of ``Query`` objects declare what the reporters plot. A query
+names an x path and one or several y paths inside a metric schema, as
+described in :mod:`core.reporting.query`.
+
+``ES_QUERIES`` is rendered by the outer (ES) level against ``ESSchema``. Its
+first two queries read the ES's own series (fitness per candidate, per
+generation and against the searched quota); the other seven read the inner
+optimizer's metrics under the ``inner`` branch and plot the ``train`` and
+``eval`` values of one statistic per generation. ``INNER_QUERIES`` is rendered
+by the inner (society) level against ``RaySchema`` and plots the training
+curves of the return, the fish biomass statistics and the learner losses.
+``FISHERY_ENV_QUERIES`` holds environment-level queries against
+``FisheryMetricSchema``; neither ``config.yaml`` nor ``debug.py`` wires them.
+
+Two kinds of queries name series that this fishery does not fill. The
+``quota_penalty`` and ``intrinsic_utility`` queries read ``by_agent`` entries
+that ``FisheryRegulatedEnv`` never pushes (its ``by_agent`` mapping stays
+empty), so there is no series for them to plot; the environment-level
+``quota_penalty`` and ``intrinsic_utility`` queries resolve to empty series.
+The ``fish_norm`` query of ``FISHERY_ENV_QUERIES`` names a field the
+environment never pushes, so resolving it against the environment's logger
+raises a ``ValueError`` on the length mismatch.
+
+Examples
+--------
+>>> len(ES_QUERIES), len(INNER_QUERIES), len(FISHERY_ENV_QUERIES)
+(9, 11, 3)
+>>> [q.title for q in ES_QUERIES if q.y_paths[0][0] != "inner"]
+['Fitness over outer optimization iterations', 'Candidate fitness vs fixed quota']
+"""
+
 from core.metrics.enums import ReduceProtocol
 from core.reporting.query import Query
 
+# Outer-level queries, rendered against ESSchema (see the module docstring).
 ES_QUERIES = (
     Query(
         title="Fitness over outer optimization iterations",
@@ -268,6 +302,7 @@ ES_QUERIES = (
         ),
     ),
 )
+# Inner-level queries, rendered against RaySchema.
 INNER_QUERIES = (
     Query(
         title="Episode return mean over training episodes",
@@ -583,6 +618,7 @@ INNER_QUERIES = (
     ),
 )
 
+# Environment-level queries against FisheryMetricSchema; not wired by default.
 FISHERY_ENV_QUERIES = (
     Query(
         title="mean quota penalty over agent",

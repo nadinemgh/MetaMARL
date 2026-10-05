@@ -1,10 +1,13 @@
 """Regulator environment of the fishery example: scores mechanism candidates.
 
-``FisheryRegulatorEnv`` is the environment the ES outer optimizer steps. A
-step publishes the population of candidate mechanisms, runs the inner
-optimizer (handled by the ``RegulatorEnv`` base class) and, in
-:meth:`FisheryRegulatorEnv.aggregate_rewards`, turns the inner rollouts into
-one fitness per candidate through a ``FitnessContext``.
+``FisheryRegulatorEnv`` is the environment the ES outer optimizer steps. One
+step publishes the population of candidate mechanisms to the World, lets the
+inner optimizer train and evaluate the fishers against them (all of this is
+handled by the ``RegulatorEnv`` base class) and then calls
+:meth:`FisheryRegulatorEnv.reward`, which turns the inner metrics into one
+fitness per candidate through a ``FitnessContext``. The objective rewards the
+harvest relative to the maximum sustainable yield and the mean biomass of the
+stock; see the class docstring for what the aggregated series contain.
 """
 
 import logging
@@ -27,22 +30,111 @@ logger = logging.getLogger(__name__)
 class FisheryRegulatorEnv(RegulatorEnv):
     """Outer-loop environment that scores fishery mechanism candidates.
 
-    The fitness of a candidate is computed on the last ``fitness_tail_steps``
-    steps of each inner episode (tail averaging), on the ``train`` or ``eval``
-    split selected by ``aggregation_status``.
+    The fitness of a candidate is computed from the inner rollouts of the
+    ``train`` or ``eval`` split selected by ``aggregation_status``. For each
+    mechanism, seed and episode the environment reads the logged per-episode
+    series ``reward_mean``, ``fish_norm_next_mean``, ``H_realized`` and
+    ``MSY``, keeps the last ``fitness_tail_steps`` entries of each, and
+    averages them. The per-episode statistics of every episode and seed of a
+    candidate are then averaged and folded into a ``FitnessContext``, whose
+    objective is ``harvest_score + sustainability_weight * mean_fish``.
+
+    The tail window is meant to measure the steady state of the last steps of
+    an episode. In practice the inner optimizer logs one value per episode
+    (the mean over its steps) for each of these series, so in the default
+    ``eval`` split every series has a single entry, the window has no effect,
+    and the objective is computed on whole-episode means: ``mean_fish`` is the
+    mean biomass over the episode, ``min_fish`` is that same episode mean
+    rather than a minimum over steps, and ``collapse_rate`` is the fraction of
+    episodes whose mean normalized biomass is below the threshold.
 
     Parameters
     ----------
-    ecology_cfg : dict
-        ``sustainability_weight`` (weight of the mean normalized biomass in
-        the objective, default 5.0), ``sustainability_threshold`` (normalized
-        biomass below which a step counts as collapsed, default 0.1), ``K``
-        (carrying capacity, biomass units, used to denormalize the threshold
-        for plots), ``aggregation_status`` (``"train"`` or ``"eval"``, default
-        ``"eval"``) and ``fitness_tail_steps`` (default 50).
+    ecology_cfg : dict[str, Any]
+        Objective settings, read with these keys: ``sustainability_weight``
+        (weight of the mean normalized biomass in the objective, dimensionless,
+        default 5.0), ``sustainability_threshold`` (normalized biomass in
+        ``[0, 1]`` below which an entry counts as collapsed, default 0.1),
+        ``K`` (carrying capacity in biomass units, used to denormalize the
+        threshold for plots; there is no default, and omitting it raises a
+        ``TypeError``), ``aggregation_status`` (``"train"`` or ``"eval"``,
+        default ``"eval"``) and ``fitness_tail_steps`` (number of trailing
+        entries averaged, default 50).
+    **kwargs : Any
+        Forwarded to :class:`core.envs.regulator.RegulatorEnv`: ``world``,
+        ``optimizer``, ``horizon``, ``agents_cfgs``, ``seeds``, ``schema``,
+        ``queries`` and the other options of the base class.
+
+    Attributes
+    ----------
+    sustainability_weight : float
+        Weight of ``mean_fish`` in the objective.
+    sustainability_threshold : float
+        Normalized biomass below which an entry counts as collapsed.
+    K : float
+        Carrying capacity (biomass units).
+    raw_sustainability_threshold : float
+        ``sustainability_threshold * K`` (biomass units), for plots.
+    aggregation_status : MechanismStatus
+        Split of the inner metrics the fitness is computed from.
+    fitness_tail_steps : int
+        Number of trailing entries averaged per series.
+    trajectories : dict[int, list[dict[str, Any]]]
+        Reset to ``{}`` at every call of :meth:`reward` and never filled.
+    last_metrics : list[dict[str, float]]
+        One summary dictionary per scored candidate from the latest call of
+        :meth:`reward`, in the order the candidates were visited.
+
+    Raises
+    ------
+    ValueError
+        If ``aggregation_status`` is neither ``"train"`` nor ``"eval"``.
+    TypeError
+        If ``ecology_cfg`` has no ``K``.
+
+    When to use: as the ``env`` of the outer ``ESConfig`` of a fishery
+    experiment, with an ``ecology_cfg`` whose ``K`` matches the inner
+    environment's carrying capacity. The objective depends on the series the
+    inner environment logs, so use it with ``FisheryMetricSchema``.
+
+    Examples
+    --------
+    The environment is built with a stand-in World and no inner optimizer, and
+    scores one candidate whose single episode has a mean biomass of half the
+    carrying capacity and a harvest of half the maximum sustainable yield
+    (``0.5 + 2.0 * 0.5``):
+
+    >>> from types import SimpleNamespace
+    >>> from unittest import mock
+    >>> import ray
+    >>> world = SimpleNamespace(
+    ...     append_context=SimpleNamespace(remote=lambda context: None)
+    ... )
+    >>> env = FisheryRegulatorEnv(
+    ...     world=world,
+    ...     optimizer=None,
+    ...     horizon=1,
+    ...     agents_cfgs={},
+    ...     seeds=[0],
+    ...     ecology_cfg={"K": 5000.0, "sustainability_weight": 2.0},
+    ... )
+    >>> episode = SimpleNamespace(
+    ...     reward_mean=[0.5],
+    ...     fish_norm_next_mean=[0.5],
+    ...     H_realized=[37.5],
+    ...     MSY=[75.0],
+    ... )
+    >>> seed = SimpleNamespace(by_episode={"0": episode})
+    >>> rollout = SimpleNamespace(
+    ...     by_mechanism={"0": SimpleNamespace(by_seed={"0": seed})}
+    ... )
+    >>> metrics = SimpleNamespace(eval=SimpleNamespace(rollout=rollout))
+    >>> with mock.patch.object(ray, "get", lambda ref: ref):
+    ...     env.reward(metrics)
+    [1.5]
     """
 
-    def __init__(self, *, ecology_cfg: dict[str, Any], **kwargs):
+    def __init__(self, *, ecology_cfg: dict[str, Any], **kwargs: Any):
         super().__init__(**kwargs)
 
         self.sustainability_weight = ecology_cfg.get("sustainability_weight", 5.0)
@@ -63,7 +155,19 @@ class FisheryRegulatorEnv(RegulatorEnv):
     def observation(self, obs: ObsType) -> ObsType:
         """Return a constant ``0.0``.
 
-        The ES outer loop is stateless and ignores observations.
+        The ES outer loop is stateless and ignores observations. The step of
+        the base class does not call this method, so it is never reached
+        during a run.
+
+        Parameters
+        ----------
+        obs : ObsType
+            Ignored.
+
+        Returns
+        -------
+        ObsType
+            The float ``0.0``.
         """
 
         return 0.0
@@ -75,8 +179,41 @@ class FisheryRegulatorEnv(RegulatorEnv):
         ``metrics`` is the inner ``RaySchema`` peeked after training; the
         ``aggregation_status`` split (``train`` or ``eval``) is read, then the
         rollouts are walked by mechanism, seed and episode. Each episode
-        contributes its tail-averaged reward, biomass and harvest statistics;
-        seeds are averaged per mechanism and folded into a ``FitnessContext``.
+        contributes the mean of the last ``fitness_tail_steps`` entries of its
+        reward, biomass and harvest series (see the class docstring for what
+        those series hold); the episodes of all seeds of a mechanism are
+        averaged and folded into a ``FitnessContext``, whose
+        ``objective_score`` is the fitness.
+
+        For each candidate the method also appends a ``done``
+        ``MechanismContext`` carrying the ``FitnessContext`` to the World
+        (blocking on the Ray call), stores a summary dictionary in
+        ``last_metrics`` and logs one summary line with the mean, best and
+        worst objective and the collapse rates. The ``total_fines`` reported
+        for a candidate is the mean normalized biomass of its tail, not a
+        fine amount.
+
+        Parameters
+        ----------
+        metrics : MetricSchema
+            Inner metrics with a ``train`` or ``eval`` branch (the one named by
+            ``aggregation_status``), each holding
+            ``rollout.by_mechanism[id].by_seed[id].by_episode[id]`` records
+            with ``reward_mean``, ``fish_norm_next_mean``, ``H_realized`` and
+            ``MSY``. Mechanism and seed identifiers must be convertible to
+            ``int``.
+
+        Returns
+        -------
+        list[float]
+            Fitness indexed by mechanism id, of length ``max(id) + 1``. An
+            index with no rollouts holds ``-inf``.
+
+        Raises
+        ------
+        ValueError
+            If the selected branch holds no mechanism (``max`` of an empty
+            sequence).
         """
 
         metrics = getattr(metrics, self.aggregation_status.value)
