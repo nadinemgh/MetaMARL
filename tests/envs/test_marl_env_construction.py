@@ -5,10 +5,6 @@ The August suite built the environment from keyword arguments such as
 (``agents_cfg_dict`` for followers, ``leaders_cfg_dict`` for leaders) that each
 build an ``Agent`` holding its mechanisms. The toy benchmark of
 ``tests/envs/conftest.py`` provides them.
-
-Two tests are expected failures: the documented ``None`` defaults of
-``reporter_cfg``, ``schema`` and ``leaders_cfg_dict`` do not work, and the
-``opt_id`` getter calls itself. See the reasons on the tests.
 """
 
 import numpy as np
@@ -147,11 +143,6 @@ def test_opt_id_setter_stores_the_optimizer_identifier(toy):
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    raises=RecursionError,
-    reason="the opt_id getter returns self.opt_id, i.e. it calls itself forever",
-)
 def test_opt_id_getter_returns_the_optimizer_identifier(toy):
     env = toy.make_env(toy.ScriptedWorld(), opt_id="opt_9")
 

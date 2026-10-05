@@ -8,8 +8,7 @@ publishes the candidates the optimizer already decoded, calls ``inner.train()``
 once and returns ``reward(results)``, so those tests were dropped and the new
 contract is tested here with a recording inner optimizer.
 
-Three tests are expected failures (see their reasons): ``reset(seed=...)``,
-the ``reporter_cfg=None`` default and the ``opt_id`` getter.
+One test is an expected failure (see its reason): ``reset(seed=...)``.
 """
 
 import pytest
@@ -187,11 +186,6 @@ def test_opt_id_setter_is_stamped_on_the_published_contexts(toy, inner):
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    raises=RecursionError,
-    reason="the opt_id getter returns self.opt_id, i.e. it calls itself forever",
-)
 def test_opt_id_getter_returns_the_optimizer_identifier(toy, inner):
     assert make_env(toy, inner).opt_id == "opt_1"
 

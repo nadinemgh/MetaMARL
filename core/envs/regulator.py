@@ -194,11 +194,10 @@ class RegulatorEnv(gym.Env):
     def opt_id(self) -> OptimizerID:
         """Identifier of the optimizer that owns this environment.
 
-        Reading this property currently raises ``RecursionError``, because the
-        getter returns the property itself. The value is held in the private
-        attribute ``_opt_id``; assigning to the property works.
+        ``None`` until an identifier is given at construction or assigned to the
+        property.
         """
-        return self.opt_id
+        return self._opt_id
 
     @opt_id.setter
     def opt_id(self, opt_id: OptimizerID) -> None:
