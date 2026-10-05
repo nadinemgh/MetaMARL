@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 import ray
 
+from examples.bilevel_fishery.contexts import FitnessContext
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
 
 K = 1000.0
@@ -146,3 +147,20 @@ def test_an_index_with_no_rollout_holds_minus_infinity():
 
     assert fitness[0] == float("-inf")
     assert fitness[1] == pytest.approx(WEIGHT * 0.5)
+
+
+@pytest.mark.unit
+def test_no_fines_are_reported_because_no_fine_is_computed():
+    env = make_env(fitness_tail_steps=2)
+    env.reward(metrics_of({0: {0: [episode([0.5, 0.5], [0.0, 0.0])]}}))
+
+    assert "total_fines" not in env.last_metrics[0]
+    assert "total_fines" not in FitnessContext.model_fields
+    with pytest.raises(TypeError):
+        FitnessContext.from_metrics(
+            mean_reward=0.0,
+            collapse_rate=0.0,
+            sustainability_penalty=0.0,
+            sustainability_weight=1.0,
+            total_fines=0.5,
+        )

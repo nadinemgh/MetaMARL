@@ -191,9 +191,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
         ``MechanismContext`` carrying the ``FitnessContext`` to the World
         (blocking on the Ray call), stores a summary dictionary in
         ``last_metrics`` and logs one summary line with the mean, best and
-        worst objective and the collapse rates. The ``total_fines`` reported
-        for a candidate is the mean normalized biomass of its tail, not a
-        fine amount.
+        worst objective and the collapse rates.
 
         Parameters
         ----------
@@ -279,7 +277,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
                                 ),
                                 "min_fish": float(tail_fish.min()),
                                 "mean_fish": float(tail_fish.mean()),
-                                "mean_fines": float(tail_fish.mean()),
                             }
                         )
 
@@ -299,13 +296,11 @@ class FisheryRegulatorEnv(RegulatorEnv):
             )
             min_fish = float(np.mean([m["min_fish"] for m in seed_metrics]))
             mean_fish = float(np.mean([m["mean_fish"] for m in seed_metrics]))
-            mean_fines = float(np.mean([m["mean_fines"] for m in seed_metrics]))
             fitness_ctx = FitnessContext.from_metrics(
                 mean_reward=mean_reward,
                 collapse_rate=collapse_rate,
                 sustainability_penalty=sustainability_penalty,
                 sustainability_weight=self.sustainability_weight,
-                total_fines=mean_fines,
                 mean_fish=mean_fish,
                 min_fish=min_fish,
                 mean_realized_harvest=mean_realized_harvest,
@@ -341,7 +336,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     "collapse_rate": collapse_rate,
                     "min_fish": min_fish,
                     "mean_fish": mean_fish,
-                    "total_fines": mean_fines,
                     "num_seeds": float(len(seed_metrics)),
                 }
             )

@@ -37,9 +37,6 @@ class FitnessContext(ContextSchema):
     sustainability_penalty : float
         Mean relative shortfall of the normalized biomass below the
         threshold, in ``[0, 1]``. Reported only.
-    total_fines : float
-        Value the regulator environment passes as the fines paid (reward
-        units). Reported only.
     mean_fish : float
         Mean normalized biomass, in the fraction of the carrying capacity
         ``K``. It enters the objective, weighted by the sustainability
@@ -74,7 +71,6 @@ class FitnessContext(ContextSchema):
     mean_reward: float
     collapse_rate: float
     sustainability_penalty: float
-    total_fines: float
     mean_fish: float
     min_fish: float
     mean_realized_harvest: float
@@ -88,7 +84,6 @@ class FitnessContext(ContextSchema):
         collapse_rate: SupportsFloat,
         sustainability_penalty: SupportsFloat,
         sustainability_weight: SupportsFloat,
-        total_fines: SupportsFloat = 0.0,
         mean_fish: SupportsFloat = 0.0,
         min_fish: SupportsFloat = 0.0,
         mean_realized_harvest: SupportsFloat = 0.0,
@@ -113,8 +108,6 @@ class FitnessContext(ContextSchema):
         sustainability_weight : SupportsFloat
             Weight of ``mean_fish`` in the objective (dimensionless). It is
             used for the objective only and is not stored on the context.
-        total_fines : SupportsFloat, optional
-            Fines paid, in reward units (default 0.0).
         mean_fish : SupportsFloat, optional
             Mean normalized biomass, fraction of ``K`` (default 0.0).
         min_fish : SupportsFloat, optional
@@ -143,7 +136,6 @@ class FitnessContext(ContextSchema):
             mean_reward=float(mean_reward),
             collapse_rate=float(collapse_rate),
             sustainability_penalty=float(sustainability_penalty),
-            total_fines=float(total_fines),
             mean_fish=float(mean_fish),
             min_fish=float(min_fish),
             mean_realized_harvest=float(mean_realized_harvest),
