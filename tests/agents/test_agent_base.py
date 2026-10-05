@@ -115,6 +115,60 @@ def test_subclass_hooks_are_recorded_by_name():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("hook", ["action", "reward", "observation"])
+def test_two_methods_with_the_same_hook_mark_are_rejected(hook):
+    decorator = getattr(hooks, hook)
+
+    with pytest.raises(TypeError, match=rf"Twice.*'first'.*'second'.*'{hook}'"):
+
+        class Twice(Agent):
+            @decorator
+            def first(self, mdp):
+                return mdp
+
+            @decorator
+            def second(self, mdp):
+                return mdp
+
+
+@pytest.mark.unit
+def test_two_methods_marked_for_the_observation_spaces_are_rejected():
+    def declare(self):
+        return None
+
+    def declare_again(self):
+        return None
+
+    declare.observation_spaces = declare_again.observation_spaces = True
+
+    with pytest.raises(TypeError, match="'observation_spaces'"):
+
+        class Twice(Agent):
+            first = declare
+            second = declare_again
+
+
+@pytest.mark.unit
+def test_different_hooks_and_a_subclass_override_are_accepted():
+    class Base(Agent):
+        @hooks.action
+        def pick(self, mdp):
+            return mdp
+
+        @hooks.reward
+        def pay(self, mdp):
+            return mdp
+
+    class Child(Base):
+        @hooks.action
+        def pick_again(self, mdp):
+            return mdp
+
+    assert (Base._action, Base._reward) == ("pick", "pay")
+    assert (Child._action, Child._reward) == ("pick_again", "pay")
+
+
+@pytest.mark.unit
 def test_normalize_action_squashes_each_component_with_a_temperature_of_four():
     agent = make_agent()
 

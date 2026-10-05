@@ -60,7 +60,7 @@ class Agent:
     --------
     >>> import numpy as np
     >>> from gymnasium import spaces
-    >>> from core.mechanism.base import ActType, MDPState, Mechanism
+    >>> from core.mechanism.base import MDPState, Mechanism
     >>> class Harvest(Mechanism):
     ...     def apply(self, mdp, action):
     ...         return MDPState(state={"stock": -float(np.asarray(action)[0])})
@@ -97,21 +97,32 @@ class Agent:
         Each attribute of the new class that carries the ``action``,
         ``reward``, ``observation`` or ``observation_spaces`` mark is recorded
         by name in ``_action``, ``_reward``, ``_observation`` or
-        ``_observation_spaces``. When several attributes carry the same mark,
-        the last one defined wins. Nothing in the framework reads these class
-        variables back.
+        ``_observation_spaces``. A class body marks at most one attribute per
+        hook. Nothing in the framework reads these class variables back.
+
+        Raises
+        ------
+        TypeError
+            If two attributes of the class body carry the same mark. The
+            message names the class, the hook and both attributes.
         """
         super().__init_subclass__(**kwargs)
 
+        marked: dict[str, str] = {}
+
         for name, func in tuple(cls.__dict__.items()):
-            if getattr(func, "action", False):
-                cls._action = name
-            if getattr(func, "reward", False):
-                cls._reward = name
-            if getattr(func, "observation", False):
-                cls._observation = name  # o_i = O_i(S_t)
-            if getattr(func, "observation_spaces", False):
-                cls._observation_spaces = name
+            for hook in ("action", "reward", "observation", "observation_spaces"):
+                if not getattr(func, hook, False):
+                    continue
+
+                if hook in marked:
+                    raise TypeError(
+                        f"{cls.__name__} marks both {marked[hook]!r} and {name!r} "
+                        + f"as the {hook!r} hook; a class can have only one."
+                    )
+
+                marked[hook] = name
+                setattr(cls, f"_{hook}", name)
 
     def _normalize_action(self, action: ActType) -> np.ndarray:
         z = np.asarray(action, dtype=np.float32).reshape(-1)
