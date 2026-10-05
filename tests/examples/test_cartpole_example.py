@@ -153,7 +153,7 @@ def test_push_decode_returns_a_plain_int(raw, expected):
 
 
 @pytest.mark.unit
-def test_push_decode_is_idempotent():
+def test_push_decode_accepts_its_own_output():
     push: Push = PushConfig(id="push", action_space=PUSH_SPACE).build(AGENT)
     once = push.decode(None, np.int64(1))
     assert push.decode(None, once) == once

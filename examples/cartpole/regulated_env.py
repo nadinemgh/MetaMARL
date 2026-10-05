@@ -179,8 +179,8 @@ class Push(Mechanism):
     def decode(self, mdp: MDPState, action: ActType) -> ActType:
         """Turn the sampled action into a plain ``int``.
 
-        The result is written back into the action trajectory and decoded again
-        at later steps, so the conversion is idempotent.
+        The framework always passes the raw policy output, and the result is
+        written back into the action trajectory for the transition to read.
 
         Parameters
         ----------
