@@ -605,6 +605,16 @@ def logical_or_dict(
     """
 
     x = x or {}
+
+    if not any(dxs):
+        # The common case inside ``MDPState.add``: no residual sets a flag.
+        # The environment composes one residual per agent per step over flags
+        # for every agent, so this path stays in C: a plain copy when every
+        # value is already a bool, as after any earlier composition.
+        if set(map(type, x.values())) <= {bool}:
+            return dict(x)
+        return dict(zip(x, map(bool, x.values())))
+
     result = dict(x)
     keys = set(result)
 

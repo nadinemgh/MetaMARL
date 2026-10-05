@@ -94,6 +94,22 @@ class TestCall:
 
         assert mdp.actions["regulator"]["quota"] == [0.0, 0.5]
 
+    def test_call_does_not_reach_a_state_that_shares_the_action_list(self):
+        mechanism = Recorder(aid="regulator", id="quota")
+        before = MDPState(
+            state={"fish": [1.0, 1.0]},
+            actions={"regulator": {"quota": [0.0, 0.25]}},
+            t=1,
+        )
+        # ``add`` shares the action lists that no residual writes to.
+        after = before.add(MDPState(state={"fish": -0.5}))
+        assert after.actions["regulator"] is before.actions["regulator"]
+
+        mechanism(after, 0.25)
+
+        assert after.actions["regulator"]["quota"] == [0.0, 0.5]
+        assert before.actions["regulator"]["quota"] == [0.0, 0.25]
+
 
 @pytest.mark.unit
 class TestAnnotationsMatchTheBehaviour:

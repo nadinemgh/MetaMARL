@@ -86,6 +86,18 @@ class Trajectory(Generic[T]):
         return len(node)
 
     @classmethod
+    def _reaches(cls, node: Any, t: int) -> bool:
+        """Whether some leaf holds at least ``t`` entries.
+
+        Equivalent to ``cls._length(node) >= t`` for ``t > 0``, but it stops at
+        the first leaf long enough, where the length visits every leaf.
+        """
+        if isinstance(node, dict):
+            return any(cls._reaches(value, t) for value in node.values())
+
+        return len(node) >= t
+
+    @classmethod
     def _fill_value(cls, history: list[Any]) -> Any:
         """Value of a timestep that has not been written yet.
 
@@ -151,14 +163,25 @@ class Trajectory(Generic[T]):
 
     @classmethod
     def _add_at_t(
-        cls, destination: dict[Any, Any], source: dict[Any, Any], t: int
+        cls,
+        destination: dict[Any, Any],
+        source: dict[Any, Any],
+        t: int,
+        owned: set[int],
     ) -> None:
-        """Add the latest values from source into destination at timestep t."""
+        """Add the latest values from source into destination at timestep t.
+
+        ``destination`` belongs to the result being built, but the branches and
+        lists below it may still be shared with the trajectory it was copied
+        from. ``owned`` holds the ids of the nodes this result already owns; any
+        other node is copied before it is written to.
+        """
 
         for key, value in source.items():
             if isinstance(value, dict):
                 if key not in destination:
                     destination[key] = {}
+                    owned.add(id(destination[key]))
 
                 if not isinstance(destination[key], dict):
                     raise TypeError(
@@ -166,13 +189,18 @@ class Trajectory(Generic[T]):
                         + "destination is a leaf but source is a branch."
                     )
 
-                cls._add_at_t(destination[key], value, t)
+                if id(destination[key]) not in owned:
+                    destination[key] = dict(destination[key])
+                    owned.add(id(destination[key]))
+
+                cls._add_at_t(destination[key], value, t, owned)
                 continue
 
             latest = value[-1]
 
             if key not in destination:
                 destination[key] = [0] * t + [latest]
+                owned.add(id(destination[key]))
 
                 continue
 
@@ -181,6 +209,10 @@ class Trajectory(Generic[T]):
                     f"Tree mismatch at key {key!r}: "
                     + "destination is a branch but source is a leaf."
                 )
+
+            if id(destination[key]) not in owned:
+                destination[key] = destination[key].copy()
+                owned.add(id(destination[key]))
 
             history = destination[key]
 
@@ -203,7 +235,64 @@ class Trajectory(Generic[T]):
         The lists are copied, so appending to the copy leaves the original
         alone. The values inside the lists, such as NumPy arrays, are shared.
         """
-        return type(self)(self._copy_tree(self.data))
+        return self._from_tree(self._copy_tree(self.data))
+
+    @classmethod
+    def _from_tree(cls, tree: dict[Any, Any]) -> "Trajectory[T]":
+        """Wrap a tree that is already normalised, without walking it again."""
+        trajectory = cls.__new__(cls)
+        trajectory.data = tree
+        return trajectory
+
+    def write(self, path: tuple[Any, ...], t: int, value: Any) -> None:
+        """Overwrite step ``t`` of the leaf at ``path``, in place.
+
+        Unlike the other operations, this one modifies the trajectory it is
+        called on. It copies the branches along ``path`` and the leaf before
+        writing, because :meth:`add` shares the lists and branches it does not
+        write to with the trajectory it was called on, and a write into a
+        shared list would reach that trajectory too.
+
+        Parameters
+        ----------
+        path : tuple
+            Keys from the root to the leaf, for example ``(agent_id,
+            mechanism_id)``.
+        t : int
+            Index of the step to overwrite, which must already exist.
+        value : Any
+            New value of the step.
+
+        Raises
+        ------
+        KeyError
+            If a key of ``path`` does not exist.
+        IndexError
+            If the leaf holds no step ``t``.
+
+        Notes
+        -----
+        When to use: to record a value at the current step of a trajectory
+        that the caller holds, as :meth:`core.mechanism.base.Mechanism.__call__`
+        does with the decoded action.
+
+        Examples
+        --------
+        >>> before = Trajectory({"f0": {"harvest": 0.5}})
+        >>> after = before.add(0, [])
+        >>> after.write(("f0", "harvest"), 0, 0.25)
+        >>> after["f0"]["harvest"], before["f0"]["harvest"]
+        ([0.25], [0.5])
+        """
+        node = self.data
+
+        for key in path[:-1]:
+            node[key] = dict(node[key])
+            node = node[key]
+
+        history = node[path[-1]].copy()
+        history[t] = value
+        node[path[-1]] = history
 
     @property
     def length(self) -> int:
@@ -220,7 +309,11 @@ class Trajectory(Generic[T]):
         the same path at step ``t``. A path that does not exist yet is created,
         with zeros before ``t``. A leaf that lags behind ``t`` is first filled
         up to ``t`` with its fill value, then summed. The sum is not done in
-        place, so arrays shared with this trajectory are not modified.
+        place, so arrays shared with this trajectory are not modified. The
+        lists and branches that no delta writes to are shared with this
+        trajectory rather than copied; no operation of this class except
+        :meth:`write` modifies a list in place, and :meth:`write` copies what it
+        modifies, so the sharing is never visible through them.
 
         As in :meth:`update`, a step cannot be skipped: ``t`` is at most the
         current :attr:`length`, which is the step ``add`` opens when it is
@@ -249,22 +342,28 @@ class Trajectory(Generic[T]):
         TypeError
             If a path is a leaf in one tree and a branch in the other.
         """
-        result = self.copy()
-
         if any(delta.length for delta in deltas):
             if t < 0:
                 raise ValueError("t must be non-negative")
 
-            if t > result.length:
+            if t > 0 and not self._reaches(self.data, t):
                 raise ValueError(
-                    f"Cannot skip from trajectory length {result.length} "
+                    f"Cannot skip from trajectory length {self.length} "
                     + f"to timestep {t}"
                 )
 
-        for delta in deltas:
-            self._add_at_t(result.data, delta.data, t)
+        # The result shares every list and branch that no delta writes to with
+        # this trajectory, and copies the others before writing. A full copy
+        # would cost the size of the whole tree at every add, and an
+        # environment composes one residual per agent per step, which made an
+        # episode quadratic in the number of agents.
+        tree = dict(self.data)
+        owned = {id(tree)}
 
-        return result
+        for delta in deltas:
+            self._add_at_t(tree, delta.data, t, owned)
+
+        return self._from_tree(tree)
 
     def append(self, values: dict[Any, Any]) -> "Trajectory[T]":
         """Return a copy with one more timestep holding ``values``.

@@ -389,7 +389,7 @@ class Mechanism(ABC):
             Residual of the transition, as returned by :meth:`apply`.
         """
         action = self.decode(mdp, action)
-        mdp.actions[self.aid][self.id][mdp.t] = action
+        mdp.actions.write((self.aid, self.id), mdp.t, action)
         return self.apply(mdp, action)
 
     def decode(self, mdp: MDPState, action: ActType) -> ActType:

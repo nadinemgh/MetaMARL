@@ -280,3 +280,93 @@ class TestMDPStateAdd:
         merged = mdp.add(MDPState(terminateds={"b": True, "c": False}))
 
         assert merged.terminateds == {"a": False, "b": True, "c": False}
+
+
+@pytest.mark.unit
+class TestSharing:
+    """``add`` shares what it does not write, and the sharing stays invisible.
+
+    An environment composes one residual per agent per step, so a full copy of
+    the tree at every ``add`` made an episode quadratic in the number of agents
+    (about 24 minutes per training iteration for 500 fresh-water farms).
+    """
+
+    def test_add_shares_the_branches_and_lists_no_delta_writes(self):
+        base = Trajectory({"a": [1.0], "b": {"c": [2.0]}, "d": {"e": [3.0]}})
+
+        added = base.add(0, [Trajectory({"d": {"e": 1.0}})])
+
+        assert added["a"] is base["a"]
+        assert added["b"] is base["b"]
+        assert added["d"] is not base["d"]
+        assert added["d"]["e"] == [4.0]
+        assert base["d"]["e"] == [3.0]
+
+    def test_a_chain_of_adds_leaves_every_earlier_trajectory_unchanged(self):
+        first = Trajectory({"a": [1.0, 2.0], "b": {"c": [5.0, 6.0]}})
+
+        second = first.add(1, [Trajectory({"a": 10.0})])
+        third = second.add(1, [Trajectory({"a": 100.0, "b": {"c": 1.0}})])
+        fourth = third.append({"a": 0.0})
+
+        assert first.data == {"a": [1.0, 2.0], "b": {"c": [5.0, 6.0]}}
+        assert second.data == {"a": [1.0, 12.0], "b": {"c": [5.0, 6.0]}}
+        assert third.data == {"a": [1.0, 112.0], "b": {"c": [5.0, 7.0]}}
+        assert fourth.data == {"a": [1.0, 112.0, 0.0], "b": {"c": [5.0, 7.0, 7.0]}}
+
+    def test_two_deltas_on_one_leaf_copy_it_once_and_sum_both(self):
+        base = Trajectory({"a": [1.0]})
+
+        added = base.add(0, [Trajectory({"a": 2.0}), Trajectory({"a": 3.0})])
+
+        assert added["a"] == [6.0]
+        assert base["a"] == [1.0]
+
+    def test_a_new_branch_is_owned_by_the_result(self):
+        base = Trajectory({"a": [1.0]})
+
+        added = base.add(
+            0, [Trajectory({"b": {"c": 2.0}}), Trajectory({"b": {"c": 3.0}})]
+        )
+
+        assert added["b"] == {"c": [5.0]}
+        assert "b" not in base
+
+    def test_the_skip_check_still_names_the_length(self):
+        with pytest.raises(ValueError, match="length 2 to timestep 3"):
+            Trajectory({"a": [1.0, 2.0], "b": [1.0]}).add(3, [Trajectory({"a": 1.0})])
+
+    def test_a_lagging_leaf_does_not_hide_a_long_one_from_the_skip_check(self):
+        added = Trajectory({"a": [1.0], "b": [1.0, 2.0]}).add(
+            2, [Trajectory({"a": 1.0})]
+        )
+
+        assert added["a"] == [1.0, 1.0, 2.0]
+
+    def test_write_copies_what_it_modifies(self):
+        base = Trajectory({"f0": {"harvest": [0.5, 0.5]}, "f1": {"harvest": [0.1]}})
+        added = base.add(1, [])
+
+        added.write(("f0", "harvest"), 1, 0.25)
+
+        assert added["f0"]["harvest"] == [0.5, 0.25]
+        assert base["f0"]["harvest"] == [0.5, 0.5]
+        assert added["f1"] is base["f1"]
+
+    def test_write_raises_like_an_index_into_the_leaf(self):
+        trajectory = Trajectory({"f0": {"harvest": [0.5]}})
+
+        with pytest.raises(KeyError):
+            trajectory.write(("f1", "harvest"), 0, 0.25)
+
+        with pytest.raises(IndexError):
+            trajectory.write(("f0", "harvest"), 1, 0.25)
+
+    def test_copy_does_not_normalise_the_tree_twice_and_keeps_the_type(self):
+        flow = FlowTrajectory({"a": [1.0], "b": {"c": [2.0]}})
+
+        copy = flow.copy()
+
+        assert type(copy) is FlowTrajectory
+        assert copy == flow
+        assert copy["b"]["c"] is not flow["b"]["c"]

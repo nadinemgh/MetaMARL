@@ -165,3 +165,26 @@ def test_logical_or_dict_coerces_values_to_bool_and_does_not_mutate():
     assert result == {"a": True}
     assert result["a"] is True
     assert base == {"a": 0}
+
+
+@pytest.mark.unit
+def test_logical_or_dict_without_flags_to_merge_coerces_and_copies_the_base():
+    base = {"b": np.bool_(True), "a": 0, "__all__": False}
+
+    for dxs in ([], [None], [None, {}]):
+        result = logical_or_dict(base, dxs)
+
+        assert result == {"b": True, "a": False, "__all__": False}
+        assert list(result) == ["b", "a", "__all__"]
+        assert all(type(value) is bool for value in result.values())
+        assert result is not base
+
+
+@pytest.mark.unit
+def test_logical_or_dict_copies_a_base_that_already_holds_bools():
+    base = {"a": True, "b": False}
+
+    result = logical_or_dict(base, [None])
+
+    assert result == base
+    assert result is not base
