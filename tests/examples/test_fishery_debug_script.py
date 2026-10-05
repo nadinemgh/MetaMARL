@@ -1,5 +1,8 @@
 """``examples.bilevel_fishery.debug`` does nothing at import and parses its own options.
 
+The environments of the example do not configure the root logger either; the
+script does it in ``main``.
+
 The script used to parse ``sys.argv`` and build and train the whole experiment
 when it was imported, which also made importing it under pytest (or from a
 tool that collects doctests) exit on the first unknown option or restart the
@@ -8,6 +11,8 @@ covered by ``tests/integration/test_debug_script_csv_smoke.py``.
 """
 
 import importlib
+import logging
+import subprocess
 import sys
 
 import pytest
@@ -60,3 +65,28 @@ def test_the_configuration_is_built_from_the_options_without_starting_ray():
 
     assert type(config).__name__ == "BilevelConfig"
     assert not ray.is_initialized()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "module",
+    [
+        "examples.bilevel_fishery.regulated_env",
+        "examples.bilevel_fishery.regulator_env",
+    ],
+)
+def test_importing_an_environment_leaves_the_root_logger_alone(module):
+    code = "; ".join(
+        [
+            "import logging",
+            f"import {module}",
+            "root = logging.getLogger()",
+            "print(root.handlers, root.level)",
+        ]
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout.strip().splitlines()[-1] == f"[] {logging.WARNING}"

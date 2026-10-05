@@ -78,10 +78,6 @@ from core.mechanism.base import MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
 from core.utils import sigmoid
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-
 logger = logging.getLogger(__name__)
 
 EPS = 1e-8
