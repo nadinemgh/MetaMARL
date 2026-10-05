@@ -286,9 +286,10 @@ class RayOptimizer(Optimizer):
 
         The evaluation result is converted to the ``eval`` branch of a
         ``RaySchema`` and pushed into the metric logger, but it is not
-        returned. The evaluation environments publish their ``EnvStepContext``
-        records to the World, and the method ends by flushing the World with
-        the ``eval`` status; the regulator reads the outcome from there.
+        returned. The method ends by flushing the World with the ``eval``
+        status, which drops the evaluated candidates from its mechanism
+        registry so they are not fetched again. The regulator reads the outcome
+        from the logger snapshot that ``train`` returns, not from the World.
         """
         logger.info("[PPO] Evaluation started")
 
