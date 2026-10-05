@@ -1,121 +1,40 @@
-import numpy as np
-import ray
+"""Entry point of the cart-pole experiment with a PPO inner level.
 
-# Fishery-specific objects
-from examples.dummy.mechanism import DummyMechanismSpace
-from examples.dummy.regulator_env import DummyRegulatorEnv
-from gymnasium import spaces
-from ray.rllib.models import ModelCatalog
+Run ``uv run python -m examples.cartpole.main_ppo`` for the full
+configuration (100 generations of 100 PPO iterations on horizon 1000). It
+accepts the options of :mod:`examples.cartpole.debug` except ``--algo``.
 
-# core optimizers
-from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
-from core.callbacks import tag_episode_with_env_idx
-from core.optimizers.bilevel import BilevelConfig
-from core.optimizers.es.config import ESConfig
-from core.optimizers.ppo.config import PPOptimizerConfig
-from examples.cartpole.regulated_env import CartpoleRegulatedEnv
+Known limitation of the framework, not of this example: PPO's training step
+receives one metrics dictionary per finished episode (241 of them for a batch of
+4000 steps of 20-step episodes, measured), while
+``core.callbacks.log_and_report_episode_metrics`` logs every episode as an
+``item`` under the same key (the identifier loses its unique ``raw`` suffix).
+RLlib's ``ItemStats.merge`` accepts a single incoming value, so the first PPO
+iteration raises an ``AssertionError``. The APPO entry point is not affected.
+"""
 
-ray.shutdown()
+import sys
+from collections.abc import Sequence
+from typing import Optional
 
-# Register custom MPS model
-ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
+from examples.cartpole.debug import main as run
 
-bilevel_opt_cfg: BilevelConfig = (
-    BilevelConfig()
-    .world(world_name="cartpole_world")
-    .mechanism(space=DummyMechanismSpace())
-    .training(outer_iters=100)
-    .ray(
-        device="cpu",
-        num_cpus=4,
-        omp_threads=1,
-        logging_level="ERROR",
-        runtime_env={
-            "excludes": [
-                "wandb/",
-                ".git/",
-                ".venv/",
-                "__pycache__/",
-                "ray_results/",
-                "runs/",
-            ]
-        },
-    )
-    .outer(
-        ESConfig()
-        .training(sigma=0.5, mean_lr=0.2, sigma_lr=0.05, min_sigma=0.01, max_sigma=0.6)
-        .environment(
-            env=DummyRegulatorEnv, env_config={}, horizon=1000, train_iters=100
-        )
-    )
-    .inner(
-        PPOptimizerConfig()
-        .resources(num_cpus_for_main_process=1)
-        .framework(framework="torch")
-        # .model(custom_model="mps_fcnet")
-        .api_stack(
-            enable_rl_module_and_learner=True, enable_env_runner_and_connector_v2=True
-        )
-        .environment(
-            env=CartpoleRegulatedEnv,
-            env_config={},
-            horizon=1000,
-            disable_env_checking=False,
-        )
-        .env_runners(
-            num_env_runners=0,
-            num_cpus_per_env_runner=1,
-            num_gpus_per_env_runner=0,
-            # Batch evaluated mechanism, or population size for ES (16).
-            num_envs_per_env_runner=1,
-            rollout_fragment_length=1000,  # must be same as env horizon 200
-            batch_mode="complete_episodes",
-        )
-        .learners(num_learners=1, num_gpus_per_learner=0)
-        .callbacks(
-            on_episode_created=tag_episode_with_env_idx  # New API stack
-        )
-        .training(
-            gamma=0.99,
-            lr=0.001,
-            train_batch_size=4000,  # 3200
-            minibatch_size=512,  # 512
-            entropy_coeff=0.01,
-            grad_clip=40.0,
-        )
-        .evaluation(
-            evaluation_interval=None,
-            evaluation_duration=1000,  # rollout_fragment_length X num_episodes
-            evaluation_duration_unit="timesteps",
-            evaluation_num_env_runners=1,
-            evaluation_config={
-                "explore": False,  # greedy eval actions
-                "seed": 42,
-                "num_envs_per_env_runner": 1,  # same as training
-                "rollout_fragment_length": 1000,  # same as training
-                "batch_mode": "complete_episodes",  # same as training
-                "minibatch_size": None,
-            },
-        )
-        .agents(
-            {
-                "agent_0": {
-                    "count": 1,
-                    "policy": "cartpole_policy",
-                    "observation_space": spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(4,), dtype=np.float32
-                    ),
-                    "action_space": spaces.Discrete(2),
-                }
-            }
-        )
-        .fault_tolerance(restart_failed_env_runners=False)
-    )
-)
 
-# run the experiment
-bilevel_opt = bilevel_opt_cfg.build_optimizer()
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    """Run the cart-pole experiment with PPO.
 
-bilevel_opt.train()
+    Parameters
+    ----------
+    argv : sequence of str or None, optional
+        Options of :func:`examples.cartpole.debug.parse_args` without
+        ``--algo``; ``None`` reads ``sys.argv``.
 
-ray.shutdown()
+    When to use: as the body of the ``main_ppo`` script. It starts Ray, so it
+    has no doctest.
+    """
+    options = sys.argv[1:] if argv is None else list(argv)
+    run(["--algo", "ppo", *options])
+
+
+if __name__ == "__main__":
+    main()
