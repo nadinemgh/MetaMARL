@@ -761,6 +761,7 @@ class ESOptimizer(Optimizer):
 
         return ESSchema(
             iter=generation,
+            generation=generation,
             sigma=sigma,
             population_size=len(fitness),
             fitness_mean=float(fitness.mean()),

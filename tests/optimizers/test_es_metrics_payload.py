@@ -3,7 +3,8 @@
 The payload turns one finished generation into an ``ESSchema``. The tests call
 it directly with chosen arrays, push several payloads into a ``MetricLogger``
 and check that every series grows by one value per generation. The payload
-reads the generation index into ``iter``, the field shared by all schemas.
+stores the generation index in ``iter``, the field shared by all schemas, and
+in the ``generation`` field of ``ESSchema``.
 """
 
 import numpy as np
@@ -61,6 +62,7 @@ class TestPopulationPayload:
         )
 
         assert payload.iter == 5
+        assert payload.generation == 5
         assert payload.sigma == 0.12
         assert payload.population_size == 4
         assert payload.fitness_mean == pytest.approx(2.5)
@@ -145,6 +147,7 @@ class TestPopulationPayload:
 
         peeked = logger.peek()
         assert peeked.iter == [0, 1]
+        assert peeked.generation == [0, 1]
         assert peeked.fitness_best == [4.0, 5.0]
         assert peeked.best_fitness_global == [4.0, 5.0]
         assert peeked.best_mechanism_idx == [1, 2]

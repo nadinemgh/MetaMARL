@@ -8,8 +8,8 @@ and ``ESSchema`` for the whole generation. Series fields (``sigma``,
 each candidate's fitness and parameter values, ``search_mean``/``global_best``/
 ``generation_best`` are keyed by parameter name, and ``inner`` is the reduced
 metric schema of the inner optimizer, specialized at runtime (``RaySchema`` for
-RLlib). The generation index travels in the ``iter`` field inherited from
-``MetricSchema``.
+RLlib). The generation index is stored twice: in the ``iter`` field inherited
+from ``MetricSchema`` and in the ``generation`` field of ``ESSchema``.
 """
 
 from typing import Optional, TypeAlias
@@ -86,13 +86,14 @@ class ESSchema(MetricSchema):
 
     ``ESOptimizer`` builds one instance per generation and pushes it to its
     ``MetricLogger``; the reporter then peeks the accumulated series. The
-    generation index is stored in the inherited ``iter`` field; ``generation``
-    is declared but ``ESOptimizer`` does not fill it, so it stays ``None``.
+    generation index is stored in the inherited ``iter`` field and in the
+    ``generation`` field.
 
     Attributes
     ----------
     generation : int or None
-        Declared series, left unset by ``ESOptimizer``.
+        Index of the generation (zero-based, no unit); the same value as
+        ``iter``. Reduced as a series: each push appends one value.
     sigma : float or None
         Standard deviation of the search distribution in logit space, as it was
         when the population was sampled (dimensionless).
