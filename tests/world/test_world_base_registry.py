@@ -66,7 +66,7 @@ def test_append_context_registers_mechanism_and_optimizer(
     assert world.get_opt_ctx_ids("opt") == [cid]
     assert world.get_opt_ids() == {"opt"}
     assert "opt" in world.get_opt_registry()
-    assert world.get_mechanism_by_index(cid) is ctx.payload
+    assert world.get_mechanism_by_index(3) is ctx.payload
 
 
 @pytest.mark.unit

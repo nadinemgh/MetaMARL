@@ -301,32 +301,41 @@ class World:
         return None
 
     def get_mechanism_by_index(self, index: int) -> MechanismContext:
-        """Return the mechanism stored under registry key ``index``.
+        """Return the mechanism candidate whose batch index is ``index``.
 
-        Despite the name and the ``int`` annotation, the registry is keyed by
-        the ``ContextID`` string of the publishing context, so this only works
-        when passed that ID; an integer batch index raises ``KeyError``. The
-        mismatch is recorded in ``TODO.md``. Use ``get_mechanism_by_id`` to look
-        up a candidate by its batch position.
+        The registry is keyed by the ``ContextID`` of the publishing context,
+        so the lookup scans the payloads for ``MechanismContext.index``. The
+        regulator publishes one copy of each candidate per training seed, so
+        several entries can share an index; all copies carry the same
+        ``mechanism``, and the first one in registration order is returned,
+        as ``get_mechanism_by_id`` does for duplicates. Entries in status
+        ``done`` are skipped: they record the fitness of a candidate
+        (``mechanism=None``) under the same index and would otherwise shadow
+        the candidate once a generation has been scored. Use
+        ``get_mechanism_by_id`` to pick the copy of a given seed.
 
         Parameters
         ----------
         index : int
-            Registry key. In practice the ``ContextID`` string returned by
-            ``append_context``.
+            Batch position of the candidate (``MechanismContext.index``).
 
         Returns
         -------
         MechanismContext
-            The payload stored under that key; its status is not changed.
+            The matching payload; its status is not changed.
 
         Raises
         ------
         KeyError
-            If ``index`` is not a registry key.
+            If no registered entry that is not ``done`` has this index (also
+            when ``index`` is a ``ContextID`` string).
         """
 
-        return self._mechanism_registry[index]
+        for m_ctx in self._mechanism_registry.values():
+            if m_ctx.index == index and m_ctx.status != MechanismStatus.done:
+                return m_ctx
+
+        raise KeyError(f"No mechanism candidate with index {index!r}")
 
     def _validate_ctx_schema_exists(self, schema: type[ContextSchema]) -> None:
         """Ensure a singleton ContextSchema is not already present in the world.

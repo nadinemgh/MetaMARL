@@ -177,13 +177,68 @@ def test_assigned_entry_cannot_be_fetched_by_id(world, make_context, make_mechan
 
 
 @pytest.mark.unit
-def test_get_mechanism_by_index_is_keyed_by_context_id(
+def test_get_mechanism_by_index_finds_the_candidate_with_that_index(
     world, make_context, make_mechanism
 ):
-    payload = make_mechanism(index=0)
-    cid = world.append_context(make_context(payload))
+    first = make_mechanism(index=0)
+    second = make_mechanism(index=4)
+    world.append_context(make_context(first))
+    world.append_context(make_context(second))
 
-    assert world.get_mechanism_by_index(cid) is payload
+    assert world.get_mechanism_by_index(4) is second
+    assert world.get_mechanism_by_index(0) is first
+    # The lookup does not claim the entry: its status is untouched.
+    assert second.status == MechanismStatus.published
+
+
+@pytest.mark.unit
+def test_get_mechanism_by_index_rejects_an_unknown_index_and_a_context_id(
+    world, make_context, make_mechanism
+):
+    cid = world.append_context(make_context(make_mechanism(index=1)))
+
+    with pytest.raises(KeyError, match="index 7"):
+        world.get_mechanism_by_index(7)
+
+    with pytest.raises(KeyError):
+        world.get_mechanism_by_index(cid)
+
+
+@pytest.mark.unit
+def test_get_mechanism_by_index_returns_the_first_seed_copy_of_a_candidate(
+    world, make_context, make_mechanism
+):
+    """The regulator publishes one copy per seed; every copy has the same index."""
+    seed_a = make_mechanism(index=2, seed=10)
+    seed_b = make_mechanism(index=2, seed=20)
+    world.append_context(make_context(seed_a))
+    world.append_context(make_context(seed_b))
+
+    assert world.get_mechanism_by_index(2) is seed_a
+
+
+@pytest.mark.unit
+def test_get_mechanism_by_index_skips_the_done_records_of_earlier_generations(
+    world, make_context, make_mechanism
+):
+    """A ``done`` record carries fitness, not a mechanism, and shares the index."""
+    world.append_context(
+        make_context(make_mechanism(index=0, seed=None, status=MechanismStatus.done))
+    )
+    candidate = make_mechanism(index=0)
+    world.append_context(make_context(candidate))
+
+    assert world.get_mechanism_by_index(0) is candidate
+
+
+@pytest.mark.unit
+def test_get_mechanism_by_index_does_not_see_a_flushed_candidate(
+    world, make_context, make_mechanism
+):
+    world.append_context(
+        make_context(make_mechanism(index=0, status=MechanismStatus.eval))
+    )
+    world.flush(status=MechanismStatus.eval)
 
     with pytest.raises(KeyError):
         world.get_mechanism_by_index(0)
