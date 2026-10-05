@@ -115,12 +115,12 @@ against the tree, execute every notebook, then audit everything by measurement.
     - [x] README rewritten and QUICKSTART written, every command executed (`eb684c8`);
     - [x] `docs/MERGE_NOTES.md` written for Nadine (`5065a9f`): its 86 quoted hashes resolve on the branch and its figures were checked against the commit messages and this file; the check found that the Ray optimizer's messages said `[PPO]` under APPO, fixed with its test (`f172c1d`). Full suite on that commit: 1861 passed, 1 skipped, `core/` at 99 %;
     - [x] `AGENTS.md` and `docs/ARCHITECTURE.md` (`d3bbbd3`): drafted by a subagent, then checked claim by claim by two independent read-only subagents (about 125 claims for the architecture guide, 12 wrong or imprecise; about 50 for AGENTS, 8 wrong), all corrected. The drafting turned up code defects, fixed with their tests: `@override(gym.Env)` on `MultiAgentEnv.reset`, whose class does not derive from `gym.Env`, with a static test over every `@override` (`a0dc6cc`); `ESConfig` silently ignoring unknown arguments (`bbd97a8`); the `Query` module example using a path no schema resolves (`d3e3b0b`). On Rémy's decision, `ESConfig.debugging` rejects `num_seeds`, which nothing read (`2ff20a1`), and the stray `# Deprecated` comment above the `to_float` import is gone (`fa3085e`). Dismissed after checking: the two `test_annotations.py` files collect without conflict, and `RayOptimizer.save` doing nothing matches the base class. Measured on `d3bbbd3`'s tree: 1857 unit tests passed, 1 skipped; 13 integration tests passed; 1871 collected; `core/` at 99 %; the smoke run gives the same fitness vectors as before.
-- [ ] Phase 5 — the five notebooks execute and are exercised by the test suite.
+- [x] Phase 5 — the five notebooks execute and are exercised by the test suite (closed on 10-05).
   - [x] inventory on 10-05 by one read-only subagent, then checked cell by cell by the lead (the subagent attributed several stale items to the wrong notebook). `continuous_time_mechanism_vector_fields` is pure mathematics with no stale API. `metamarl_fishery_tutorial` fails on two `schema=` arguments and runs end to end once they are removed; its dynamics cell omits the pro-rata rationing and the floor at zero, and it passes the regulator a `K` that nothing reads. `visualization` fails on two `Query(reduce=...)` cells; the reduction now lives in `ReduceProtocol` tokens of the path. `custom_benchmark_creation` and `mechanism_algorithms` execute only because nearly all their code sits in fenced markdown blocks, written against the earlier mechanism interface, `MultiAgentRegulatedEnv`, `bindings`, `ChainedMechanism`/`ParallelMechanism`, `.inner(...)` and `.run()`. Three notebooks have no kernel specification. The `notebook` marker is declared but `tests/notebooks/` is empty. Executed copies and cell dumps are in the session scratchpad (not kept);
   - [x] repairs, one commit per notebook, under the four decisions of 10-05: three subagents rewrote the four notebooks (`continuous_time_mechanism_vector_fields` needed no change), four independent read-only reviewers checked them claim by claim, and the authors applied the corrections (`97af7e4`, `13aff1b`, `279fba0`, `268b500`); all five execute under the new test;
   - [x] code defects found while repairing, fixed with their tests or as documentation: raw actions carry the leaders' residuals (`45cc14f`), `RaySchema` is not passed to `reporting` (`e6dc300`), the `!tutorials/*` negation un-ignored run outputs (`f77ea7b`), the MEAN reduction iterated a set so the group order depended on the hash seed (`e00ec36`), the two `by_seed` levels name different seeds (`17f48b6`), the stale regulator `K` sentence (`acd529b`);
   - [x] the three behaviour changes decided on 10-05, each test-first with its own commit: the ES searches the union of every regulator agent's mechanisms and rejects a duplicate id or a config without agents (`a65b543`); each quota publishes its allowance under `allowed_frac:<id>`, and a test pins the additive composition of two quotas (`6bf771c`); peers are ordered by the numeric index of their id (`14557d7`). The notebook cells that described the old behaviours were updated and re-executed (`5ec6b4d`). Writing the quota test found that a new test class shadowed the existing `TestComposition`; ruff's F811 caught it and the class was renamed;
-  - [ ] `TODO.md` visualisation plan reconciled;
+  - [x] `TODO.md` plans reconciled by one subagent (`245a3aa`): of 443 boxes, 287 done, 51 partly done, 32 obsolete and about 65 open, each marker naming its commit. The lead re-checked that all 65 quoted hashes are commits that are ancestors of HEAD and spot-checked the cited tests. Every box about parity with `dev` stays open, because no comparison with `dev` was run. Two defects the subagent reported were fixed: a stray merge-conflict marker left by `c9c15fb` in `TODO.md` (same commit) and the stale `MechanismSpace` comment of the ES schema (`722dba1`);
   - [x] notebook test under the `notebook` marker and its CI job (`6aaee13`);
   - [x] `docs/MERGE_NOTES.md`: a section on the tutorials, a paragraph on the three behaviour changes and one on the MEAN order fix, plus the renamed quota entry, the removed ES attribute and the new ES errors; every quoted hash checked.
   - [x] measured after `5ec6b4d` with the default command (`WANDB_MODE=offline uv run python -m pytest`): 1893 passed, 1 skipped doctest, no failure, 207 s; `core/` at 99 % (5 of 3656 statements missed, all defensive guards that predate this phase); `ruff check --no-fix .` and `ruff format --check .` pass on the whole tree (188 files).
@@ -259,7 +259,7 @@ is rewritten in phase 4.)
 
 ## Waiting on
 
-Nothing. Phase 5 is in progress.
+Nothing. Phase 5 is closed; phase 6 needs no decision until the push.
 
 ## Findings for Nadine (to go into the phase 4 notes)
 
@@ -361,26 +361,21 @@ IMPALA's deque queue, which it does not cover.
 
 ## Next step
 
-Phase 4 is closed. Phase 5 makes the five notebooks in `tutorials/` execute against
-the present API and exercises them in the suite under the `notebook` marker, with
-the tutorial items listed in the findings. The notebooks still call removed
-interfaces (for example `reporting(schema=...)` and an `.inner(...)` builder), so the
-first action is to execute each one and list its failures, delegating that reading
-to a subagent; the fixes and decisions stay in the main session. The notes for Nadine
-then gain a paragraph on the notebook changes.
-
-Phase 6 audits by measurement:
-- re-measure the slot-initialisation doubt above;
+Phase 5 is closed. Phase 6 audits by measurement:
+- re-measure the slot-initialisation doubt of the "To do together" section of
+  `docs/MERGE_NOTES.md` (bit-identical fitness across generations although the candidates
+  differed) on the shrunk and full fishery configurations, with the new dynamics and the
+  tail window, and record the result there;
 - time a fresh-water run at full size;
 - just before the push, rewrite the six commit trailers that name Sonnet 5.5 and update
   every cited hash;
 - after the rewrite, remap every hash quoted in `docs/MERGE_NOTES.md`, whose preface promises
-  the pushed hashes, and add to it the slot measurement;
+  the pushed hashes, in `TODO.md` (65 hashes) and in this file;
 - push with Rémy's go-ahead.
 
-**Suite conseillée :** modèle opus, effort high — phase 5 repairs five notebooks against
-an API that changed under them, with judgment on each teaching cell; start it in a
-fresh session after `/clear`.
+**Suite conseillée :** modèle opus, effort high — phase 6 runs real Ray measurements whose
+results must be interpreted before anything is written for Nadine, then a history
+rewrite with a hash remap across three files; start it in a fresh session after `/clear`.
 
 ## Known traps
 

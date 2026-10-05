@@ -263,6 +263,13 @@ rather than the mechanism. The measurement predates the new dynamics and the tai
 window; it is repeated on the shrunk and full configurations before the push, and
 its result will be added here.
 
+The plans at the top of `TODO.md` were reconciled with the branch box by box: each
+box now ends with a marker that names the commit doing it, partly doing it or making
+it obsolete (`245a3aa`). The boxes about parity with `dev` stay open, because no run
+compared `dev` with this branch; only the reproducibility of this branch from one
+run to the next was measured. That comparison needs your judgment on which numbers
+should match, now that the dynamics and the per-step rewards changed on purpose.
+
 ## The tutorials
 
 Most of the code of the tutorials sat in fenced markdown blocks that never ran,
