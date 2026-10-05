@@ -48,16 +48,13 @@ True
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, KeysView, Optional
+from typing import KeysView, Optional
 
 import ray
 
 from core.types import ContextID, OptimizerID
 from core.utils import generate_uuid
 from core.world.context import Context, ContextSchema, MechanismContext, MechanismStatus
-
-if TYPE_CHECKING:
-    pass
 
 
 @ray.remote
@@ -258,11 +255,9 @@ class World:
 
         Raises
         ------
-        TypeError
-            If ``mode`` is neither ``train`` nor ``eval`` and a registry entry
-            matches ``mechanism_id`` and ``seed``: the predecessor lookup yields
-            ``None`` and the ``in`` test fails. With no matching entry the call
-            returns ``None`` whatever ``mode`` is, and no status is changed.
+        ValueError
+            If ``mode`` is neither ``train`` nor ``eval``. The check runs before
+            the registry is searched, so no status is changed.
         """
 
         required_status = {
@@ -270,6 +265,12 @@ class World:
             MechanismStatus.eval: {MechanismStatus.train, MechanismStatus.eval},
         }
         target_prev_status = required_status.get(mode)
+
+        if target_prev_status is None:
+            raise ValueError(
+                "get_mechanism_by_id fetches for training or evaluation only; "
+                + f"got mode={mode.name}"
+            )
 
         for m_ctx in self._mechanism_registry.values():
             if (

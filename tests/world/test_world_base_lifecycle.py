@@ -126,8 +126,13 @@ def test_get_mechanism_by_id_rejects_a_mode_that_is_not_train_or_eval(
     payload = make_mechanism(index=0, seed=0)
     world.append_context(make_context(payload))
 
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError, match=mode.name):
         world.get_mechanism_by_id(0, 0, mode)
+
+    # The mode is rejected before the registry is searched, so an unmatched
+    # candidate raises too instead of silently returning None.
+    with pytest.raises(ValueError, match=mode.name):
+        world.get_mechanism_by_id(5, 5, mode)
 
     assert payload.status == MechanismStatus.published
 
