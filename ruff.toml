@@ -1,5 +1,3 @@
-extend-exclude = ["legacy_code"]
-
 line-length = 88
 indent-width = 4
 target-version = "py312"
@@ -31,6 +29,15 @@ explicit-preview-rules = true
 
 [lint.flake8-implicit-str-concat]
 allow-multiline = false
+
+# The formatter ignores magic trailing commas (skip-magic-trailing-comma below),
+# so isort must not split on them either, or the two would disagree.
+[lint.isort]
+split-on-trailing-comma = false
+# The git-ignored run directory `wandb/` at the root would otherwise make isort
+# take the wandb package for first-party code in a working copy, and sort its
+# import differently there than in a clean checkout such as CI.
+known-third-party = ["wandb"]
 
 [format]
 quote-style = "double"
