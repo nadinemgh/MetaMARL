@@ -1,3 +1,22 @@
+"""Reporter base class: query resolution shared by every reporting backend.
+
+A reporter receives a populated ``MetricSchema`` at the end of an iteration,
+resolves each of its :class:`~core.reporting.query.Query` objects against it into
+plain lists of numbers, and hands them to a backend hook (``_report``) that
+draws or writes them. This module holds the part that does not depend on the
+backend: the path walk (:meth:`Reporter._resolve_path`), the consistency checks
+between x, y, error and colour series (:meth:`Reporter._resolve_query`) and the
+per-query error isolation of :meth:`Reporter.report`. The CSV, TensorBoard and
+Weights & Biases reporters subclass :class:`Reporter`; the optimizers and the
+environments own one reporter each and call ``report`` on it.
+
+A *group* identifies one series inside a query that expands dynamic nodes: it
+is a tuple of ``(junction, dynamic_id)`` pairs, for example
+``(("by_mechanism", "quota"), ("by_seed", "3"))``, and the empty tuple ``()``
+when the path crosses no dynamic node.
+"""
+
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias
@@ -11,40 +30,103 @@ from core.reporting.query import Path, Query
 
 Group: TypeAlias = tuple[tuple[str, str], ...]
 Resolved: TypeAlias = dict[Group, list[PrimitiveType]]
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
 class PathResolution:
+    """Result of walking one query path through a metric schema.
+
+    Both fields map a group (see the module docstring) to a list of values with
+    one entry per x point. ``errors`` is empty unless the path crosses the
+    ``MEAN`` reduction named by the query's ``error_path`` and the query asks
+    for a standard deviation.
+
+    Attributes
+    ----------
+    values : dict[tuple[tuple[str, str], ...], list[int | float | bool | str]]
+        The resolved series of the path, one list per group.
+    errors : dict[tuple[tuple[str, str], ...], list[int | float | bool | str]]
+        The pointwise standard deviation across the averaged branches, one list
+        per group, with the same length as the matching ``values`` list. Empty
+        when no error was requested or captured.
+
+    When to use: this is the return type of :meth:`Reporter._resolve_path`; you
+    only build one by hand when you test a reporter backend with canned
+    resolutions.
+
+    Examples
+    --------
+    >>> resolution = PathResolution(values={(): [1.0, 2.0]}, errors={})
+    >>> resolution.values[()]
+    [1.0, 2.0]
+    """
+
     values: Resolved
     errors: Resolved
 
 
 class Reporter(ABC):
-    """Base interface for reporting reduced metric results.
+    """Base class of the reporters: query resolution plus a backend hook.
 
-    A Reporter receives populated MetricSchema objects, resolves its configured
-    queries against those schemas, and delegates the resulting data to a
-    backend-specific reporting implementation.
+    A reporter receives populated ``MetricSchema`` objects, resolves each of its
+    registered queries against them and passes the resolved series to the
+    backend-specific ``_report`` hook, which a subclass implements to draw or
+    write them. A subclass must also implement ``close``. Queries are added
+    after construction with :meth:`add_query`; resolution walks the object
+    passed to :meth:`report`.
 
-    Reporter views are write-once: they may be configured after construction,
-    but cannot be replaced once set.
+    Reporters are built by a :class:`~core.reporting.config.ReporterConfig`
+    rather than directly, one per owner (an optimizer or an environment).
+
+    Attributes
+    ----------
+    queries : tuple[Query, ...]
+        The registered queries, in registration order (read-only property).
+
+    When to use: subclass it to add a reporting backend. To report with an
+    existing backend, build a reporter from its config and call
+    :meth:`report` once per iteration.
+
+    Examples
+    --------
+    A backend that prints what it receives; the metric tree is a populated
+    schema whose leaves are lists:
+
+    >>> from core.metrics.schemas import MetricSchema
+    >>> class Run(MetricSchema):
+    ...     iter: list[int] = []
+    ...     loss: list[float] = []
+    >>> class PrintReporter(Reporter):
+    ...     def _report(self, query, x, ys, errors, colors):
+    ...         print(query.title, x, ys)
+    ...     def close(self):
+    ...         pass
+    >>> reporter = PrintReporter()
+    >>> reporter.add_query(Query(title="Loss", x=("iter",), y=("loss",)))
+    >>> reporter.report(Run(iter=[0, 1, 2], loss=[3.0, 2.0, 1.0]))
+    Loss {(): [0, 1, 2]} [{(): [3.0, 2.0, 1.0]}]
     """
 
-    # TODO how to store data in the results reporter ?
     _queries: tuple[Query, ...] = ()
-    _schema: type[MetricSchema] | None = None
 
     @property
     def queries(self) -> tuple[Query, ...]:
-        """Return the queries registered with this reporter."""
+        """Return the queries registered with this reporter, in order."""
 
         return self._queries
 
     def add_query(self, *queries: Query) -> None:
         """Register one or more reporting queries.
 
-        Args:
-            *queries: Queries to register with this reporter.
+        Queries are appended to the existing ones and rendered in registration
+        order on every :meth:`report` call. The same query may be registered
+        twice; it is then rendered twice.
+
+        Parameters
+        ----------
+        *queries : Query
+            Queries to register with this reporter.
         """
 
         self._queries += queries
@@ -74,8 +156,55 @@ class Reporter(ABC):
         error: Literal["none", "std"] = "none",
         error_path: Path | None = None,
     ) -> PathResolution:
-        """
-        Returns the Metric object following the Path in a metric schema
+        """Walk ``path`` through ``metrics`` and return the series it selects.
+
+        Each token of ``path`` is a field name (an attribute of a schema, a key
+        of a dynamic node) or a :class:`~core.metrics.enums.ReduceProtocol`.
+        ``SERIES`` on a dynamic node expands one group per runtime id, in
+        sorted order of the ids; ``MEAN`` averages the branches pointwise,
+        skipping their gaps (``None``, a push in which the logger had no value
+        for that branch). The walk ends when ``path`` is exhausted, where
+        ``metrics`` must be a flat list of values. ``index``, ``group`` and
+        ``junction`` are the recursion state and keep their defaults on the
+        first call.
+
+        Parameters
+        ----------
+        path : Path
+            Tokens to follow, starting at the root of ``metrics``.
+        metrics : MetricSchema or dict or list
+            The node the walk is currently at.
+        index : int, default 0
+            Position of the next token in ``path``.
+        group : Group, default ()
+            Dynamic ids crossed so far.
+        junction : str or None, default None
+            Name of the field holding the dynamic node about to be expanded.
+        error : {"none", "std"}, default "none"
+            Whether to capture the standard deviation of a ``MEAN`` reduction.
+        error_path : Path or None, default None
+            The path prefix that ends just before the ``MEAN`` token whose
+            standard deviation is captured.
+
+        Returns
+        -------
+        PathResolution
+            The series of every group, and their errors when captured.
+
+        Raises
+        ------
+        KeyError
+            If a name is unknown or the path stops before a series.
+        ValueError
+            If the path ends on a nested series, or ``MEAN`` meets branches
+            with different groups or lengths, or an error is requested below
+            a second ``MEAN``.
+        TypeError
+            If a reduction token is applied to a schema rather than a dynamic
+            node.
+        NotImplementedError
+            If a dynamic node meets a reduction other than ``SERIES`` or
+            ``MEAN``.
         """
 
         if index >= len(path):
@@ -236,7 +365,12 @@ class Reporter(ABC):
         list[Resolved],
         Resolved | None,
     ]:
-        """Resolve a query against a populated metric schema."""
+        """Resolve a query against a populated metric schema.
+
+        Returns ``(x, ys, errors, colors)`` where ``ys`` and ``errors`` hold
+        one resolution per y path, and checks that every series of a group has
+        the length of its x series. Raises ``ValueError`` when they do not.
+        """
 
         x_result = self._resolve_path(
             path=query.x,
@@ -338,10 +472,18 @@ class Reporter(ABC):
     ) -> None:
         """Report one resolved query using the concrete reporting backend.
 
-        Args:
-            query: Query defining how the resolved values should be represented.
-            x: Resolved values for the query's x dimension.
-            y: Resolved values for the query's y dimension.
+        Parameters
+        ----------
+        query : Query
+            Query defining how the resolved values should be represented.
+        x : Resolved
+            Resolved values of the query's x path, one list per group.
+        ys : list[Resolved]
+            Resolved values of each y path, in the order of ``query.y_paths``.
+        errors : list[Resolved]
+            Standard-deviation series of each y path (empty mappings when none).
+        colors : Resolved or None
+            Resolved values of the colour path, or ``None`` without one.
         """
 
         ...
@@ -349,21 +491,37 @@ class Reporter(ABC):
     def report(self, metrics: MetricSchema) -> None:
         """Report all applicable configured views for a metric schema.
 
-        Each configured query is resolved against `metrics`. Queries whose
-        required values are available are forwarded to the backend-specific
-        reporting implementation.
+        Each configured query is resolved against ``metrics`` and the resolved
+        series are forwarded to the backend-specific reporting implementation.
 
-        Args:
-            metrics: Reduced metric schema to report.
+        Each query is rendered on its own: an error raised while resolving or
+        rendering one query is logged with its traceback and the remaining
+        queries are still rendered. Reporting runs at the end of every
+        training iteration, so a single stale or malformed query must not
+        abort the run that called it.
+
+        Parameters
+        ----------
+        metrics : MetricSchema
+            Populated metric schema to report, for example the result of
+            ``MetricLogger.peek()``. Its leaves are lists of values.
         """
 
         for query in self._queries:
-            x, ys, errors, colors = self._resolve_query(metrics, query)
+            try:
+                x, ys, errors, colors = self._resolve_query(metrics, query)
 
-            self._report(query, x, ys, errors, colors)
+                self._report(query, x, ys, errors, colors)
+            except Exception:
+                logger.exception(
+                    "%s could not render query %r; the other queries are "
+                    + "still rendered.",
+                    type(self).__name__,
+                    query.title,
+                )
 
     @abstractmethod
     def close(self) -> None:
-        """Close the reporter instance"""
+        """Release the backend resources held by this reporter."""
 
         ...
