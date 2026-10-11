@@ -1,3 +1,32 @@
+"""Reporting queries of the bilevel fishery experiment.
+
+Three tuples of ``Query`` objects declare what the reporters plot. A query
+names an x path and one or several y paths inside a metric schema, as
+described in :mod:`core.reporting.query`.
+
+``ES_QUERIES`` is rendered by the outer (ES) level against ``ESSchema``. Its
+first two queries read the ES's own series (fitness per candidate, per
+generation and against the searched quota); the other five read the inner
+optimizer's metrics under the ``inner`` branch and plot the ``train`` and
+``eval`` values of one statistic per generation. ``INNER_QUERIES`` is rendered
+by the inner (society) level against ``RaySchema`` and plots the training
+curves of the return, the fish biomass statistics and the learner losses.
+``FISHERY_ENV_QUERIES`` holds environment-level queries against
+``FisheryMetricSchema``; neither ``config.yaml`` nor ``debug.py`` wires them.
+
+Every query names a series that the fishery fills. The environment-level
+``Normalized Fish biomass`` query reads ``fish_norm_next_mean``, the
+normalized biomass after each transition, which ``FisheryRegulatedEnv``
+pushes at every step.
+
+Examples
+--------
+>>> len(ES_QUERIES), len(INNER_QUERIES), len(FISHERY_ENV_QUERIES)
+(7, 9, 1)
+>>> [q.title for q in ES_QUERIES if q.y_paths[0][0] != "inner"]
+['Fitness over outer optimization iterations', 'Candidate fitness vs quota']
+"""
+
 from core.metrics.enums import ReduceProtocol
 from core.reporting.query import Query
 
