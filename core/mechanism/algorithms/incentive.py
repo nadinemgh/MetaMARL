@@ -30,7 +30,7 @@ MAX_SUBSIDY = 0.5
 """Subsidy rate, in reward units per unit of effort, of a regulator action of 1."""
 
 
-class SubsidyMechanism(Mechanism):
+class IncentiveMechanism(Mechanism):
     """Pay the targeted agents for their effort, net of a quadratic cost.
 
     Parameters
@@ -82,15 +82,8 @@ class SubsidyMechanism(Mechanism):
     [0.25]
     """
 
-    def __init__(self, *, cost: float, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.cost = cost
-
-        if not 0.0 <= self.cost <= 1.0:
-            raise ValueError(f"cost must be in [0, 1], got {self.cost}.")
-
     @override(Mechanism)
-    def decode(self, mdp: MDPState, action: ActType) -> float:
+    def decode(self, mdp: MDPState, action: ActType) -> ActType:
         """Decode the regulator action into a normalised rate in [0, 1].
 
         The scaling by ``MAX_SUBSIDY`` is left to :meth:`apply`, where the
@@ -111,6 +104,27 @@ class SubsidyMechanism(Mechanism):
         """
         value = float(np.asarray(action, dtype=np.float32).reshape(-1)[0])
         return float(np.clip(value, 0.0, 1.0))
+
+    @override(Mechanism)
+    def on_reset(self, mdp: MDPState, action: ActType) -> MDPState:
+        if action is None:
+            return MDPState()
+        if self.acts_on is None:
+            raise ValueError("QuotaMechanism requires `acts_on`.")
+        
+        # TODO (nadine) temp legacy attributes
+        obs = {aid: np.asarray([
+            0.0, # fish_norm
+            0.0, # effective_quota
+            0.0, # tot_usage_norm
+            0.0, # fixed_quota
+            0.0, # max_demand_frac
+            0.0, # fine_amount
+            0.0, # risk_penalty_scale
+            0.0, # risk_penalty_power
+            action,
+        ]) for aid in mdp.aids if str(aid).startswith(f"{self.acts_on[0]}:")}
+        return MDPState(obs=obs)
 
     @override(Mechanism)
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:
@@ -136,10 +150,9 @@ class SubsidyMechanism(Mechanism):
             If ``acts_on`` is missing.
         """
         if self.acts_on is None:
-            raise ValueError("SubsidyMechanism requires `acts_on`.")
+            raise ValueError("IncentiveMechanism requires `acts_on`.")
 
         target_agent, target_mechanism = self.acts_on
-        subsidy = action * MAX_SUBSIDY
 
         dr = {}
 
@@ -150,16 +163,16 @@ class SubsidyMechanism(Mechanism):
             if target_mechanism not in a:
                 continue
 
-            requested = np.asarray(a[target_mechanism][mdp.t], dtype=np.float32)
-            z = float(requested.reshape(-1)[0])
+            a = np.asarray(a[target_mechanism][mdp.t], dtype=np.float32)
+            z = float(a.reshape(-1)[0])
             effort = sigmoid(z / ACTION_TEMPERATURE)
-            dr[aid] = subsidy * effort - self.cost * effort**2
+            dr[aid] = action * effort
 
         return MDPState(rewards=dr)
 
 
 @dataclass(frozen=True, kw_only=True)
-class Subsidy(MechanismConfig):
+class Incentive(MechanismConfig):
     """Configuration of a :class:`SubsidyMechanism`.
 
     Attributes
@@ -192,5 +205,4 @@ class Subsidy(MechanismConfig):
     0.1
     """
 
-    mechanism_cls: ClassVar[type[Mechanism]] = SubsidyMechanism
-    cost: float
+    mechanism_cls: ClassVar[type[Mechanism]] = IncentiveMechanism
