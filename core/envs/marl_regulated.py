@@ -530,10 +530,10 @@ class MultiAgentEnv(ABC):
             The state after the transition, with the rewards of the step,
             the new observations and the termination and truncation flags.
         """
-        for agent in self.agents.values():
-            mdp = mdp.add(agent.action(mdp))
-            mdp = mdp.add(agent.reward(mdp))
+        mdp = mdp.add([agent.action(mdp) for agent in self.agents.values()])
+        mdp = mdp.add([agent.reward(mdp) for agent in self.agents.values()])
         mdp = self.transition(mdp)
+        mdp.update(rewards={aid: 0.0 for aid in mdp.rewards.data})
         mdp = self.termination(mdp)
         self.logger.push(key=("iter",), value=mdp.t)
         mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])

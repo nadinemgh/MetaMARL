@@ -33,6 +33,7 @@ from ray.actor import ActorHandle
 
 from core.agents.base import Agent, AgentConfig
 from core.annotations import override
+from core.mechanism.base import MDPState
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.optimizers.base import Optimizer

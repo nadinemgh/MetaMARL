@@ -39,6 +39,8 @@ This constant is not enforced directly by the mechanism; the configured
 action space should impose the intended upper bound.
 """
 
+# TODO (nadine) temp val / max_subsidy for migration set to 0.5 later
+MAX = 0.5 
 
 class IncentiveMechanism(Mechanism):
     """Add a linear reward incentive for targeted agent actions.
@@ -210,7 +212,7 @@ class IncentiveMechanism(Mechanism):
             a = np.asarray(a[target_mechanism][mdp.t], dtype=np.float32)
             z = float(a.reshape(-1)[0])
             effort = sigmoid(z / ACTION_TEMPERATURE)
-            dr[aid] = action * effort
+            dr[aid] = action * effort * MAX
 
         return MDPState(rewards=dr)
 

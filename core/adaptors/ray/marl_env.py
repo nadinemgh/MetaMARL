@@ -19,6 +19,7 @@ import logging
 from typing import Any, Optional
 
 # TODO remove ray and gymnasium dependency
+import numpy as np
 from ray.rllib import MultiAgentEnv as RllibMultiAgentEnv
 from gymnasium import spaces
 
@@ -249,7 +250,7 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         m: MDPState = self.env.step(self._mdp)
         aids = self.possible_agents
         obs = {aid: m.obs[aid][m.t] for aid in aids}
-        rewards = {aid: m.rewards[aid][m.t - 1] for aid in aids}
+        rewards = {aid: float(np.asarray(m.rewards[aid][m.t - 1]).item()) for aid in aids}
         terminateds = {aid: m.terminateds[aid] for aid in aids}
         terminateds["__all__"] = m.terminateds["__all__"]
         truncateds = {aid: m.truncateds[aid] for aid in aids}

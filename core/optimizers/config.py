@@ -377,11 +377,11 @@ class OptimizerConfig(_Config, ABC):
             raise ValueError("OptimizerConfig has no opt_class")
 
         # Build reporter
-        reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
-        reporter.schema = self._reporting_schema
-        reporter.add_query(*(self._reporting_queries or ()))
+        reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
+        reporting.schema = self._reporting_schema
+        reporting.add_query(*(self._reporting_queries or ()))
 
-        opt: Optimizer = cfg.opt_class(world=world, reporter=reporter, config=cfg)
+        opt: Optimizer = cfg.opt_class(world=world, reporting=reporting, config=cfg)
 
         if world is not None:
             registry = ray.get(world.get_opt_registry.remote())

@@ -69,6 +69,7 @@ model. Bulletin of the Inter-American Tropical Tuna Commission, 13(3),
 421-458. https://www.iattc.org/BulletinsENG.htm
 """
 
+from dataclasses import dataclass
 import logging
 from typing import Any, ClassVar
 from gymnasium.core import ActType
@@ -135,10 +136,19 @@ class Fisherman(Agent):
             ``[fish / K, 0, usage / K, 0, 0]`` of shape ``(5,)``, with the
             stock and the usage read at ``mdp.t``.
         """
-
-        fish_norm = mdp.state["fish"][mdp.t] / max(mdp.params["K"], EPS)
-        usage_norm = mdp.state["usage"][mdp.t] / max(mdp.params["K"], EPS)
-        return MDPState(obs={self.id: np.asarray([fish_norm, 0.0, usage_norm, 0.0, 0.0], dtype=np.float32)})
+        K = max(mdp.params["K"], EPS)
+        fish_norm = mdp.state["fish"][mdp.t] / K
+        harvest_norm = mdp.state["harvest"][mdp.t - 1] / K if mdp.t > 0 else 0.0
+        
+        # Observation residual
+        history = mdp.obs.data.get(self.id, [])
+        current = (
+            np.asarray(history[min(mdp.t, len(history) - 1)], dtype=np.float32)
+            if history else np.zeros(self.observation_space.shape, dtype=np.float32)
+        )
+        do = np.zeros_like(current)
+        do[[0, 2]] = [fish_norm, harvest_norm] - current[[0, 2]]
+        return MDPState(obs={self.id: do})
 
     def reward(self, mdp: MDPState) -> MDPState:
         """Pay the fisher its harvest fraction of the current step.
@@ -292,7 +302,7 @@ class Fishing(Mechanism):
         max_harvest_multiplier =  mdp.params["unregulated_f_multiplier"] # allow unsustainable
         catch_capacity = max_harvest_multiplier * mdp.params["F_msy"] * fish / n_fishers
         harvest = harvest_frac * catch_capacity
-        return MDPState(state={"fish": -harvest})
+        return MDPState(state={"fish": -harvest, "harvest": harvest})
 
 class Restore(Mechanism):
     """Restoration mechanism of a fisher: restores biomass to the stock.
@@ -325,6 +335,15 @@ class Restore(Mechanism):
     >>> restore.apply(mdp, 1.0).state["restoration"]
     [5.0]
     """
+    def __init__(
+            self, 
+            *, 
+            restoration_cost: float, 
+            restoration_power: float,
+            **kwargs):
+        super().__init__(**kwargs)
+        self.restoration_cost = restoration_cost
+        self.restoration_power = restoration_power
 
     def decode(self, mdp: MDPState, action: ActType) -> ActType:
         """Map the raw policy output to a restoration effort.
@@ -364,9 +383,9 @@ class Restore(Mechanism):
             added to the stock by the transition.
         """
         n_fishers = len(mdp.aids)
-        restoration_power = mdp.params["restoration_effectiveness"]
-        restoration = restoration_power * mdp.params["K"] * restoration_frac / n_fishers
-        return MDPState(state={"fish": restoration})
+        restoration = self.restoration_power * mdp.params["K"] * restoration_frac / n_fishers
+        cost = self.restoration_cost * restoration_frac**2
+        return MDPState(state={"fish": restoration, "restore": restoration}, rewards={self.aid: -cost})
 
 class FishingConfig(MechanismConfig):
     """Configuration that builds the ``Fishing`` mechanism.
@@ -405,6 +424,7 @@ class FishingConfig(MechanismConfig):
 
     mechanism_cls: ClassVar[type[Mechanism]] = Fishing
 
+@dataclass(frozen=True, kw_only=True)
 class RestoreConfig(MechanismConfig):
     """Configuration that builds the ``Restore`` mechanism.
 
@@ -439,7 +459,8 @@ class RestoreConfig(MechanismConfig):
     >>> type(config.build("fisherman:0")).__name__
     'Restore'
     """
-
+    restoration_cost: float = 0.25
+    restoration_power: float = 0.05
     mechanism_cls: ClassVar[type[Mechanism]] = Restore
 
 class FisheryRegulatedEnv(MultiAgentEnv):
@@ -542,7 +563,6 @@ class FisheryRegulatedEnv(MultiAgentEnv):
             "F_msy": MSY / B_msy,
             "sigma": ecology_cfg.get("sigma", 0.05),
             "unregulated_f_multiplier": ecology_cfg.get("unregulated_f_multiplier", 2.0),
-            "restoration_effectiveness": float(ecology_cfg.get("restoration_effectiveness", 0.05)),
         }
 
     # TODO (nadine) reset should not take mdp and init params should not be stateful
@@ -596,7 +616,7 @@ class FisheryRegulatedEnv(MultiAgentEnv):
                 EPS,
                 self.K,
             )
-        return MDPState(state={"fish": fish_init, "usage": 0.0}, params=self.ecology)
+        return MDPState(state={"fish": fish_init, "harvest": 0.0}, params=self.ecology)
 
 
     @transition
@@ -671,27 +691,28 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         r = mdp.params["r"]
         p = mdp.params["p"]
         
-        if mdp.t == 0:
-            B = mdp.state["fish"][mdp.t]
-            H = 0.0
-        else:
-            B = mdp.state["fish"][mdp.t - 1]
-            H = B - mdp.state["fish"][mdp.t]
+        H = float(mdp.state["harvest"][mdp.t])
+        R = float(mdp.state["restore"][mdp.t])
+        B = float(mdp.state["fish"][mdp.t] - R + H)
 
+        # Forward Euler discretization (dt = 1):
+        # Biological growth is evaluated at the biomass B_t at the beginning
+        # of the timestep, before harvesting and restoration.
+        # These interventions affect B_{t+1}, but their influence on
+        # biological growth appears from the following timestep onward.
         noise = mdp.params["sigma"] * self.rng.normal() * B
-
         biological_growth = (r / p) * B * (1.0 - (B / self.K) ** p)
-        growth = biological_growth + noise
+
+        growth = biological_growth + noise + R
         available = max(B + growth, 0.0)
 
         H_realized = min(H, available)
-        fish_next = available - H_realized
-        # fish_next = float(np.clip(fish_next, 0.0, self.K)) # TODO remove clipping
+        fish_next = np.float64(np.clip(available - H_realized, 0.0, self.K))
 
         self.logger.push(key=("B_msy",), value=mdp.params["B_msy"])
         self.logger.push(key=("MSY",), value=mdp.params["MSY"])
         self.logger.push(key=("F_msy",), value=mdp.params["F_msy"])
-        self.logger.push(key=("fish_stock",), value=mdp.state["fish"][mdp.t])
+        self.logger.push(key=("fish_stock",), value=B)
         self.logger.push(key=("fish_stock_next",), value=fish_next)
         self.logger.push(key=("fish_norm_next_mean",), value=fish_next / max(self.K, EPS))
         self.logger.push(key=("fish_norm_next_min",), value=fish_next / max(self.K, EPS))
@@ -699,8 +720,9 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         self.logger.push(key=("fish_norm_next_last",), value=fish_next / max(self.K, EPS))
         self.logger.push(key=("growth",), value=growth)
         self.logger.push(key=("growth_noise",), value=noise)
+        self.logger.push(key=("H_attempted",), value=H)
         self.logger.push(key=("H_realized",), value=H_realized)
         self.logger.push(key=("total_usage_norm",), value=H_realized / max(EPS, self.K))
 
         # TODO (nadine) add observation
-        return mdp.advance(state={"fish": fish_next, "usage": H_realized})
+        return mdp.advance(state={"fish": fish_next, "harvest": 0.0, "restore": 0.0})

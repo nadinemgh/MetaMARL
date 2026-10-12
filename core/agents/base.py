@@ -10,7 +10,7 @@ them.
 """
 from dataclasses import dataclass, fields
 from typing import ClassVar, Optional
-from gym.core import ActType
+from gymnasium.core import ActType
 from gymnasium import Space
 import numpy as np
 from core.mechanism.base import Mechanism, MDPState

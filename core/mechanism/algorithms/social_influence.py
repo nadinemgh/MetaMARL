@@ -118,24 +118,6 @@ class SocialInfluenceMechanism(Mechanism):
 
     @override(Mechanism)
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:
-        """Contribute nothing to the transition; see :meth:`observe`.
-
-        Parameters
-        ----------
-        mdp : MDPState
-            Shared state; not used.
-        action : ActType
-            Empty array, shape ``(0,)``; not used.
-
-        Returns
-        -------
-        MDPState
-            An empty residual.
-        """
-        return MDPState()
-
-    @override(Mechanism)
-    def observe(self, mdp: MDPState) -> MDPState:
         """Return the peers' actions of step ``mdp.t - 1`` as an obs residual.
 
         Parameters
@@ -202,7 +184,6 @@ class SocialInfluenceMechanism(Mechanism):
             dobs[aid] = contribution
 
         return MDPState(obs=dobs)
-
 
 @dataclass(frozen=True, kw_only=True)
 class SocialInfluence(MechanismConfig):

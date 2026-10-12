@@ -183,6 +183,7 @@ class QuotaMechanism(Mechanism):
         current = sigmoid((resource_level - action) / width)
         allowed_frac = (current - lower) / max(upper - lower, EPS)
 
+        # TDO (nadine) Allowed frac should be added to value AFTER transition
         # TODO (nadine) temp legacy attributes
         obs = {aid: np.asarray([
             0.0, # fish_norm
@@ -245,6 +246,7 @@ class QuotaMechanism(Mechanism):
         allowed_frac = (current - lower) / max(upper - lower, EPS)
 
         da = {}
+        do = {}
 
         for aid, a in (mdp.actions.data or {}).items():
             if not str(aid).startswith(f"{target_agent}:"):
@@ -266,10 +268,17 @@ class QuotaMechanism(Mechanism):
             delivered = requested.copy().reshape(-1)
             delivered[0] = delivered_z
             delivered = delivered.reshape(requested.shape)
+            # TODO (nadine) for now we apply a da, but should switch to dr, no da
             da[aid] = {target_mechanism: delivered - requested}
-            obs = {aid: np.asarray([0.0, 0.0, 0.0, 0.0, allowed_frac, action]) for aid in self.acts_on}
 
-        return MDPState(actions=da, state={"allowed_frac": allowed_frac})
+            # Observation residual - Assuming obs the same for all target agents
+            current_obs = np.asarray(mdp.obs[aid][mdp.t], dtype=np.float32)
+            o = np.zeros_like(current_obs)
+            o[1] = allowed_frac - current_obs[1]
+            o[3] = action - current_obs[3]
+            do[aid] = o
+
+        return MDPState(actions=da, obs=do)
 
 @dataclass(frozen=True, kw_only=True)
 class Quota(MechanismConfig):
