@@ -1,18 +1,25 @@
-"""Effort subsidy acting on the reward of the targeted agents.
 
-For a targeted agent ``i`` with effort ``e_i`` in ``(0, 1)``, subsidy rate
-``sigma`` and quadratic effort cost ``c``, the mechanism adds
+"""Reward-based incentive mechanism for targeted agent actions.
 
-    delta_r_i = sigma * e_i - c * e_i**2
+For a targeted agent ``i`` with decoded action ``e_i`` in ``(0, 1)``
+and incentive rate ``alpha``, the mechanism contributes
 
-to the agent's reward at the current step. The rate is the regulator's action,
-searched in ``[0, 1]`` and scaled by ``MAX_SUBSIDY``; the cost is a fixed
-parameter of the benchmark. The ecological effect of the effort (for the
-fishery, the fish that restoration adds) belongs to the targeted agent's own
-mechanism, not to this one.
+    delta_r_i = alpha * e_i
 
-The functional form is a modelling choice of the fishery benchmark, a linear
-payment against a convex effort cost; it is not taken from a published model.
+to the agent's reward at the current step.
+
+The rate is selected by the regulator. Positive rates reward the targeted
+behavior; the current implementation supports only non-negative rates.
+The regulator's action space determines the permitted rate range.
+
+The mechanism modifies rewards without changing the targeted action or
+the environment's transition dynamics. Intrinsic action costs and physical
+effects remain the responsibility of the targeted agent and its mechanisms.
+
+For example, in the fishery benchmark, restoration costs are charged by
+the fisher's Restore mechanism, while the incentive rewards restoration
+effort. The linear incentive is a modelling choice rather than a
+requirement of a specific published economic model.
 """
 
 from dataclasses import dataclass
@@ -26,92 +33,117 @@ from core.mechanism.config import MechanismConfig
 from core.mechanism.utils import ACTION_TEMPERATURE
 from core.utils import sigmoid
 
-MAX_SUBSIDY = 0.5
-"""Subsidy rate, in reward units per unit of effort, of a regulator action of 1."""
+"""Nominal maximum incentive rate, in reward units per unit of effort.
+
+This constant is not enforced directly by the mechanism; the configured
+action space should impose the intended upper bound.
+"""
 
 
 class IncentiveMechanism(Mechanism):
-    """Pay the targeted agents for their effort, net of a quadratic cost.
+    """Add a linear reward incentive for targeted agent actions.
 
     Parameters
     ----------
-    cost : float
-        Quadratic effort cost ``c`` in ``[0, 1]``, in reward units per squared
-        unit of effort. Fixed; it is not searched by the regulator.
     acts_on : tuple[AgentID, MechanismID]
-        Agent type and mechanism whose action is the subsidised effort, for
-        example ``("fisherman", "restore")``. Every agent whose identifier
-        starts with ``"<agent>:"`` and that holds an action for that mechanism
-        is subsidised.
+        Agent type and mechanism whose action receives the incentive,
+        for example ``("fisherman", "restore")``. Every agent whose
+        identifier starts with ``"<agent>:"`` and has an action for
+        the specified mechanism is targeted.
     **kwargs
-        Forwarded to :class:`core.mechanism.base.Mechanism`. ``action_space``
-        is a ``Box`` of shape ``(1,)`` in ``[0, 1]``: the normalised rate.
-
-    Raises
-    ------
-    ValueError
-        If ``cost`` is outside ``[0, 1]``.
+        Forwarded to :class:`core.mechanism.base.Mechanism`.
+        The regulator's ``action_space`` is a one-dimensional ``Box``
+        specifying the allowed non-negative incentive rate.
 
     Notes
     -----
-    When to use: the regulator should make an action more attractive without
-    constraining it, in contrast with :class:`QuotaMechanism`, which changes
-    the action itself. The effort is the one the agent requested at the current
-    step; a mechanism of the same regulator that modifies that action is not
-    seen, because all mechanisms of one agent read the same input state.
+    The mechanism returns an ``MDPState`` containing only reward
+    contributions. It does not compute intrinsic action costs, constrain
+    actions or modify the physical environment.
+
+    Targeted actions are interpreted as raw policy outputs and decoded
+    using ``sigmoid(z / ACTION_TEMPERATURE)``. This assumes the targeted
+    actions have not already been decoded or modified.
+
+    During reset, the mechanism can expose its incentive rate to
+    targeted agents through their observations.
 
     Examples
     --------
     >>> import numpy as np
     >>> from gymnasium import spaces
     >>> from core.mechanism.base import MDPState
-    >>> mechanism = Subsidy(
-    ...     id="subsidy",
-    ...     action_space=spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
+    >>> mechanism = Incentive(
+    ...     id="incentive",
+    ...     action_space=spaces.Box(0.0, 0.5, shape=(1,), dtype=np.float32),
     ...     acts_on=("fisherman", "restore"),
-    ...     cost=0.0,
     ... ).build("regulator")
     >>> mdp = MDPState(
     ...     actions={
-    ...         "regulator": {"subsidy": np.array([1.0])},
+    ...         "regulator": {"incentive": np.array([0.5])},
     ...         "fisherman:0": {"restore": np.array([0.0])},
     ...     }
     ... )
-    >>> delta = mechanism(mdp, np.array([1.0]))
+    >>> delta = mechanism(mdp, np.array([0.5]))
     >>> delta.rewards["fisherman:0"]  # 0.5 * sigmoid(0)
     [0.25]
     """
 
     @override(Mechanism)
     def decode(self, mdp: MDPState, action: ActType) -> ActType:
-        """Decode the regulator action into a normalised rate in [0, 1].
+        """Decode the regulator's action into a non-negative incentive rate.
 
-        The scaling by ``MAX_SUBSIDY`` is left to :meth:`apply`, where the
-        rate is used. The map receives the raw action at every step, and it is
-        idempotent as well: a rate already in ``[0, 1]`` is returned unchanged.
+        The first component of the regulator's action is extracted and
+        clipped to ``[0, 1]``. No additional scaling is applied.
 
         Parameters
         ----------
         mdp : MDPState
-            Shared state; not used.
+            Shared MDP state; unused.
         action : ActType
-            Raw action of the regulator, array-like with at least one element.
+            Regulator action, array-like with at least one element.
 
         Returns
         -------
         float
-            Normalised subsidy rate in ``[0, 1]``.
+            Incentive rate clipped to ``[0, 1]``.
         """
         value = float(np.asarray(action, dtype=np.float32).reshape(-1)[0])
         return float(np.clip(value, 0.0, 1.0))
 
     @override(Mechanism)
     def on_reset(self, mdp: MDPState, action: ActType) -> MDPState:
+        """Expose the initial incentive rate to targeted agents.
+
+        The current implementation uses a temporary nine-component
+        observation layout inherited from the legacy fishery benchmark.
+        The incentive rate occupies the final component; all preceding
+        components are initialized to zero.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state containing the identifiers of participating
+            agents in ``mdp.aids``.
+        action : ActType
+            Initial incentive rate, or ``None`` if none is assigned.
+
+        Returns
+        -------
+        MDPState
+            Observation residual for targeted agents, or an empty
+            residual when no initial action is provided.
+
+        Raises
+        ------
+        ValueError
+            If ``acts_on`` is missing and an action is provided.
+        """
         if action is None:
             return MDPState()
         if self.acts_on is None:
             raise ValueError("QuotaMechanism requires `acts_on`.")
-        
+
         # TODO (nadine) temp legacy attributes
         obs = {aid: np.asarray([
             0.0, # fish_norm
@@ -128,21 +160,33 @@ class IncentiveMechanism(Mechanism):
 
     @override(Mechanism)
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:
-        """Return ``sigma * e_i - c * e_i**2`` as a reward residual per target.
+        """Compute the incentive reward for each targeted agent.
+
+        For each targeted agent ``i``, the raw action ``z_i`` of the
+        specified mechanism is decoded into an effort fraction:
+
+            e_i = sigmoid(z_i / ACTION_TEMPERATURE)
+
+        The reward contribution is then:
+
+            delta_r_i = alpha * e_i
+
+        where ``alpha`` is the regulator's decoded incentive rate.
 
         Parameters
         ----------
         mdp : MDPState
-            Shared state; the raw actions of the targeted agents are read at
-            ``mdp.t``.
+            Shared state containing targeted agents' action trajectories.
+            Actions are read at the current timestep ``mdp.t``.
         action : float
-            Normalised rate in ``[0, 1]`` returned by :meth:`decode`.
+            Incentive rate returned by :meth:`decode`.
 
         Returns
         -------
         MDPState
-            Residual holding only ``rewards``, one float per targeted agent, in
-            reward units.
+            Residual containing only ``rewards``, with one additive reward
+            contribution per targeted agent. Agents without the specified
+            action are ignored.
 
         Raises
         ------
@@ -173,36 +217,42 @@ class IncentiveMechanism(Mechanism):
 
 @dataclass(frozen=True, kw_only=True)
 class Incentive(MechanismConfig):
-    """Configuration of a :class:`SubsidyMechanism`.
+    """Configuration for :class:`IncentiveMechanism`.
+
+    Defines a reward-based intervention through which a regulator
+    assigns a non-negative incentive rate to a targeted agent action.
 
     Attributes
     ----------
-    cost : float
-        Quadratic effort cost ``c`` in ``[0, 1]``, in reward units per squared
-        unit of effort. Required; the mechanism rejects a value outside the
-        interval.
+    mechanism_cls : ClassVar[type[Mechanism]]
+        Mechanism implementation, set to :class:`IncentiveMechanism`.
 
     Notes
     -----
-    The other fields (``action_space``, ``id``, ``acts_on``, ``obs_map``) are
-    those of :class:`~core.mechanism.config.MechanismConfig`. ``action_space``
-    has no default: give a ``Box`` of shape ``(1,)`` in ``[0, 1]``.
+    The fields ``id``, ``action_space``, ``acts_on``, ``obs_map`` and
+    ``default`` are inherited from
+    :class:`~core.mechanism.config.MechanismConfig`.
 
-    When to use: in the ``mechanisms`` of the regulator's
-    :class:`~core.agents.base.AgentConfig`, to pay the followers for an effort.
+    ``action_space`` should be a one-dimensional ``Box`` with
+    non-negative bounds. Its upper bound determines the maximum
+    incentive rate available to the regulator.
+
+    The configuration does not define an intrinsic effort cost.
+    Such costs belong to the targeted agent's utility.
 
     Examples
     --------
     >>> import numpy as np
     >>> from gymnasium import spaces
-    >>> config = Subsidy(
-    ...     id="subsidy",
-    ...     action_space=spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
+    >>> config = Incentive(
+    ...     id="restoration_subsidy",
+    ...     action_space=spaces.Box(
+    ...         0.0, 0.5, shape=(1,), dtype=np.float32
+    ...     ),
     ...     acts_on=("fisherman", "restore"),
-    ...     cost=0.1,
     ... )
-    >>> config.build("regulator").cost
-    0.1
+    >>> type(config.build("regulator")).__name__
+    'IncentiveMechanism'
     """
 
     mechanism_cls: ClassVar[type[Mechanism]] = IncentiveMechanism
