@@ -899,7 +899,10 @@ class ESOptimizer(Optimizer):
             fitness: np.ndarray | None = None
             info: dict[str, Any] = {}
 
-            actions = [unflatten(self.action_space, candidate) for candidate in population]
+            actions = [{
+                key: float(value.item()) if value.size == 1 else value
+                for key, value in unflatten(self.action_space, candidate).items()}
+                for candidate in population]
 
             while not terminated and not truncated:
                 _, fitness, terminated, truncated, info = self.env.step(actions)

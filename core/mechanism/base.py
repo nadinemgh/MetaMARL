@@ -22,7 +22,7 @@ import numpy as np
 from gymnasium import spaces
 
 from core.mechanism.types import Trajectory
-from core.utils import intersect, logical_or_dict
+from core.utils import intersect
 
 StateType = TypeVar("StateType")
 ActType = TypeVar("ActType")
@@ -347,7 +347,13 @@ class Mechanism(ABC):
         self.obs_map = obs_map
         self._u = default
 
-    def __call__(self, mdp: MDPState, action: ActType) -> MDPState:
+    def __call__(
+            self, 
+            mdp: MDPState, 
+            action: Optional[ActType] = None, 
+            *, 
+            reset: bool = False
+        ) -> MDPState:
         """Decode ``action``, record it in ``mdp`` and return the residual.
 
         The decoded action is written, in place, at step ``mdp.t`` of
@@ -360,17 +366,22 @@ class Mechanism(ABC):
         ----------
         mdp : MDPState
             Shared state at the current step.
-        action : ActType
+        action : ActType, optional
             Raw action for this mechanism, as held by ``mdp.raw_actions`` at the
             current step. :meth:`core.agents.base.Agent.action` passes it.
+        reset : bool, optional
+            During reset, invoke ``on_reset`` with the decoded action, or ``None`` when 
+            no action is available. Otherwise, invoke ``apply``.
 
         Returns
         -------
         MDPState
             Residual of the transition, as returned by :meth:`apply`.
         """
+        if action is None: return self.on_reset(mdp, None)
         action = self.decode(mdp, action)
         mdp.actions[self.aid][self.id][mdp.t] = action
+        if reset: return self.on_reset(mdp, action)
         return self.apply(mdp, action)
 
     def decode(self, mdp: MDPState, action: ActType) -> ActType:
@@ -394,6 +405,26 @@ class Mechanism(ABC):
             Action in the mechanism's own coordinates.
         """
         return action
+
+    def on_reset(self, mdp: MDPState, action: Optional[ActType] = None) -> MDPState:
+        """Return this mechanism's initial contribution to the MDP.
+
+        Called during environment reset, before initial observations are constructed. 
+        Mechanisms without initialization effects return an empty residual.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state at initialization.
+        action : ActType or None, optional
+            Decoded mechanism action, if available. Default is None.
+
+        Returns
+        -------
+        MDPState
+            Residual holding only the fields the mechanism initializes.
+        """
+        return MDPState()
 
     @abstractmethod
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:

@@ -143,7 +143,7 @@ class QuotaMechanism(Mechanism):
             raise ValueError("violation_transition_width must be > 0.")
 
     @override(Mechanism)
-    def decode(self, mdp: MDPState, action: ActType) -> float:
+    def decode(self, mdp: MDPState, action: ActType) -> ActType:
         """Decode the regulator action into a quota parameter in [0, 1].
 
         The first component of ``action`` is clipped to ``[0, 1]``. The map is
@@ -163,6 +163,39 @@ class QuotaMechanism(Mechanism):
         """
         value = float(np.asarray(action, dtype=np.float32).reshape(-1)[0])
         return float(np.clip(value, 0.0, 1.0))
+
+    @override(Mechanism)
+    def on_reset(self, mdp: MDPState, action: ActType) -> MDPState:
+        if action is None:
+            return MDPState()
+        
+        if self.acts_on is None:
+            raise ValueError("QuotaMechanism requires `acts_on`.")
+
+        if self.obs_map is None or "resource_level" not in self.obs_map:
+            raise ValueError("QuotaMechanism requires obs_map['resource_level'].")
+
+        resource_level=mdp.state[self.obs_map["resource_level"]][mdp.t] / max(mdp.params["K"], EPS)
+        
+        width = max(self.quota_transition_width, EPS)
+        lower = sigmoid((0.0 - action) / width)
+        upper = sigmoid((1.0 - action) / width)
+        current = sigmoid((resource_level - action) / width)
+        allowed_frac = (current - lower) / max(upper - lower, EPS)
+
+        # TODO (nadine) temp legacy attributes
+        obs = {aid: np.asarray([
+            0.0, # fish_norm
+            allowed_frac, # effective_quota
+            0.0, # tot_usage_norm
+            action, # fixed_quota
+            1.0, # max_demand_frac
+            0.2, # fine_amount
+            0.0, # risk_penalty_scale
+            0.0, # risk_penalty_power
+            0.0,
+        ]) for aid in mdp.aids if str(aid).startswith(f"{self.acts_on[0]}:")}
+        return MDPState(obs=obs)
 
     @override(Mechanism)
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:

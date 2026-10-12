@@ -247,6 +247,7 @@ class MultiAgentEnv(ABC):
         self._t = 0
         self.world = world
         self._opt_id = opt_id
+        self.env_id = None
 
         # training
         self.horizon = horizon
@@ -254,7 +255,6 @@ class MultiAgentEnv(ABC):
         # seeding
         self.seed = seed
         self.policy_seed = policy_seed
-        self.rng = np.random.default_rng(seed)
         self.mode = MechanismStatus(mode) # TODO change name to just Status
 
         # TODO (nadine) later replace with planner id
@@ -391,9 +391,12 @@ class MultiAgentEnv(ABC):
             the ``World`` fails; the message then names the ``mechanism_id`` and
             the original exception is chained as the cause.
         """
+        self._t = 0
+        self.rng = np.random.default_rng(self.seed)
+
         if self.logger is not None:
-            self.logger.flush(key=("iter",))
-            # self.logger.push(key=("env_id",), value=self.env_id)
+            self.logger.reset()
+            self.logger.push(key=("env_id",), value=self.env_id)
             self.logger.push(key=("mechanism_id",), value=self.mechanism_id)
             self.logger.push(key=("seed",), value=self.seed)
             self.logger.push(key=("policy_seed",), value=self.policy_seed)
@@ -436,6 +439,7 @@ class MultiAgentEnv(ABC):
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:
             mdp: MDPState = mdp.add(getattr(self, self._reset)(mdp))
+        mdp: MDPState = mdp.add([agent.action(mdp, reset=True) for agent in self.agents.values()])
         return mdp.add([agent.observation(mdp) for agent in self.followers.values()])
 
     def transition(
@@ -527,7 +531,7 @@ class MultiAgentEnv(ABC):
             the new observations and the termination and truncation flags.
         """
         for agent in self.agents.values():
-            mdp = agent.action(mdp)
+            mdp = mdp.add(agent.action(mdp))
             mdp = mdp.add(agent.reward(mdp))
         mdp = self.transition(mdp)
         mdp = self.termination(mdp)

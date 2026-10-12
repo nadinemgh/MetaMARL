@@ -109,6 +109,7 @@ class Reporter(ABC):
     """
 
     _queries: tuple[Query, ...] = ()
+    _schema: type[MetricSchema] | None = None
 
     @property
     def queries(self) -> tuple[Query, ...]:

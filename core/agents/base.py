@@ -114,8 +114,8 @@ class Agent:
 
     # TODO (nadine) MDPState should be EnvState payload to replace MDPState
 
-    
-    def action(self, mdp: MDPState) -> MDPState:
+
+    def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
         """Apply this agent's mechanisms to the shared MDP state.
 
         The state holds, under the agent's identifier, one action per
@@ -135,6 +135,8 @@ class Agent:
             Shared state observed by every mechanism of the agent. Its
             ``actions`` entry for this agent maps mechanism identifiers to the
             action trajectories.
+        reset : bool, optional
+            Whether to execute the mechanisms' initialization hooks. Default is False.
 
         Returns
         -------
@@ -143,10 +145,12 @@ class Agent:
             action for this agent (or an empty one), ``mdp`` itself is
             returned unchanged.
         """
-        acts = mdp.actions.data.get(self.id)
-        if not acts: return mdp
-        mdp = mdp.add([self.mechanisms[mid](mdp, a[mdp.t]) for mid, a in acts.items() if mid in self.mechanisms])
-        return mdp
+        acts = mdp.actions.data.get(self.id) or {}
+        if not acts and not reset: return MDPState()
+        return MDPState().add([
+            self.mechanisms[mid](mdp, action, reset=reset) for mid in self.mechanisms
+            if (action := acts[mid][mdp.t] if mid in acts else None) is not None or reset
+            ])
 
     def observation(
             self,

@@ -33,7 +33,7 @@ from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
 from core.callbacks import tag_episode_with_env_idx
 from core.mechanism.algorithms.quota import Quota
-from core.mechanism.algorithms.subsidy import Subsidy
+from core.mechanism.algorithms.incentive import Incentive
 from core.optimizers.es.config import ESConfig
 from core.optimizers.appo.config import APPOptimizerConfig
 from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
@@ -110,13 +110,20 @@ bilevel_opt_cfg: BilevelConfig = (
                         # TODO (nadine) what if acts on another type of object such as observation ?
                         acts_on=("fisherman", "harvest"),
                         obs_map={"resource_level": "fish"},
-                        default=np.asarray(0.56224)
+                        default=np.asarray(0.56224),
+                        quota_transition_width=0.05,
                     ),
-                    # Subsidy(
-                    #     action_component=1,
-                    #     optimize_params=["restoration_subsidy"],
-                    #     default_restoration_subsidy=0.10,
-                    # ),
+                    Incentive(
+                        id = "restoration_subsidy",
+                        action_space=spaces.Box(
+                            low=0,
+                            high=0.5,
+                            shape=(1,), # TODO maybe constrain this to always be (1,)
+                            dtype=np.float32,
+                        ),
+                        acts_on=("fisherman", "restore"),
+                        default=np.asarray(0.10),
+                    ),
                     # SocialInfluence(
                     #     influence_weight=...,
                     #     bindings={
@@ -256,13 +263,15 @@ bilevel_opt_cfg: BilevelConfig = (
                         shape=(1,), #TODO (nadine) enforce strict shape
                         dtype=np.float32,
                         ),
+                        restoration_cost=0.25,
+                        restoration_power=0.05,
                     )
                 ),
                 count = 10,
                 observation_space = spaces.Box(
                     low=-np.inf,
                     high=np.inf,
-                    shape=(5,), # TODO (nadine) maybe an observation object needed to avoid hardcoding this
+                    shape=(9,), # TODO (nadine) maybe an observation object needed to avoid hardcoding this
                     dtype=np.float32,
                 ),
             )

@@ -12,7 +12,7 @@ implement ``train`` and optionally ``evaluate``, ``reset``, ``save`` and
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # TODO move ray dependencies out of ray optimizer
 import gymnasium as gym
