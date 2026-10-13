@@ -116,29 +116,40 @@ route each agent to its module.
 `MultiAgentEnv` in `core/envs/marl_regulated.py` is a plain class that works on one
 shared state object. RLlib never sees it: `RLlibMultiAgentEnvAdapter` in
 `core/adaptors/ray/marl_env.py` wraps it, builds a fresh state at every `reset`,
-writes the followers' actions into the current state at every `step`, and translates
-the answer into RLlib's dictionaries. Only the followers are
+decodes the followers' actions and writes them into the current state at every
+`step`, and translates the answer into RLlib's dictionaries. Only the followers are
 RLlib agents; the leaders, which hold the regulator's mechanisms, never appear in
 the returned spaces.
 
-At `reset` the environment fetches its candidate from the `World` and writes it as
-the leaders' action; before any candidate has arrived, each leader plays the
-`default` action of its mechanisms. A `step` then runs in a fixed order: every
-agent applies its mechanisms and adds its reward, leaders first, and the method marked
-`@transition` advances the state, the termination flags are set (all agents are
-truncated once `horizon` is reached), the step is logged, and the observations are
-rebuilt, with the leaders' mechanisms adding their own contribution. The decorators
-`@reset` and `@transition` live in `core/envs/hooks.py`.
+Decoding happens in two places and nowhere else. In `RLlibMultiAgentEnvAdapter.step`,
+each follower's mechanisms decode the raw policy output with their `decode` method,
+and the decoded value is what the state stores in `actions`. In
+`MultiAgentEnv.reset`, the leaders' mechanisms decode the candidate fetched from the
+`World`, or their `default` action while no candidate has arrived. From then on every
+mechanism, and `Agent.action`, reads decoded actions only.
+
+At `reset` the environment fetches its candidate from the `World`, calls the method
+marked `@reset` if the benchmark declares one, stores the decoded leader actions, and
+lets every agent call `Agent.action(mdp, reset=True)`, which runs the `on_reset` hook
+of each mechanism. The initial observations of the followers are built last. A `step`
+then runs in a fixed order. Every agent applies its mechanisms, leaders first, and
+then every agent adds its reward. The method marked `@transition` advances the state,
+the termination flags are set (all agents are truncated once `horizon` is reached),
+and the step is logged. The `on_reset` hooks run once more, so that the leaders'
+mechanisms add their contribution to the observations of the new step, and finally the
+followers' observations are rebuilt. The decorators `@reset` and `@transition` live in
+`core/envs/hooks.py`.
 
 ## Mechanisms and the state model
 
 An `MDPState` (`core/mechanism/base.py`) holds the time `t`, the fixed `params`, and
-five time-indexed trees: `state`, `obs`, `actions`, `rewards` and `raw_actions`. The
-trees are `Trajectory` objects (`core/mechanism/types.py`) whose leaves are lists
-with one entry per step. The state and the actions are stocks, so an unwritten step
-keeps the previous value. The rewards and observations are flows, held by
-`FlowTrajectory`, so an unwritten step starts from zero. `raw_actions` keeps each
-action as it arrived, before any mechanism decoded it.
+four time-indexed trees: `state`, `obs`, `actions` and `rewards`. The trees are
+`Trajectory` objects (`core/mechanism/types.py`) whose leaves are lists with one entry
+per step. The state and the actions are stocks, so an unwritten step keeps the
+previous value. The rewards and the observations are flows, held by `FlowTrajectory`:
+each is rebuilt at every step, so an unwritten step starts from zero and the
+contributions written at the same step are summed. The actions in `actions` are the
+decoded ones; the raw output of a policy or an optimizer is not kept in the state.
 
 A mechanism does not write its effect into the shared state. It returns a residual
 `MDPState` that holds only the fields it changes, and `MDPState.add` composes the
@@ -146,19 +157,20 @@ residuals into a new state: additive quantities are summed and constrained space
 are intersected. The one exception is the decoded action, which a mechanism writes
 in place into `actions` at the current step.
 
-A `Mechanism` implements three methods. `decode` maps the raw action to the
-mechanism's own coordinates, `apply` returns the residual of the transition, and
-`observe` returns the contribution to the observations. The environment calls
-`observe` separately, after the transition, because what `apply` writes into `obs`
-would be read too late. A `MechanismConfig` is the frozen recipe that names the
-mechanism class and builds it for an agent. The shipped rules (`Quota`, `Subsidy`,
-`ThresholdPenalty`, `SocialInfluence`) are in `core/mechanism/algorithms/`.
+A `Mechanism` implements three methods. `decode` maps a raw action to the mechanism's
+own coordinates, `apply` returns the residual of the transition, and `on_reset`
+returns the mechanism's initial contribution, which is how a mechanism writes into the
+observations: the environment calls it at `reset` and again at the end of every
+`step`, after the transition. A `MechanismConfig` is the frozen recipe that names the
+mechanism class, requires its `action_space`, and builds it for an agent. The shipped
+rules (`Quota`, `Incentive`, `ThresholdPenalty`, `SocialInfluence`) are in
+`core/mechanism/algorithms/`.
 
 An `Agent` (`core/agents/base.py`) owns mechanisms, and its `action` method passes
-the raw entry of the current step to each mechanism it holds an action for. This is
-why the quota works on the followers' raw policy output: the regulator acts first, so
-the request it reads has not been decoded yet. The fishers decode their output with
-`sigmoid(z / ACTION_TEMPERATURE)`, where `ACTION_TEMPERATURE` is 4.0 in `core/utils.py`.
+the decoded entry of the current step to each mechanism it holds an action for, or
+with `reset=True` the latest decoded entry to its `on_reset` hook. The fishers decode
+their policy output with `sigmoid(z / ACTION_TEMPERATURE)`, where `ACTION_TEMPERATURE`
+is 4.0 in `core/mechanism/utils.py`.
 
 ## Metrics and reporting
 
@@ -220,8 +232,11 @@ experiment without running it, so these errors appear before any training.
 Equal seeds give equal runs, through several mechanisms. The training seeds come
 from `.debugging(seed=..., num_seeds=...)` on the inner configuration, the evaluation
 seeds from `.evaluation(base_seed=..., num_seeds=...)`, and each RLModule gets a
-seeded Xavier initializer. The outer search draws its noise from a generator seeded
-with the regulator configuration's `debugging(seed=...)`. The outer level has no
+seeded Xavier initializer. The slots of one policy seed also share their random
+numbers, so that the outer search compares candidate mechanisms and not luck: the
+initial weights of the output layers and the exploration draws of the policies are
+keyed by the policy seed, as `core/adaptors/ray/common_random.py` explains. The outer
+search draws its noise from a generator seeded with the regulator configuration's `debugging(seed=...)`. The outer level has no
 training seeds of its own: the regulator publishes one context per inner training
 seed, which `BilevelConfig` passes to it through its `env_config`, so
 `ESConfig.debugging` rejects a `num_seeds` argument.
@@ -267,5 +282,6 @@ in `tests/envs/conftest.py`, and the undecorated `World` class reached through
 `unit`, `integration`, `system` and `notebook` are declared in `pytest.ini` with
 `--strict-markers`. Integration tests launch the example scripts as child processes
 with a time limit, and `tests/conftest.py` runs them last. `pytest.ini` also collects
-the doctests of `core/` and the examples, and `.github/workflows/ci.yml` has three
-jobs: `lint`, `unit` and `integration`.
+the doctests of `core/` and the examples, and `.github/workflows/ci.yml` has four
+jobs: `lint`, `unit`, `integration` and `notebook`. A second workflow,
+`.github/workflows/draft-pdf.yml`, builds the JOSS paper draft.
