@@ -1,0 +1,13 @@
+{
+  "python.pythonPath": "${workspaceFolder}/venv/bin/python",
+  "jupyter.notebookFileRoot": "${workspaceFolder}",
+  "python.dataScience.notebookFileRoot": "${workspaceFolder}",
+  "debug.hover.enabled": false,
+  "debug.variables.autoExpand": false,
+  "debug.javascript.evaluateGetters": false,
+  "debug.javascript.terminalOptions": {
+    "evaluateGetters": false
+  },
+  "debug.console.closeOnEnd": true,
+  "debug.toolBarLocation": "docked"
+}

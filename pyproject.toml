@@ -1,9 +1,9 @@
 [project]
-name = "bilevel-fishery"
+name = "metamarl"
 version = "0.1.0"
-description = "Bilevel optimization framework for sustainable fishery management using Evolution Strategies"
+description = "MetaMARL: bilevel mechanism design, where an evolution strategy searches the rules a multi-agent reinforcement learning society is trained under"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 license = {text = "BSD-3-Clause"}
 authors = [
     {name = "Guillaume Dumas", email = "guillaume.dumas@umontreal.ca"}
@@ -18,33 +18,59 @@ classifiers = [
 ]
 dependencies = [
     "dm-tree>=0.1.9",
-    "gymnasium>=0.29.0,<2.0.0",
-    "matplotlib>=3.7.0,<4.0.0",
-    "numpy>=1.24.0,<3.0.0",
+    "matplotlib>=3.10.8",
     "pydantic>=2.12.5",
     "pyyaml>=6.0",
-    "pytest>=8.4.2",
-    "pytest-cov>=7.0.0",
-    "ray[rllib]>=2.40.0,<3.0.0",
-    "ray[tune]>=2.53.0",
-    "ruff>=0.14.13",
+    "ray[rllib,tune]==2.53.0",
     "scipy>=1.17.0",
-    "seaborn>=0.12.0,<1.0.0",
-    "torch>=2.0.0,<3.0.0",
-    "wandb>=0.15.0,<1.0.0",
+    "seaborn>=0.13.2",
+    "torch>=2.10.0",
+    "wandb>=0.16,<1.0",
+    "transformers>=5.4.0",
+    "datasets>=4.8.4",
+    "peft>=0.18.1",
+    "accelerate>=1.13.0",
+    "bitsandbytes>=0.49.2",
+    "sentencepiece>=0.2.1",
+    "plotly>=6.7.0",
+    "scikit-learn>=1.9.0",
 ]
+
+[project.scripts]
+metamarl = "core.config.cli:entry"
 
 [project.urls]
-Homepage = "https://github.com/deep-introspection/bilevel-fishery"
-Repository = "https://github.com/deep-introspection/bilevel-fishery"
-Issues = "https://github.com/deep-introspection/bilevel-fishery/issues"
+Homepage = "https://github.com/deep-introspection/MetaMARL"
+Repository = "https://github.com/deep-introspection/MetaMARL"
+Issues = "https://github.com/deep-introspection/MetaMARL/issues"
 
 [project.optional-dependencies]
+tensorboard = ["tensorboard>=2.16"]
+
+[dependency-groups]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "isort>=5.0.0",
-    "mypy>=1.0.0",
-    "flake8>=6.0.0",
+    "tensorboard>=2.16",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.13",
+    "nbconvert>=7.16",
+    "ipykernel>=6.29",
+    "nbformat>=5.10",
+    "spacing>=1.0.3",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# Only the framework is installed. Most directories of core/ are namespace packages
+# (no __init__.py), so discovery without this filter also takes every other
+# top-level directory (docs, tutorials, wandb, ...) as a package name.
+include = ["core*"]
+
+[tool.coverage.report]
+# Most directories of core/ are namespace packages (no __init__.py). Without this
+# option coverage leaves out every file that no test imports, which overstates
+# the total.
+include_namespace_packages = true

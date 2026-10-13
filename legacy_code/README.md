@@ -1,199 +1,125 @@
-# Bilevel Fishery Optimization
+# MetaMARL
 
-Bilevel optimization framework for sustainable fishery management using Evolution Strategies to find optimal regulatory mechanisms that balance economic returns with ecosystem preservation.
+MetaMARL is a research framework for bilevel mechanism design with multi-agent
+reinforcement learning. A regulator searches the rules of an environment, such as
+a fishing quota or a water-allocation policy, while a society of learning agents
+is trained under each candidate rule. The outer level is an Evolution Strategies
+(ES) optimizer; the inner level is an RLlib optimizer (APPO or PPO) that trains
+the agents and reports how the society fared. The fitness of a rule is computed
+from what the trained society does under it, so the regulator learns which rules
+lead self-interested learners to a good collective outcome.
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+The framework lives in `core/`, which knows nothing about fisheries or water. The
+three benchmarks in `examples/` show how a problem is plugged in:
 
-## Overview
-
-- **Outer loop (ES)**: Searches for optimal regulatory mechanisms (quotas, fines, bans)
-- **Inner loop (IPPO)**: Trains strategic fisherman agents under each candidate mechanism
-- **Environment**: Multi-agent fishery with Lotka-Volterra ecosystem dynamics
+| Example | What the regulator searches | What the society learns |
+| --- | --- | --- |
+| `examples/bilevel_fishery` | one quota on the harvest, as a fraction of the stock | how much each fisher harvests and how much it restores the stock |
+| `examples/fresh_water` | eight rules of a water policy for a reservoir | how much water each farm requests every day |
+| `examples/cartpole` | an inert dial | how to balance the pole; a pipeline check whose fitness is the constant 1.0 |
 
 ## Installation
 
-**Prerequisites:** Python 3.12+, [uv package manager](https://docs.astral.sh/uv/getting-started/installation/)
+The project uses [uv](https://docs.astral.sh/uv/) and Python 3.12, which
+`pyproject.toml` requires (`>=3.12,<3.13`). From the repository root:
 
 ```bash
-git clone git@github.com:deep-introspection/bilevel-fishery.git
-cd bilevel-fishery
 uv sync
 ```
 
-Optional: Configure W&B for experiment tracking
-```bash
-wandb login
-```
+This installs the runtime dependencies (Ray 2.53 with RLlib, PyTorch, Weights &
+Biases and the scientific stack) together with the `dev` group, which holds
+pytest, ruff, nbconvert, the Jupyter kernel and TensorBoard. An installation
+without the `dev` group gets the TensorBoard reporter through the optional
+`tensorboard` extra.
 
-## Quick Start
+The fresh-water example runs on a built-in lake model by default. Its
+`--hydrology raven` option drives the external Raven hydrological model instead;
+Raven is not a Python dependency, and its executable and model directory are given
+on the command line (see the docstring of `examples/fresh_water/debug.py`).
 
-```bash
-# Basic run (10 outer iterations, 100 inner iterations per candidate)
-uv run python main.py
+## Running an experiment
 
-# Quick test (reduced iterations for testing)
-uv run python main.py --outer-iters 2 --inner-iters 10 --pop-size 4
+Every entry point fixes the string-hash seed before it does any work: when
+`PYTHONHASHSEED` is unset, the process restarts itself with `PYTHONHASHSEED=0`,
+which the first two log lines report. This is what makes two runs with the same
+seeds give identical results. Set `WANDB_MODE=offline` to run without a Weights &
+Biases account; the runs are then stored under `wandb/`.
 
-# With automatic visualization (enables trajectory recording)
-uv run python main.py --trace-episodes 3 --outer-iters 5
-
-# With W&B experiment tracking
-uv run python main.py --wandb --wandb-project my-project
-```
-
-## Usage
-
-### Running Experiments
+An experiment described in YAML runs through the `metamarl` command, which `uv
+sync` installs:
 
 ```bash
-uv run python main.py [options]
+WANDB_MODE=offline uv run metamarl check examples/bilevel_fishery/config.yaml
+WANDB_MODE=offline uv run metamarl run examples/bilevel_fishery/config.yaml
 ```
 
-**Key Options:**
-- `--outer-iters N`: ES optimization iterations (default: 10)
-- `--inner-iters N`: PPO training iterations per candidate (default: 100)
-- `--pop-size N`: ES population size (default: 8)
-- `--eval-episodes N`: Evaluation episodes per candidate (default: 5)
-- `--sustain-weight W`: Sustainability penalty weight (default: 5.0)
-- `--sus-threshold T`: Fish collapse threshold (default: 0.1)
-- `--trace-episodes N`: Episodes to record for visualization (default: 0, disabled)
-- `--workers N`: Parallel workers (default: 2)
-- `--wandb`: Enable W&B logging
+`check` builds the experiment without running it and prints `Config OK:
+core.optimizers.bilevel.BilevelConfig`; `run` builds it and trains it. The same
+command is available as `uv run python -m core.config.cli`.
 
-**Examples:**
+Each example also has a script that builds the same kind of experiment in Python
+and exposes its main sizes as options. Run the scripts as modules from the
+repository root:
+
 ```bash
-# Sustainability-focused experiment
-uv run python main.py --sustain-weight 10.0 --sus-threshold 0.15 --outer-iters 15
-
-# High-resolution with visualization
-uv run python main.py --outer-iters 20 --inner-iters 200 --pop-size 12 \
-  --eval-episodes 10 --trace-episodes 5 --workers 4
-
-# Production run with tracking
-uv run python main.py --outer-iters 50 --inner-iters 500 --pop-size 16 \
-  --workers 8 --wandb --wandb-project fishery-prod
+WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \
+    --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20 --reporter csv
+WANDB_MODE=offline uv run python -m examples.cartpole.debug --algo appo \
+    --outer-iters 2 --train-iters 2 --horizon 20 --reporter csv
+WANDB_MODE=offline uv run python -m examples.fresh_water.debug \
+    --outer-iters 2 --train-iters 2 --horizon 30 --num-agents 20 --reporter csv
 ```
 
-### Visualization
+These smoke configurations take about fifteen seconds each on a laptop. Without
+options the scripts run the full configurations, which are much larger: the
+fishery, for instance, runs 1000 generations of 50 APPO iterations with ten
+fishers. With `--reporter csv` every
+plot of the run is written as a CSV file under
+`results/bilevel/<world>-<optimizer>/`; with the default `--reporter wandb` the
+plots go to Weights & Biases. [QUICKSTART.md](QUICKSTART.md) walks through a first
+run and its outputs.
 
-**Automatic (Recommended):** Run experiments with `--trace-episodes > 0` to auto-generate visualizations in the experiment directory.
+## Repository layout
 
-**Manual (Optional):** Use standalone script for post-hoc analysis:
+| Path | Content |
+| --- | --- |
+| `core/optimizers/` | the bilevel composition root (`bilevel.py`), the ES optimizer (`es/`) and the configurations of the RLlib optimizers (`appo/`, `ppo/`) |
+| `core/adaptors/ray/` | everything that touches Ray and RLlib: the inner optimizer, the actor that owns the RLlib algorithm, the environment adapter and the runtime |
+| `core/envs/` | the multi-agent environment the society trains in and the regulator environment the ES steps |
+| `core/agents/`, `core/mechanism/` | agents, the mechanisms they apply and the shared state the mechanisms act on |
+| `core/world/` | the `World` actor through which the regulator hands each candidate to the environments |
+| `core/metrics/`, `core/reporting/` | typed metric logging and the CSV, TensorBoard and Weights & Biases reporters |
+| `core/config/` | the YAML loader, the `metamarl` command and the hash-seed guard |
+| `examples/` | the three benchmarks |
+| `tests/` | the test suite, one directory per layer of `core/` and one for the examples |
+| `tutorials/` | notebooks on the abstractions, custom benchmarks, mechanisms and visualisation |
+| `docs/` | the architecture guide and the notes for the maintainer |
+
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how these pieces work
+together during a run, and [AGENTS.md](AGENTS.md) is the guide for anyone, human
+or coding agent, about to change the code. [docs/MERGE_NOTES.md](docs/MERGE_NOTES.md)
+records what the latest cleanup pass changed and what it left open, and
+[TODO.md](TODO.md) holds the maintainer's plan and the archived in-code notes.
+
+## Tests and lint
+
 ```bash
-# List available experiments
-uv run python visualize_experiments.py --list
-
-# Visualize latest experiment
-uv run python visualize_experiments.py --latest --summary-only
-
-# Visualize specific iteration
-uv run python visualize_experiments.py --latest --iteration 0
-
-# Visualize all iterations
-uv run python visualize_experiments.py --latest --all-iterations
+uv run python -m pytest                                         # whole suite
+uv run python -m pytest -m "not integration and not notebook"   # without the child-process runs
+uv run ruff check --no-fix .
+uv run ruff format --check .
 ```
 
-**Note:** `visualize_experiments.py` is a convenience wrapper. All visualization functions are in `visualization.py` and can be used directly in Python/notebooks.
-
-## Project Structure
-
-```
-bilevel-fishery/
-├── main.py                   # Experiment orchestration and CLI
-├── config.py                 # Configuration and constants
-├── environment.py            # Multi-agent fishery environment
-├── mechanism.py              # Regulatory mechanism parameters
-├── evolution_strategies.py   # ES optimization
-├── evaluation.py             # Sustainability metrics
-├── training.py               # PPO algorithm configuration
-├── visualization.py          # Core visualization functions
-├── visualize_experiments.py  # Optional: standalone visualization CLI
-├── utils.py                  # File I/O and logging helpers
-├── pyproject.toml            # Dependencies and metadata
-└── README.md
-```
-
-**Module Overview:**
-- **config.py**: Centralized defaults and hyperparameters
-- **environment.py**: `FisheryEnvFixed` with Lotka-Volterra dynamics
-- **mechanism.py**: Parameter mapping between unit hypercube and mechanism space
-- **evolution_strategies.py**: ES optimizer with rank-based fitness shaping
-- **evaluation.py**: Metrics computation and trajectory recording
-- **training.py**: PPO algorithm builders with Ray/RLlib
-- **visualization.py**: Plotting functions (ecosystem, actions, summaries)
-- **utils.py**: File operations, W&B integration, experiment management
-- **main.py**: Complete bilevel optimization pipeline
-
-## Output Structure
-
-Experiments create timestamped directories: `runs/bilevel_YYYYMMDD_HHMMSS/`
-
-```
-runs/bilevel_YYYYMMDD_HHMMSS/
-├── experiment_summary.csv        # Per-iteration results
-├── experiment_results.json       # Final optimized mechanism
-├── experiment_summary.png        # Optimization progress (if --trace-episodes > 0)
-├── outer_0/
-│   ├── candidates.csv           # All evaluated candidates
-│   ├── train_cand_*.csv         # Training curves
-│   ├── best_trace_0.json        # Trajectories (if --trace-episodes > 0)
-│   ├── best_trace_0.csv
-│   ├── ecosystem_dynamics.png   # Generated when --trace-episodes > 0
-│   ├── fishermen_actions.png
-│   └── combined_analysis.png
-└── checkpoint_*/                 # Final trained model
-```
-
-## Development
-
-**Test components:**
-```bash
-# Test environment
-python -c "from environment import FisheryEnvFixed; env = FisheryEnvFixed(); print(env.reset())"
-
-# Test mechanism mapping
-python -c "from mechanism import *; import numpy as np; print(map_unit_vector_to_mechanism(np.random.random(5)))"
-
-# Test ES sampling
-python -c "from evolution_strategies import *; import numpy as np; print(sample_es_population(np.ones(5)*0.5, 0.1, 4, np.random.default_rng()))"
-```
-
-**Common modifications:**
-- Add mechanism parameter → Update `MechanismParameters` in `mechanism.py`
-- Change sustainability metrics → Edit `EvaluationMetrics` in `evaluation.py`
-- Modify ES algorithm → Update functions in `evolution_strategies.py`
-- Customize environment → Extend `FisheryEnvFixed` in `environment.py`
-- Adjust training → Modify `build_ppo_algorithm()` in `training.py`
-
-## Dependencies
-
-Core: Ray/RLlib (≥2.40.0), Gymnasium (≥0.29.0), NumPy (≥1.24.0), Matplotlib (≥3.7.0), Seaborn (≥0.12.0), WandB (≥0.15.0, optional)
-
-See `pyproject.toml` for complete list.
-
-## Troubleshooting
-
-**Ray initialization fails:** `ray stop` to kill existing instances, check system resources
-
-**Import errors:** `uv sync` to install dependencies, use `uv run` for all commands
-
-**Slow training:** Reduce `--workers`, `--pop-size`, `--inner-iters`, or `--horizon`
-
-**Memory issues:** Reduce `--pop-size`, `--workers`, `--eval-episodes`, or `--trace-episodes`
-
-**Visualization errors:** Ensure `--trace-episodes > 0` when running experiments, check `MPLBACKEND=Agg`
+The suite runs the doctests of `core/` and `examples/` as well, and measures the
+coverage of `core/`. Tests marked `integration` start the example scripts and the
+`metamarl` command in child processes, each with its own Ray runtime; they take
+about a minute and a half, the rest of the suite about forty seconds. Use the `-m pytest` form, which binds pytest to the project's
+environment. Always pass `--no-fix` to `ruff check`: `ruff.toml` sets `fix = true`,
+so a plain `ruff check` rewrites files. Continuous integration
+(`.github/workflows/ci.yml`) runs the lint, the unit tests and the integration
+tests as three jobs.
 
 ## License
 
-BSD 3-Clause License - see [LICENSE](LICENSE) file for details.
-
-## Citation
-
-```bibtex
-@software{bilevel_fishery,
-  title = {Bilevel Optimization for Sustainable Fishery Management},
-  author = {Guillaume Dumas},
-  year = {2025},
-  url = {https://github.com/deep-introspection/bilevel-fishery}
-}
-```
+BSD 3-Clause; see [LICENSE](LICENSE).

@@ -19,6 +19,18 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.rvp
+*.rvh
+*.rvt
+*.rvi
+*.rvc
+*.txt
+*.exe
+*.bat
+*.csv
+*.geojson
+*.nc
+*.env
 
 # Virtual environments
 .venv/
@@ -27,7 +39,8 @@ ENV/
 env/
 
 # IDEs
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
@@ -53,6 +66,7 @@ logs/
 checkpoints/
 models/
 _private/
+
 # Backup files and directories
 *_backup_*
 backup_*
@@ -70,6 +84,7 @@ figures/
 # Data files
 *.csv
 *.json
+!.vscode/settings.json
 *.pkl
 *.npy
 *.npz
@@ -78,6 +93,7 @@ figures/
 *.parquet
 
 # WandB
+wandb_analysis/
 wandb/
 
 # Ray
@@ -87,3 +103,15 @@ ray_session*/
 # Keep only essential config/docs
 CLAUDE.md
 .claude
+
+# Raven model outputs, binaries and helpers
+3_Model_output
+/raven/3_Model_output/
+/raven/2_Raven/Raven.exe
+/raven/2_Raven/run_raven.bat
+
+# GeoJSONs directory (project-specific large files)
+geojsons/
+
+!TODO.md
+!tutorials/*
