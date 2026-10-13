@@ -303,6 +303,10 @@ class BilevelConfig(OptimizerConfig):
         inner_cfg = self.inner_cfg.copy()
         outer_cfg = self.outer_cfg.copy()
 
+        # The bilevel ``episodes`` is the number of ES generations.
+        if outer_cfg.episodes is None:
+            outer_cfg.episodes = self.episodes
+
         # Setup reporting
         self.reporter_cfg.world = self.world_name
         primary_reporter = self.reporter_cfg.build(label="bilevel")
@@ -436,12 +440,20 @@ class BilevelOptimizer(Optimizer):
             self.world_name,
         )
 
+        # Stop both levels even when training fails, so the RLlib algorithm
+        # and its env runners are released before the reporter closes.
         try:
             result = self.outer.train()
         finally:
+            for level in (self.outer, self.inner):
+                if level is not None:
+                    level.stop()
+
             # TODO fig reporter with the new wandb reporter actor
             if self.reporting is not None:
                 self.reporting.close()
+
+        self.converged = bool(result["converged"])
 
         logger.info(
             "[Bilevel] Run finished | iters=%d | converged=%s | mechanism=%s | best_fitness=%.4f",
