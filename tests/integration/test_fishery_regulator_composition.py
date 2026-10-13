@@ -47,6 +47,7 @@ PENALTY_WIDTH = 0.03
 HARVEST_ENTRY = 3
 RESTORE_ENTRY = 4
 UNIT_BOX = spaces.Box(0.0, 1.0, (1,), np.float32)
+NO_PARAMETER = spaces.Box(0.0, 1.0, (0,), np.float32)
 Z_SCALE = 2.0
 
 """Spread of the seeded policy outputs; large enough for requests on both sides
@@ -114,6 +115,7 @@ def subsidy_config():
 def penalty_config():
     return ThresholdPenalty(
         id="penalty",
+        action_space=NO_PARAMETER,
         acts_on=("fisherman", "harvest"),
         obs_map={"resource_level": "fish"},
         threshold=PENALTY_THRESHOLD,
@@ -126,11 +128,13 @@ def social_configs():
     return (
         SocialInfluence(
             id="social_harvest",
+            action_space=NO_PARAMETER,
             acts_on=("fisherman", "harvest"),
             obs_offset=HARVEST_ENTRY,
         ),
         SocialInfluence(
             id="social_restore",
+            action_space=NO_PARAMETER,
             acts_on=("fisherman", "restore"),
             obs_offset=RESTORE_ENTRY,
         ),

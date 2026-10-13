@@ -90,9 +90,13 @@ class SocialInfluenceMechanism(Mechanism):
     --------
     >>> import dataclasses
     >>> import numpy as np
+    >>> from gymnasium import spaces
     >>> from core.mechanism.base import MDPState
     >>> mechanism = SocialInfluence(
-    ...     id="social", acts_on=("fisherman", "harvest"), obs_offset=1
+    ...     id="social",
+    ...     action_space=spaces.Box(0.0, 1.0, shape=(0,), dtype=np.float32),
+    ...     acts_on=("fisherman", "harvest"),
+    ...     obs_offset=1,
     ... ).build("regulator")
     >>> mdp = MDPState(
     ...     actions={
@@ -101,7 +105,7 @@ class SocialInfluenceMechanism(Mechanism):
     ...     },
     ...     obs={"fisherman:0": np.zeros(2), "fisherman:1": np.zeros(2)},
     ... )
-    >>> delta = mechanism.observe(dataclasses.replace(mdp, t=1))
+    >>> delta = mechanism.apply(dataclasses.replace(mdp, t=1), np.empty(0))
     >>> delta.obs["fisherman:0"][0].tolist()
     [0.0, 0.75]
     """
@@ -197,8 +201,8 @@ class SocialInfluence(MechanismConfig):
     Attributes
     ----------
     action_space : gymnasium.Space
-        Defaults to :func:`~core.mechanism.config.empty_action_space`: the rule
-        has no searched parameter.
+        Required. Pass a ``Box`` of shape ``(0,)``: the rule has no searched
+        parameter.
     obs_offset : int
         Index of the first observation entry reserved for the peers' actions,
         non-negative. Required.
@@ -217,8 +221,13 @@ class SocialInfluence(MechanismConfig):
 
     Examples
     --------
+    >>> import numpy as np
+    >>> from gymnasium import spaces
     >>> config = SocialInfluence(
-    ...     id="social", acts_on=("fisherman", "harvest"), obs_offset=4
+    ...     id="social",
+    ...     action_space=spaces.Box(0.0, 1.0, shape=(0,), dtype=np.float32),
+    ...     acts_on=("fisherman", "harvest"),
+    ...     obs_offset=4,
     ... )
     >>> config.action_space.shape
     (0,)

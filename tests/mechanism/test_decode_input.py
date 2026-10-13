@@ -30,6 +30,7 @@ REGULATOR = "regulator"
 K = 1_000.0
 UNIT = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 NOTHING = np.empty(0, dtype=np.float32)
+NO_PARAMETER = spaces.Box(low=0.0, high=1.0, shape=(0,), dtype=np.float32)
 
 
 class Halver(Mechanism):
@@ -184,12 +185,16 @@ def regulator_with_the_four_mechanisms() -> Agent:
         ).build(REGULATOR),
         "penalty": ThresholdPenalty(
             id="penalty",
+            action_space=NO_PARAMETER,
             acts_on=("fisherman", "harvest"),
             obs_map={"resource_level": "fish"},
             threshold=0.6,
         ).build(REGULATOR),
         "social": SocialInfluence(
-            id="social", obs_offset=2, acts_on=("fisherman", "harvest")
+            id="social",
+            action_space=NO_PARAMETER,
+            obs_offset=2,
+            acts_on=("fisherman", "harvest"),
         ).build(REGULATOR),
     }
 
