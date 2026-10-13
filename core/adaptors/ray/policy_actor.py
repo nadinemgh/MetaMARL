@@ -17,7 +17,7 @@ from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.rllib.utils.typing import ResultDict
 
-from core.adaptors.ray.learner_drain import stop_learner_thread
+from core.adaptors.ray.learner_drain import stop_learner_thread, wait_for_learner_thread
 from core.adaptors.ray.utils import hash_weights
 
 logger = logging.getLogger(__name__)
@@ -118,6 +118,10 @@ class PolicyActor:
         reads the learner's weights straight away. Waiting for that thread
         first makes the evaluated policy the fully trained one in every run.
         """
+
+        for result in self.algo.learner_group.foreach_learner(wait_for_learner_thread):
+            if not result.ok:
+                raise result.get()
 
         return self.algo.evaluate()
 
