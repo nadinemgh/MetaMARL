@@ -53,12 +53,7 @@ class OrderedReporter:
 
 
 def config(**overrides):
-    values = {
-        "episodes": None,
-        "env": None,
-        "world_name": "w1",
-        "output_dir": None,
-    }
+    values = {"episodes": None, "env": None, "world_name": "w1", "output_dir": None}
 
     return SimpleNamespace(**{**values, **overrides})
 
