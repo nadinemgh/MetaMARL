@@ -147,7 +147,7 @@ class RegulatorEnv(gym.Env):
         self,
         *,
         world: ActorHandle[World],
-        optimizer: Optimizer,  # TODO (nadine) not clear and avoid providing instantiated obj
+        optimizer: Optimizer,  # TODO (nadine) not clear and avoid providing instantiated obj  # noqa: E501
         horizon: Optional[int],
         agents_cfgs: dict[AgentID, AgentConfig],
         # Agent policy seeds required for mechanism publishing.

@@ -247,14 +247,16 @@ def build_config(raven_cwd: Path, raven_cmd: Path) -> BilevelConfig:
                             dtype=np.float32,
                         ),
                         "action_space": spaces.Box(
-                            # Action is the fraction of the agent's maximum pull capacity.
+                            # Action is the fraction of the agent's maximum pull
+                            # capacity.
                             #
                             # action = 0.0 -> requests 0% of max_pull_fraction
                             # action = 0.5 -> requests 50% of max_pull_fraction
                             # action = 1.0 -> requests 100% of max_pull_fraction
                             #
                             # Actual requested flow:
-                            # requested_m3s = action * max_pull_fraction * current_streamflow
+                            # requested_m3s =
+                            #     action * max_pull_fraction * current_streamflow
                             #
                             # With max_pull_fraction = 0.005:
                             # action high=1.0 -> up to 0.5% of current streamflow
@@ -270,7 +272,8 @@ def build_config(raven_cwd: Path, raven_cmd: Path) -> BilevelConfig:
                             # high=1.0  -> large municipality / regional user
                             #
                             # NOTE:
-                            # This does not change max_pull_fraction itself. It changes how much
+                            # This does not change max_pull_fraction itself. It
+                            # changes how much
                             # of that maximum capacity the policy is allowed to request.
                             low=0.0,
                             high=1,

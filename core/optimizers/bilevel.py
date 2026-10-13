@@ -458,7 +458,8 @@ class BilevelOptimizer(Optimizer):
         self.converged = bool(result["converged"])
 
         logger.info(
-            "[Bilevel] Run finished | iters=%d | converged=%s | mechanism=%s | best_fitness=%.4f",
+            "[Bilevel] Run finished | iters=%d | converged=%s | mechanism=%s | "
+            + "best_fitness=%.4f",
             result["episodes"],
             result["converged"],
             result["best_mechanism"],

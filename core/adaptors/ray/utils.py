@@ -315,7 +315,8 @@ def parse_learner_id(learner_id: str) -> tuple[PolicyID, MechanismID, SeedID]:
         policy_id, mechanism_id = policy_and_mechanism.rsplit("_m", 1)
     except ValueError:
         raise ValueError(
-            f"Expected learner ID of the form '<policy>_m<mechanism>_s<seed>', got {learner_id!r}."
+            "Expected learner ID of the form '<policy>_m<mechanism>_s<seed>', "
+            + f"got {learner_id!r}."
         ) from None
 
     return (policy_id, mechanism_id, policy_seed)

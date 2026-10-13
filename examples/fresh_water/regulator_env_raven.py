@@ -60,7 +60,8 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
         Implementation mirrors `FisheryRegulatorEnv.aggregate_rewards`.
         """
 
-        # Must be able to get the seed and run the baseline dynamically for the no extraction
+        # Must be able to get the seed and run the baseline dynamically for the no
+        # extraction
         step_ctxs = [
             ctx
             for ctx in ctxs
@@ -93,7 +94,8 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
             for ctx in steps:
                 r = ctx.payload.reward
 
-                # TODO for now we average accross agents but later another solution required!
+                # TODO for now we average accross agents but later another solution
+                #   required!
                 if isinstance(r, dict):
                     rewards.append(float(np.mean(list(r.values()))))
                 else:

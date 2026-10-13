@@ -227,7 +227,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         per_mech_metrics: list[dict[str, float]] = []
 
-        # TODO when running parallel eval, async may duplicate runs ! should not statistically change the result
+        # TODO when running parallel eval, async may duplicate runs ! should not
+        #   statistically change the result
         metrics_by_mechanism: dict[int, list[dict[str, Any]]] = defaultdict(list)
 
         self.trajectories = {}
@@ -240,7 +241,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 seed = int(seed_id)
 
                 for episode_metrics in seed_metrics.by_episode.values():
-                    # TODO this is the mean however this is not good representation for late learning mechanisms
+                    # TODO this is the mean however this is not good representation for
+                    #   late learning mechanisms
                     # Each leaf holds one entry per logged episode: the list of
                     # its steps, or its MSY.
                     logged_episodes = zip(

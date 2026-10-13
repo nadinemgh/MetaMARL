@@ -214,7 +214,8 @@ class RayOptimizer(Optimizer):
             # Policy API (older / classic)
             return self.algo.get_policy(policy_id)
 
-    # TODO (nadine) : in the future this could be separated into a different class if justified
+    # TODO (nadine) : in the future this could be separated into a different class if
+    #   justified
     def _to_logger_payload(
         self, result: ResultDict, is_eval: bool = False
     ) -> RaySchema:
@@ -317,7 +318,8 @@ class RayOptimizer(Optimizer):
 
         return self.logger.peek()
 
-    # TODO (nadine) future support for async eval, otherwise must publish eval mechanism obj
+    # TODO (nadine) future support for async eval, otherwise must publish eval mechanism
+    #   obj
     @override(Optimizer)
     def evaluate(self) -> None:
         """Run one evaluation pass on the policy actor and log start/end.

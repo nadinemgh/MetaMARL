@@ -937,7 +937,8 @@ class ESOptimizer(Optimizer):
         # generation loop below cannot handle.
         if getattr(self.env, "horizon", 1) is None:
             raise ValueError(
-                "ESOptimizer requires a regulator with a finite horizon; got horizon=None"
+                "ESOptimizer requires a regulator with a finite horizon; "
+                + "got horizon=None"
             )
 
         converged = False
@@ -1005,7 +1006,8 @@ class ESOptimizer(Optimizer):
             fitness_variance = float(fitness.var())
 
             logger.info(
-                "[ES] BEFORE UPDATE | gen=%d | mean=%s | sigma=%.5f | population=%s | fitness=%s",
+                "[ES] BEFORE UPDATE | gen=%d | mean=%s | sigma=%.5f | "
+                + "population=%s | fitness=%s",
                 generation,
                 pre_update_mean.tolist(),
                 pre_update_sigma,

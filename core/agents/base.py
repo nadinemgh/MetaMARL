@@ -173,7 +173,8 @@ class Agent:
         )
 
     def observation(self, mdp: MDPState) -> MDPState:
-        # [self.logger.push(key=("by_agent", aid, "observation"), value=o) for aid, o in observations]
+        # [self.logger.push(key=("by_agent", aid, "observation"), value=o)
+        #  for aid, o in observations]
         return MDPState()
 
     def reward(self, mdp: MDPState) -> MDPState:

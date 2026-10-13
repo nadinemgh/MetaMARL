@@ -86,7 +86,8 @@ class WaterMechanism(Mechanism):
         assert 0.6 <= self.fixed_quota <= 0.95
 
         # CHANGED:
-        # These are fractions of crop irrigation demand, not fractions of reservoir storage.
+        # These are fractions of crop irrigation demand, not fractions of reservoir
+        # storage.
         assert 0.0 <= self.min_demand_frac <= 1.0
         assert 0.05 <= self.max_demand_frac <= 1.0
         assert self.min_demand_frac <= self.max_demand_frac
@@ -148,7 +149,8 @@ class WaterMechanismSpace(MechanismSpace):
         # CHANGED:
         # Defaults now mean:
         #   under stress: at least 5% of full required irrigation can be delivered
-        #   when reservoir is healthy: up to 100% of full required irrigation can be delivered
+        #   when reservoir is healthy: up to 100% of full required irrigation
+        #   can be delivered
         default_min_demand_frac: float = 0.05,
         default_max_demand_frac: float = 1.0,
         default_fine_amount: float = 0.05,

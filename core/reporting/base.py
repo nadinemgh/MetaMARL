@@ -256,7 +256,8 @@ class Reporter(ABC):
 
             if any(isinstance(value, list) for value in metrics):
                 raise ValueError(
-                    f"Path resolves to a nested metric series. A series reduction is required: {path}"
+                    "Path resolves to a nested metric series. "
+                    + f"A series reduction is required: {path}"
                 )
 
             return PathResolution(values={group: metrics}, errors={})
@@ -306,7 +307,8 @@ class Reporter(ABC):
 
                 if any(set(branch.values) != groups for branch in branches[1:]):
                     raise ValueError(
-                        "Cannot compute mean across branches with different SERIES groups."
+                        "Cannot compute mean across branches with different "
+                        + "SERIES groups."
                     )
 
                 reduction_path = path[:index]
@@ -314,7 +316,8 @@ class Reporter(ABC):
 
                 if not capture_error and any(branch.errors for branch in branches):
                     raise ValueError(
-                        "error_path is nested below another MEAN reduction. Error propagation "
+                        "error_path is nested below another MEAN reduction. "
+                        + "Error propagation "
                         + "through additional reductions is not defined."
                     )
 
@@ -329,7 +332,8 @@ class Reporter(ABC):
 
                     if len(lengths) != 1:
                         raise ValueError(
-                            "Cannot compute pointwise mean over series with different lengths: "
+                            "Cannot compute pointwise mean over series with "
+                            + "different lengths: "
                             + f"{sorted(lengths)}."
                         )
 
@@ -438,7 +442,8 @@ class Reporter(ABC):
                 for group, y in ys.items():
                     if len(x) != len(y):
                         raise ValueError(
-                            f"Query series must have equal length: x={query.x} ({len(x)}), "
+                            "Query series must have equal length: "
+                            + f"x={query.x} ({len(x)}), "
                             + f"y={path}, group={group} ({len(y)})."
                         )
             else:
@@ -452,7 +457,8 @@ class Reporter(ABC):
                     if len(xs[group]) != len(ys[group]):
                         raise ValueError(
                             "Query series must have equal "
-                            + f"length for group {group}: x={len(xs[group])}, y={len(ys[group])}."
+                            + f"length for group {group}: "
+                            + f"x={len(xs[group])}, y={len(ys[group])}."
                         )
 
             for group, values in errors.items():
@@ -463,7 +469,8 @@ class Reporter(ABC):
 
                 if len(values) != len(ys[group]):
                     raise ValueError(
-                        f"Error series must have the same length as y for group {group}."
+                        "Error series must have the same length as y for "
+                        + f"group {group}."
                     )
 
             if colors is not None:
@@ -480,7 +487,8 @@ class Reporter(ABC):
 
                     if len(color_values) != len(y):
                         raise ValueError(
-                            f"Color series must have the same length as y for group {group}: "
+                            "Color series must have the same length as y for "
+                            + f"group {group}: "
                             + f"color={len(color_values)}, y={len(y)}."
                         )
 

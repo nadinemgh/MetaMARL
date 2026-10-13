@@ -315,7 +315,8 @@ class WaterRegulatedEdHsEnv(MultiAgentEnv):
         )
 
         # risk_penalty_power is now actually used.
-        # This makes high extraction fractions increasingly costly when release pressure is high.
+        # This makes high extraction fractions increasingly costly when release pressure
+        # is high.
         requested_frac = requested_m3_day / max(EPS, self.full_required_m3_day)
         flow_penalty = (
             self.mechanism.risk_penalty_scale

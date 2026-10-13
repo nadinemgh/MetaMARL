@@ -52,7 +52,8 @@ logger = logging.getLogger(__name__)
 # TODO wrapper for MultiAgentEnv adaptor to work with ray
 
 
-# TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+# TODO future enhancement. decouple gym inheritance to support MPC, trajectory
+#   optimization etc.
 
 
 class MultiAgentEnv(ABC):
@@ -470,7 +471,8 @@ class MultiAgentEnv(ABC):
         if decoded:
             mdp = mdp.add(MDPState(actions=decoded))
 
-        # TODO raising error if training started and default mechanism is still on - leads to silent error
+        # TODO raising error if training started and default mechanism is still on -
+        #   leads to silent error
 
         mdp: MDPState = mdp.add(
             [agent.action(mdp, reset=True) for agent in self.agents.values()]

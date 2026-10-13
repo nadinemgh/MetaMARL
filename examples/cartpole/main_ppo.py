@@ -32,8 +32,10 @@ if __name__ == "__main__":
     main()
 
 
-# TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
-# TODO where to do ray initialization ? gpu vs cpu - needs to happen when we build optimizer
+# TODO the default mechanism config and fisherman, and observation spaces and action
+#   spaces part of config
+# TODO where to do ray initialization ? gpu vs cpu - needs to happen when we build
+#   optimizer
 # TODO num_fisherman
 # TODO wire up the evaluation cfg
 # TODO seeding API

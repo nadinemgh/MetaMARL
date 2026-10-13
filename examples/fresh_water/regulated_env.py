@@ -721,10 +721,10 @@ class WaterRegulatedEnv(MultiAgentEnv):
         the environment's generator, counting from January 1 of 1980, and
         the episode starts that day. ``MultiAgentEnv.reset`` draws that
         generator from the seed at every reset, so the episodes of one
-        environment replay the same planting day. The lake model is told the last day the
-        episode can reach, the planting day plus ``horizon`` days (``None``
-        without a horizon), and returns the initial state, with no withdrawal so
-        far.
+        environment replay the same planting day. The lake model is told the
+        last day the episode can reach, the planting day plus ``horizon`` days
+        (``None`` without a horizon), and returns the initial state, with no
+        withdrawal so far.
 
         Parameters
         ----------

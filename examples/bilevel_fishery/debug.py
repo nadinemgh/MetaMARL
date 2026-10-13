@@ -222,7 +222,8 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                                 dtype=np.float32,
                             ),
                             # TODO (nadine) better name ?
-                            # TODO (nadine) what if acts on another type of object such as observation ?
+                            # TODO (nadine) what if acts on another type of object such
+                            #   as observation ?
                             acts_on=("fisherman", "harvest"),
                             obs_map={"resource_level": "fish"},
                             default=np.asarray(0.56224),
@@ -232,7 +233,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                             id="restoration_subsidy",
                             action_space=spaces.Box(
                                 low=0,
-                                high=1.0,  # TODO (nadine) temp val / max_subsidy for migration set to 0.5 later
+                                high=1.0,  # TODO (nadine) temp val / max_subsidy for migration set to 0.5 later  # noqa: E501
                                 shape=(
                                     1,
                                 ),  # TODO maybe constrain this to always be (1,)
@@ -377,7 +378,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                         high=np.inf,
                         shape=(
                             9,
-                        ),  # TODO (nadine) maybe an observation object needed to avoid hardcoding this
+                        ),  # TODO (nadine) maybe an observation object needed to avoid hardcoding this  # noqa: E501
                         dtype=np.float32,
                     ),
                 )

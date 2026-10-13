@@ -490,7 +490,8 @@ class MetricLogger(ABC):
                 child_node = node[field_name]
             except KeyError:
                 raise KeyError(
-                    f"Unknown logger field {field_name!r} at {prefix} for {type(data).__name__}."
+                    f"Unknown logger field {field_name!r} at {prefix} "
+                    + f"for {type(data).__name__}."
                 ) from None
 
             if isinstance(value, MetricSchema):
@@ -571,7 +572,8 @@ class MetricLogger(ABC):
                     elif runtime_node.schema is not runtime_schema:
                         raise TypeError(
                             f"Runtime schema changed at {runtime_path}: "
-                            + f"{runtime_node.schema.__name__} -> {runtime_schema.__name__}."
+                            + f"{runtime_node.schema.__name__} -> "
+                            + f"{runtime_schema.__name__}."
                         )
 
                     self.push_data(

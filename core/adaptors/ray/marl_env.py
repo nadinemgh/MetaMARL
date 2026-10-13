@@ -32,7 +32,8 @@ from core.types import MultiAgentDict
 logger = logging.getLogger(__name__)
 
 
-# TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+# TODO future enhancement. decouple gym inheritance to support MPC, trajectory
+#   optimization etc.
 
 
 class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
@@ -157,7 +158,8 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         self.logger = env.logger
         self.reporter = env.reporter
 
-        # TODO (nadine) env serialization with numpy to avoid using MDPState and faster computation
+        # TODO (nadine) env serialization with numpy to avoid using MDPState and faster
+        #   computation
 
     @override(RllibMultiAgentEnv)
     def reset(

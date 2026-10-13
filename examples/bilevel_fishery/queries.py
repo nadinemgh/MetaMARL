@@ -23,8 +23,10 @@ Examples
 --------
 >>> len(ES_QUERIES), len(INNER_QUERIES), len(FISHERY_ENV_QUERIES)
 (10, 11, 3)
->>> [q.title for q in ES_QUERIES if q.y_paths[0][0] != "inner"]
-['Fitness over outer optimization iterations', 'Candidate fitness vs quota', 'Restoration subsidy vs quota']
+>>> titles = [q.title for q in ES_QUERIES if q.y_paths[0][0] != "inner"]
+>>> titles  # doctest: +NORMALIZE_WHITESPACE
+['Fitness over outer optimization iterations', 'Candidate fitness vs quota',
+ 'Restoration subsidy vs quota']
 """
 
 from core.metrics.enums import ReduceProtocol
@@ -316,7 +318,8 @@ INNER_QUERIES = (
     ),
     # TODO two ways over junction : either plot them in separete line or mean over
     # TODO what if you wanna avergae over specific type of agent ?
-    # TODO seeding : is error bar, by_episode is mean, by_agent is mean -> for that we leave the separation int he mapping. ID should be by type strictly
+    # TODO seeding : is error bar, by_episode is mean, by_agent is mean -> for that we
+    #   leave the separation int he mapping. ID should be by type strictly
     Query(
         title="Quota penalty mean over training episodes",
         legend_labels=("train",),

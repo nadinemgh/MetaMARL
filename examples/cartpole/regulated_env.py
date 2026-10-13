@@ -534,6 +534,7 @@ class CartpoleRegulatedEnv(MultiAgentEnv):
 
 # TODO add multiagent state in types
 # TODO ban proportional to violation severity
-# TODO number of agents spawned dynamically as a byproduct of config stating number of agents
+# TODO number of agents spawned dynamically as a byproduct of config stating number of
+#   agents
 # TODO
 # TODO canonical observation in base multiagent env

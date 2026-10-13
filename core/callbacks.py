@@ -129,7 +129,10 @@ def tag_episode_with_env_idx(
 
     # Store structured metadata for policy mapping / logging.
     if not raw_episode_id.startswith("env="):
-        episode.id_ = f"env={env_index}|m={mechanism_id}|ps={policy_seed}|ss={seed}|raw={raw_episode_id}"
+        episode.id_ = (
+            f"env={env_index}|m={mechanism_id}|ps={policy_seed}|ss={seed}"
+            + f"|raw={raw_episode_id}"
+        )
 
     # TODO inject policy_id to env for traceability and debugging
 

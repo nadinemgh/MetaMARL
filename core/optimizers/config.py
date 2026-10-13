@@ -328,7 +328,8 @@ class OptimizerConfig(_Config, ABC):
         return self.env(**env_ctx)
 
     # TODO deep copy allows on may be toggled later with use_copy
-    # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
+    # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] =
+    #   None,
     # TODO move optimizer registration to executor in future
     # TODO enable multiple world registration
     def build_optimizer(
