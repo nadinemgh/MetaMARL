@@ -1,5 +1,6 @@
 ---
-title: "Bilevel-Fishery: A Framework for Mechanism Design in Multi-Agent Reinforcement Learning"
+title: "MetaMARL: A Framework for Mechanism Design in Multi-Agent Reinforcement Learning"
+
 tags:
   - Python
   - reinforcement learning
@@ -7,275 +8,177 @@ tags:
   - mechanism design
   - sustainability
   - simulation
+
 authors:
   - name: Nadine Mohamed
-    affiliation: 1
-  - name: Guillaume Dumas
-    affiliation: # TODO
+    affiliation: 1,2
   - name: Elise Devoie
-    affiliation: # TODO
-  - name: Benjamin Rossman
-    affiliation: # TODO
-  - name: Christofer Brandtner
-    affiliation: # TODO
+    affiliation: 3
+  - name: Benjamin Rosman
+    affiliation: 4
+  - name: Christof Brandtner
+    affiliation: 5
+  - name: Guillaume Dumas
+    affiliation: 1,2
+
 affiliations:
   - name: Mila - Quebec AI Institute, Université de Montréal, Canada
     index: 1
+  - name: CHUSJ Azrieli Research Center, Université de Montréal, Canada
+    index: 2
+  - name: Civil Engineering, Queen's University, Kingston, Canada
+    index: 3
+  - name: University of the Witwatersrand, Johannesburg, South Africa
+    index: 4
+  - name: EM Lyon Business School, Lyon, France
+    index: 5
+
 date: 2026
+
 bibliography: paper.bib
 
 ---
 # Summary
 
-Sustainable resource management problems often involve multiple agents interacting within shared environments, where individual incentives can conflict with long-term system stability.
+Many societal and environmental systems involve multiple adaptive decision-makers whose individual objectives conflict with long-term collective outcomes. Whether that conflict is resolved depends on the rules under which those decision-makers behave [@ostrom1990; @dietz2003]. Examples include common-pool resources such as fisheries, forests, and water systems [@koster2025sustainable], as well as public policies such as taxation and emissions regulation [@zheng2022ai; @koster2022democratic]. Experimenting with new rules to govern these systems requires simultaneously modeling strategic agent behavior at the local level and the regulatory mechanisms where these agents are embedded at the global level. MetaMARL additionally supports the composition of heterogeneous agent behaviors and regulatory mechanisms through reusable agent and mechanism objects. Its residual state representation enables multiple interventions to be combined within shared environment dynamics, providing a foundation for studying both bilevel optimization and more general multi-agent interactions.
 
-`Bilevel-Fishery` is a Python framework for studying mechanism design in multi-agent reinforcement learning (MARL) using a bilevel optimization approach. The framework combines:
+`MetaMARL` is an open-source Python framework for mechanism design in
+multi-agent reinforcement learning (MARL). The framework formulates mechanism
+design as a bilevel optimization problem in which an inner optimization trains
+adaptive agents using reinforcement learning, while an outer optimization
+searches for environment-level mechanisms that optimize system-wide objectives.
 
-- an **inner loop** where agents learn policies via reinforcement learning,
-- an **outer loop** where regulatory mechanisms governing the environment are optimized.
+The framework includes benchmark environments for fisheries and water resource
+management, while also providing modular abstractions for environments,
+mechanism spaces, optimization algorithms, and experiment management. These
+components enable researchers to develop new benchmark environments, implement
+custom regulatory mechanisms, and evaluate existing or novel mechanism design
+algorithms within a unified experimental framework. Although motivated by
+renewable resource management, `MetaMARL` is designed to support a broad
+class of adaptive governance problems in which institutional rules themselves
+become optimization variables.
 
-The package provides a configurable simulation environment for renewable resource systems (e.g., fisheries), along with tools for defining and optimizing regulatory mechanisms such as quotas, fines, and enforcement policies.
-
----
 
 # Statement of Need
 
-Most reinforcement learning frameworks assume fixed environments and reward structures. However, many real-world systems require optimizing the rules of the environment itself, not just agent behavior.
+Most reinforcement learning software focuses on learning optimal agent policies
+within fixed environments. Libraries such as RLlib [@liang2018rllib] and
+Stable-Baselines3 [@raffin2021stable] provide scalable implementations of modern reinforcement learning algorithms but assume that the environment dynamics, reward functions, and governing rules are predefined and fixed.
 
-Mechanism design in reinforcement learning is particularly challenging due to:
+Many real-world decision problems instead require optimizing the rules of the
+environment rather than only the behavior of its participants. Examples include
+resource quotas, taxation schemes, fines, enforcement policies, and other
+institutional mechanisms that influence the incentives faced by learning agents.
+These problems naturally form bilevel optimization problems in which adaptive
+agents respond to regulatory interventions while regulators seek mechanisms that
+optimize long-term social or ecological objectives.
 
-- delayed system-level feedback,
-- misaligned short-term versus long-term incentives,
-- non-stationary dynamics arising from learning agents,
-- difficulty evaluating long-horizon outcomes.
+Developing research software for these settings presents several challenges:
 
-`Bilevel-Fishery` addresses these challenges by providing:
+- integrating reinforcement learning with mechanism optimization,
+- supporting non-stationary environments induced by adaptive agents,
+- separating mechanism definitions from environment implementations,
+- enabling reproducible experiments across different optimization algorithms.
 
-- parameterized mechanism design,
-- integration with multi-agent reinforcement learning,
-- outer-loop optimization of regulatory policies,
-- tools for analyzing emergent system behavior.
-
-To our knowledge, no existing open-source framework integrates multi-agent reinforcement learning with mechanism optimization in a modular and extensible way.
+`MetaMARL` addresses these challenges through a modular architecture that
+decouples environments, mechanism spaces, reinforcement learning algorithms, and
+outer-loop optimization methods. The framework enables researchers to rapidly
+prototype new regulatory mechanisms while reusing existing learning algorithms
+and experimental infrastructure.
 
 ---
 
 # State of the Field
 
-Existing frameworks such as RLlib [@liang2018rllib] and Stable-Baselines3 [@raffin2021stable] support agent training but do not address optimization of environment-level mechanisms.
+Several mature reinforcement learning frameworks provide scalable
+implementations of modern policy optimization algorithms.
+RLlib [@liang2018rllib] offers distributed reinforcement learning and extensive
+support for multi-agent training, while Stable-Baselines3
+[@raffin2021stable] provides a lightweight interface for many standard
+algorithms. PettingZoo [@pettingzoo] standardizes multi-agent environments and
+OpenSpiel [@openspiel] provides a broad collection of games for reinforcement
+learning and game-theoretic research.
 
-Modern policy optimization methods such as Proximal Policy Optimization (PPO) [@schulman2017ppo] are widely used for agent learning, while black-box optimization approaches such as Evolution Strategies [@salimans2017evolution] provide scalable solutions for optimizing high-dimensional parameter spaces.
+These libraries primarily focus on learning agent policies under fixed
+environmental rules. They provide limited support for optimizing the mechanisms
+that define those environments.
 
-`Bilevel-Fishery` provides a computational framework bridging reinforcement learning and mechanism design.
+`MetaMARL` complements rather than replaces existing reinforcement
+learning libraries. It builds upon RLlib for scalable policy optimization while
+introducing abstractions for parameterized mechanism spaces, regulator
+environments, bilevel optimization workflows, and experiment reporting. This
+allows researchers to study adaptive governance problems where both policies and
+institutional rules evolve together.
 
+Related work in computational mechanism design includes the AI Economist [@zheng2022ai], which investigates the joint adaptation of economic agents and a regulatory planner through two-level reinforcement learning. MetaMARL addresses a complementary software-engineering objective: providing reusable abstractions for agents, mechanisms, environment dynamics, and interchangeable optimization interfaces across different application domains. Rather than prescribing a particular economic simulation or regulatory learning algorithm, the framework emphasizes compositional experiment construction and the systematic evaluation of alternative mechanism designs.
 ---
 
 # Software Design
 
-The framework is structured around three main components:
+The framework follows a modular architecture composed of four primary
+components.
 
-## Environment
+**Environment layer.**
+Environment classes define system dynamics independently from regulatory
+mechanisms, enabling different application domains from simple games to real-world hydrologic models to reuse common optimization infrastructure.
 
-Implements renewable resource dynamics (e.g., fish–algae systems), supporting:
+**Mechanism layer.**
+Mechanism spaces describe parameterized regulatory policies such as quotas,
+fines, harvest restrictions, or other intervention strategies. New mechanisms
+can be introduced without modifying optimization algorithms.
 
-- continuous state variables (e.g., real-valued fish and algae population levels evolving over time),
-- stochastic or deterministic transitions,
-- configurable ecological parameters.
+**Optimization layer.**
+The framework separates inner-loop policy optimization from outer-loop mechanism
+optimization. Reinforcement learning algorithms such as PPO and APPO are used
+for agent learning through RLlib, while black-box optimization algorithms such
+as Evolution Strategies optimize mechanism parameters.
 
-## Mechanism Space
+**Experiment infrastructure.**
+Configuration objects define complete experiments in a reproducible manner,
+including environments, optimization algorithms, reporting backends, and
+training settings. This modular design allows researchers to exchange
+optimization algorithms or environments with minimal code changes.
 
-Defines regulatory policies via parameterized spaces, including:
+Together, these abstractions allow new research problems to be expressed by
+combining reusable software components rather than implementing specialized
+training pipelines for each application.
 
-- quotas (fixed or proportional),
-- penalties (fines),
-- enforcement probability,
-- restrictions (bans).
-
-## Bilevel Optimization
-
-- **Inner loop**: reinforcement learning (e.g., PPO/APPO via RLlib)  
-- **Outer loop**: optimization over mechanisms (e.g., Evolution Strategies)
-
----
-
-# Example Usage
-
-Below is a minimal working example of running a bilevel experiment.
-
-```python
-import ray
-from core.optimizers.bilevel import BilevelConfig
-from core.optimizers.es.config import ESConfig
-from core.optimizers.appo.config import APPOptimizerConfig
-
-from examples.bilevel_fishery.mechanism import FisheryMechanismSpace
-from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
-from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
-
-ray.shutdown()
-
-config = (
-    BilevelConfig()
-    .world(world_name="fishery_world")
-
-    .reporting(
-        reporter="wandb",
-        project_name="bilevel",
-    )
-
-    .mechanism(
-        space=FisheryMechanismSpace(
-            max_fine=10.0,
-            max_ban=200,
-            default_fixed_quota=1.0,
-            default_prop_quota=1.0,
-            default_min_stock=0.10,
-            default_fine_amount=0.5,
-            default_ban_period=0,
-            default_catch_prob=1.0,
-        ),
-    )
-
-    .training(outer_iters=100)
-
-    .outer(
-        ESConfig()
-        .training(
-            sigma=0.5,
-            mean_lr=0.2,
-        )
-        .environment(
-            env=FisheryRegulatorEnv,
-            horizon=1000,
-            train_iters=50,
-        )
-    )
-
-    .inner(
-        APPOptimizerConfig()
-        .framework(framework="torch")
-        .environment(
-            env=FisheryRegulatedEnv,
-            env_config={"seed": 0},
-            horizon=1000,
-        )
-        .training(
-            gamma=0.99,
-            lr=1e-3,
-            train_batch_size=200,
-        )
-    )
-)
-
-optimizer = config.build_optimizer()
-optimizer.run()
-
-ray.shutdown()
-```
----
-# Installation
-
-Clone the repository and install:
-
-    ```bash
-    git clone https://github.com/<your-username>/bilevel-fishery.git
-    cd bilevel-fishery
-    pip install -e .
-    ```
-
-Install dependencies:
-
-    ```bash
-    pip install ray[rllib] wandb gymnasium
-    ```
-
----
-
-## Running Experiments
-
-Experiments are defined via a `BilevelConfig` object and executed with:
-
-    ```python
-    optimizer = config.build_optimizer()
-    optimizer.run()
-    ```
-
-Each run executes the following pipeline:
-
-1. Sample mechanism parameters (outer loop)
-2. Train agents under the mechanism (inner loop)
-3. Evaluate system behavior
-4. Update mechanism distribution (Evolution Strategies)
-5. Repeat
-
----
-
-## Configuration Overview
-
-Experiments are composed of:
-
-- **Mechanism space** → defines regulatory policies  
-- **Inner loop** → agent learning (RLlib PPO/APPO)  
-- **Outer loop** → mechanism optimization (Evolution Strategies)  
-- **Environment** → ecological simulation  
-
----
-
-## Logging and Visualization (Weights & Biases)
-
-Experiments are tracked using **Weights & Biases (W&B)**.
-
-### Setup
-    ```bash
-    wandb login
-    ```
-
-Enable logging in configuration:
-
-    ```python
-    .reporting(
-        reporter="wandb",
-        project_name="bilevel",
-    )
-    ```
-
----
-
-## Visualization
-
-W&B enables:
-
-- training curves (reward, entropy)  
-- ecosystem dynamics (fish vs algae trajectories)  
-- comparison across mechanisms  
-- multi-agent behavior tracking  
-
-These visualizations are critical for identifying:
-
-- over-exploitation regimes  
-- delayed recovery effects  
-- differences between reactive vs preventive regulation strategies  
+**Composable residual mechanisms.** 
+A central design choice in MetaMARL is to represent the effects of agents and mechanisms as structured residuals over a shared Markov decision process state. Each mechanism independently maps actions and environmental information to state-update contributions. These residuals are composed through vectorized operations: additive quantities are accumulated, while applicable constraints are combined by intersection. This separates the definition of individual interventions from their composition, allowing users to construct complex regulatory environments from reusable mechanisms. The abstraction supports heterogeneous agents, configurable leader–follower interactions, and extensions involving additional learning or optimization algorithms.
 
 ---
 # Research Impact
 
-The framework enables:
-- study of sustainability in multi-agent systems,
-- analysis of long-term ecological dynamics,
-- evaluation of adaptive regulatory strategies.
+`MetaMARL` has been developed as research infrastructure for investigating mechanism design in adaptive multi-agent systems. Its common-pool fishery benchmark provides an executable research workflow in which learning agents interact with a renewable resource under configurable regulatory interventions. Researchers can compare mechanism configurations, train agent policies using PPO or APPO, and evaluate the resulting behavior using economic, ecological, and optimization metrics.
 
-It serves as a research tool for reinforcement learning, computational economics, and sustainability modeling.
+The benchmark demonstrates the framework's capacity to connect domain-specific environment dynamics with reusable mechanism and optimization components. The accompanying configuration files, tests, and tutorials provide a reproducible starting point for extending these experiments to new mechanisms, agent populations, and evaluation objectives.
+
+A freshwater resource-management benchmark is also under development to investigate more complex resource-allocation and multi-agent alignment problems. Longer-term extensions aim to support additional optimization algorithms and dynamically adapting regulatory agents.
+
+Although motivated by renewable resource management, the framework is applicable
+to a broader class of problems in which adaptive agents interact under
+modifiable institutional rules. Potential application domains include fisheries,
+water resource allocation, environmental regulation, transportation systems, and
+other socio-ecological systems involving strategic interactions.
+
+By separating reinforcement learning algorithms from mechanism optimization, the
+framework enables researchers to investigate new classes of adaptive governance
+problems while leveraging existing reinforcement learning ecosystems.
 
 ---
 
 # Acknowledgements
 
-This work was supported in part by the CIFAR Catalyst Fund (CF-0360) under the project *“Cooperative AI for Climate Action Coordination”*, led by :contentReference[oaicite:2]{index=2}.
+This work was supported in part by the CIFAR Catalyst Fund (CF-0360) under the
+project *Cooperative AI for Climate Action Coordination*.
 
-The project brought together an interdisciplinary collaboration spanning machine learning, computational neuroscience, environmental science, and organizational research, including contributions from researchers affiliated with CIFAR programs.
-
-The author also acknowledges discussions and collaborative exchanges with members of this project, as well as participants from workshops held in Lausanne (2025) and Toronto (2026), which contributed to the development of the ideas underlying this software.
+The authors thank collaborators and participants from the CIFAR Catalyst
+project, as well as workshop participants in Lausanne (2025) and Toronto
+(2026), for valuable discussions that contributed to the development of this
+software.
 
 ---
-# References
-TODO
+
+# AI Usage Disclosure
+
+Generative AI tools, including OpenAI ChatGPT (GPT-6), were used to assist with manuscript drafting and editing, documentation, and technical discussion. The human authors are responsible for the framework's research objectives, architectural decisions, scientific methodology, and final implementation. All AI-assisted materials were reviewed and edited by the authors, and the software was validated using the project's automated testing and reproducible experiment workflows.
