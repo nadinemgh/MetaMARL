@@ -115,10 +115,17 @@ class RayOptimizer(Optimizer):
 
         # self.eval_episodes = config.eval_episodes
         # TODO fallback if rollout_fragment_length not in eval_cfg
-        self.eval_episodes = (
-            config.rllib_cfg.evaluation_duration
-            // config.rllib_cfg.evaluation_config.get("rollout_fragment_length")
-        )
+        eval_config = config.rllib_cfg.evaluation_config or {}
+        fragment_length = eval_config.get("rollout_fragment_length")
+
+        if fragment_length is None:
+            raise ValueError(
+                "RayOptimizer needs an evaluation setup: call "
+                ".evaluation(evaluation_config={'rollout_fragment_length': ...}) "
+                "on the society optimizer config."
+            )
+
+        self.eval_episodes = config.rllib_cfg.evaluation_duration // fragment_length
 
         # self.rollout_fragment_length = config.rollout_fragment_length
 
