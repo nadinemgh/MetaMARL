@@ -658,10 +658,13 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         """
 
         mdp = super().step(mdp)
-        step_reward = float(
-            np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
-        )
-        self.logger.push(key=("reward_series",), value=step_reward)
+
+        if self.logger is not None:
+            step_reward = float(
+                np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
+            )
+            self.logger.push(key=("reward_series",), value=step_reward)
+
         return mdp
 
     @transition
@@ -762,32 +765,35 @@ class FisheryRegulatedEnv(MultiAgentEnv):
             MDPState(rewards={aid: -float(collapse_penalty) for aid in self.followers})
         )
 
-        self.logger.push(key=("B_msy",), value=mdp.params["B_msy"])
-        self.logger.push(key=("MSY",), value=mdp.params["MSY"])
-        self.logger.push(key=("F_msy",), value=mdp.params["F_msy"])
-        self.logger.push(key=("fish_stock",), value=B)
-        self.logger.push(key=("fish_stock_next",), value=fish_next)
-        self.logger.push(
-            key=("fish_norm_next_mean",), value=fish_next / max(self.K, EPS)
-        )
-        self.logger.push(
-            key=("fish_norm_next_min",), value=fish_next / max(self.K, EPS)
-        )
-        self.logger.push(
-            key=("fish_norm_next_max",), value=fish_next / max(self.K, EPS)
-        )
-        self.logger.push(
-            key=("fish_norm_next_last",), value=fish_next / max(self.K, EPS)
-        )
-        self.logger.push(
-            key=("fish_norm_next_series",), value=fish_next / max(self.K, EPS)
-        )
-        self.logger.push(key=("growth",), value=growth)
-        self.logger.push(key=("growth_noise",), value=noise)
-        self.logger.push(key=("H_attempted",), value=H)
-        self.logger.push(key=("H_realized",), value=H_realized)
-        self.logger.push(key=("H_realized_series",), value=H_realized)
-        self.logger.push(key=("total_usage_norm",), value=H_realized / max(EPS, self.K))
+        if self.logger is not None:
+            self.logger.push(key=("B_msy",), value=mdp.params["B_msy"])
+            self.logger.push(key=("MSY",), value=mdp.params["MSY"])
+            self.logger.push(key=("F_msy",), value=mdp.params["F_msy"])
+            self.logger.push(key=("fish_stock",), value=B)
+            self.logger.push(key=("fish_stock_next",), value=fish_next)
+            self.logger.push(
+                key=("fish_norm_next_mean",), value=fish_next / max(self.K, EPS)
+            )
+            self.logger.push(
+                key=("fish_norm_next_min",), value=fish_next / max(self.K, EPS)
+            )
+            self.logger.push(
+                key=("fish_norm_next_max",), value=fish_next / max(self.K, EPS)
+            )
+            self.logger.push(
+                key=("fish_norm_next_last",), value=fish_next / max(self.K, EPS)
+            )
+            self.logger.push(
+                key=("fish_norm_next_series",), value=fish_next / max(self.K, EPS)
+            )
+            self.logger.push(key=("growth",), value=growth)
+            self.logger.push(key=("growth_noise",), value=noise)
+            self.logger.push(key=("H_attempted",), value=H)
+            self.logger.push(key=("H_realized",), value=H_realized)
+            self.logger.push(key=("H_realized_series",), value=H_realized)
+            self.logger.push(
+                key=("total_usage_norm",), value=H_realized / max(EPS, self.K)
+            )
 
         # TODO (nadine) add observation
         return mdp.advance(state={"fish": fish_next, "harvest": 0.0, "restore": 0.0})
