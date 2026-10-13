@@ -240,8 +240,9 @@ class ESOptimizer(Optimizer):
         self.dimension = flatdim(self.action_space)
 
         # TODO (nadine) built-in normalization not supported yet
-        if not np.allclose(self.search_space.low, 0.0) and np.allclose(
-            self.search_space.high, 1.0
+        if not (
+            np.allclose(self.search_space.low, 0.0)
+            and np.allclose(self.search_space.high, 1.0)
         ):
             raise ValueError(
                 "ESOptimizer currently requires action bounds in [0, 1]. "
