@@ -1,9 +1,8 @@
 """``QuotaMechanism``: a smooth cap on the targeted agents' requested action.
 
-The regulator acts before the followers, so the request it reads is still the
-raw policy output ``z``; the mechanism maps it to ``f = sigmoid(z / 4)`` and
-returns a residual on ``z`` that moves the request to the delivered fraction.
-The expected values below are written from the formulas of the mechanism, not
+The adapter decodes the followers' policy outputs before the regulator acts,
+so the request it reads is ``f = sigmoid(z / 4)``. The mechanism returns a
+residual on that fraction. The expected values below are written from the formulas of the mechanism, not
 read back from it:
 
     allowed = (s((b - q) / w) - s(-q / w)) / (s((1 - q) / w) - s(-q / w))
@@ -15,7 +14,7 @@ softplus of width ``usage_transition_width`` shifted to be zero at the origin.
 The allowed fraction is also published in the state entry
 ``allowed_frac:<mechanism id>``, one entry per quota, and the entry must hold
 the fraction of the current step, not a running sum. Two quotas on the same
-target compose additively: each corrects the same raw request, and the
+target compose additively: each corrects the same decoded request, and the
 corrections are summed.
 """
 
@@ -51,6 +50,12 @@ def raw(fraction: float) -> np.ndarray:
     z = TEMPERATURE * math.log(fraction / (1.0 - fraction))
 
     return np.array([z], dtype=np.float32)
+
+
+def decoded_request(action: np.ndarray) -> float:
+    """Map a raw policy output to its effort fraction before storing it."""
+
+    return logistic(float(np.asarray(action).reshape(-1)[0]) / TEMPERATURE)
 
 
 def allowed_fraction(level: float, quota: float, width: float = QUOTA_WIDTH) -> float:
@@ -95,8 +100,8 @@ def mdp_with(
         params={"K": K},
         state={"fish": level * K},
         actions={
-            REGULATOR: {"quota": np.array([quota], dtype=np.float32)},
-            **{aid: {"harvest": z} for aid, z in requests.items()},
+            REGULATOR: {"quota": make().decode(MDPState(), quota)},
+            **{aid: {"harvest": decoded_request(z)} for aid, z in requests.items()},
         },
     )
 
@@ -123,10 +128,10 @@ def two_quota_mdp(z: np.ndarray) -> MDPState:
         state={"fish": 0.5 * K},
         actions={
             REGULATOR: {
-                "quota": np.array([0.5], dtype=np.float32),
-                "strict": np.array([0.55], dtype=np.float32),
+                "quota": make().decode(MDPState(), 0.5),
+                "strict": make(mechanism_id="strict").decode(MDPState(), 0.55),
             },
-            "fisherman:0": {"harvest": z},
+            "fisherman:0": {"harvest": decoded_request(z)},
         },
     )
 
@@ -143,9 +148,9 @@ def run(
 
 
 def delivered_of(delta: MDPState, aid: str, z: np.ndarray) -> float:
-    """Delivered fraction after the residual of ``delta`` is added to ``z``."""
+    """Delivered fraction after adding the residual to the decoded request."""
 
-    return logistic(float((z + delta.actions[aid]["harvest"][0]).item()) / TEMPERATURE)
+    return decoded_request(z) + delta.actions[aid]["harvest"][0]
 
 
 @pytest.mark.unit
@@ -429,14 +434,14 @@ class TestTargeting:
 
     def test_agents_without_the_targeted_mechanism_are_skipped(self):
         mdp = mdp_with({"fisherman:0": raw(0.9)})
-        mdp.actions.data["fisherman:1"] = {"restore": raw(0.9)}
+        mdp.actions.data["fisherman:1"] = {"restore": [decoded_request(raw(0.9))]}
         delta = make()(mdp, mdp.actions[REGULATOR]["quota"][0])
 
         assert set(delta.actions.data) == {"fisherman:0"}
 
     def test_the_targeted_mechanism_is_the_one_named(self):
         mdp = mdp_with({"fisherman:0": raw(0.9)})
-        mdp.actions.data["fisherman:0"]["restore"] = raw(0.9)
+        mdp.actions.data["fisherman:0"]["restore"] = [decoded_request(raw(0.9))]
         delta = make(acts_on=("fisherman", "restore"))(
             mdp, mdp.actions[REGULATOR]["quota"][0]
         )
@@ -474,7 +479,7 @@ class TestComposition:
         mdp = MDPState(
             params={"K": K},
             state={"fish": 0.5 * K},
-            actions={"fisherman:0": {"harvest": raw(0.9)}},
+            actions={"fisherman:0": {"harvest": decoded_request(raw(0.9))}},
         )
         after = regulator.action(mdp)
 
@@ -510,7 +515,9 @@ class TestAllowedFractionEntry:
         for step, level in enumerate(levels):
             if step:
                 mdp = mdp.advance(state={"fish": level * K})
-                mdp = mdp.update(actions={"fisherman:0": {"harvest": raw(0.9)}})
+                mdp = mdp.update(
+                    actions={"fisherman:0": {"harvest": decoded_request(raw(0.9))}}
+                )
 
             mdp = regulator.action(mdp)
 
