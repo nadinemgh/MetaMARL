@@ -6,8 +6,9 @@ over and that the inner environment applies to its agents. This module defines
 and the rewards of an episode, and :class:`Mechanism`, the abstract class every
 mechanism inherits. A mechanism does not change the state it receives: it
 returns a residual :class:`MDPState`, which the owning agent adds to the shared
-state, and may return a second residual for the observations through
-:meth:`Mechanism.observe`. The time-indexed trees that hold the fields live in
+state, and may return an initial residual through :meth:`Mechanism.on_reset`,
+which the environment calls at reset and again after each transition. The
+time-indexed trees that hold the fields live in
 :mod:`core.mechanism.types`, and the configurations that build the concrete
 mechanisms in :mod:`core.mechanism.config`.
 """
@@ -63,9 +64,10 @@ class MDPState:
         Observation of each agent, one array per step. Default empty.
     actions : Trajectory or dict
         Action of each agent and mechanism, as ``actions[agent][mechanism]``.
-        A mechanism overwrites its entry of the current step with the action it
-        decoded, so after a mechanism has been called this is the action
-        delivered, not the one received. Default empty.
+        The entries are stored already decoded: the environment decodes the
+        leaders' actions at reset and the Ray adaptor decodes the followers'
+        actions at each step. A mechanism reads its entry as stored and does
+        not write it back. Default empty.
     rewards : FlowTrajectory or dict
         Reward of each agent at each step. Default empty.
     state_space, action_spaces, obs_space : gymnasium.spaces.Dict or None
@@ -261,10 +263,11 @@ class Mechanism(ABC):
     :class:`MDPState`, which the owning agent adds to the shared state. It does
     so in two steps: :meth:`decode` maps the raw action to the coordinates of
     the mechanism, and :meth:`apply` returns the residual of a transition. The
-    environment calls :meth:`observe` separately, for the mechanisms of the
-    leaders, to let a mechanism contribute to the observations. Subclasses
-    implement :meth:`apply`, and override :meth:`decode` and :meth:`observe`
-    when needed. They are usually built from a
+    caller decodes once, before the action is stored; the mechanism then reads
+    the stored action as is. The environment calls :meth:`on_reset` at reset
+    and after each transition, to let a mechanism contribute to the state.
+    Subclasses implement :meth:`apply`, and override :meth:`decode` and
+    :meth:`on_reset` when needed. They are usually built from a
     :class:`~core.mechanism.config.MechanismConfig`.
 
     Parameters
@@ -283,7 +286,7 @@ class Mechanism(ABC):
         Agent type and mechanism that the mechanism acts on, or ``None`` for a
         mechanism that targets nobody; the configuration passes ``None`` when
         none is given, and the mechanisms of this package then raise a
-        ``ValueError`` in ``apply`` or ``observe``. Keyword-only, with no
+        ``ValueError`` in ``apply`` or ``on_reset``. Keyword-only, with no
         default.
     obs_map : dict[str, str] or None
         Names under which the mechanism reads the environment state, for
@@ -306,7 +309,7 @@ class Mechanism(ABC):
     -----
     When to use: as the base class of a new regulatory mechanism. Use the
     ready-made ones (:class:`~core.mechanism.algorithms.quota.QuotaMechanism`,
-    :class:`~core.mechanism.algorithms.subsidy.SubsidyMechanism`,
+    :class:`~core.mechanism.algorithms.incentive.IncentiveMechanism`,
     :class:`~core.mechanism.algorithms.penalty.ThresholdPenaltyMechanism`,
     :class:`~core.mechanism.algorithms.social_influence.SocialInfluenceMechanism`)
     when they fit.
@@ -326,7 +329,7 @@ class Mechanism(ABC):
     >>> mechanism(mdp, 0.5).rewards["fisherman:0"]
     [-0.25]
     >>> mdp.actions["regulator"]["tax"]
-    [0.5]
+    [0.0]
     """
 
     def __init__(

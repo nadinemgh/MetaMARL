@@ -76,7 +76,7 @@ class QuotaMechanism(Mechanism):
     Notes
     -----
     When to use: the regulator should limit what the agents can take according
-    to the state of the resource, in contrast with :class:`SubsidyMechanism`,
+    to the state of the resource, in contrast with :class:`IncentiveMechanism`,
     which prices the action, or :class:`ThresholdPenaltyMechanism`, which
     sanctions every agent alike. The constructor of the mechanism does not check
     ``acts_on`` and ``obs_map``; ``apply`` raises a ``ValueError`` when they are

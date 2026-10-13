@@ -384,8 +384,11 @@ class MultiAgentEnv(ABC):
         ``mechanism`` stays ``None`` and ``published_mechanism_assigned``
         ``False``. The ``reset`` hook, when the subclass
         declares one, is called with the state and its result is added. The
-        initial observation is built last, from the followers' ``observation``
-        and the leaders' ``mechanism_observations``.
+        leaders' actions are decoded here, once, before they are stored. Every
+        agent then runs ``Agent.action(mdp, reset=True)``, which calls the
+        ``on_reset`` method of each of its mechanisms and lets a mechanism
+        contribute to the initial state. The initial observation is built
+        last, from the followers' ``observation``.
 
         Parameters
         ----------
@@ -548,10 +551,11 @@ class MultiAgentEnv(ABC):
            ``reward_mean``, ``reward_min``, ``reward_max`` and
            ``reward_terminal``). Leaders do not count in that mean, and rewards
            are per-step values, never running sums;
-        4. rebuilds the observations on the new step from the followers'
-           ``observation`` and the leaders' ``mechanism_observations``, so the
-           contribution of the leaders' mechanisms reaches the policies at the
-           next step.
+        4. runs a second pass of ``Agent.action(mdp, reset=True)``, which calls
+           the ``on_reset`` method of every mechanism on the new step, and then
+           rebuilds the observations from the followers' ``observation``, so
+           the contribution of the leaders' mechanisms reaches the policies at
+           the next step.
 
         Nothing is published to the ``World`` by this method.
 

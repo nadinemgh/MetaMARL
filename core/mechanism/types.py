@@ -273,8 +273,8 @@ class Trajectory(Generic[T]):
         Notes
         -----
         When to use: to record a value at the current step of a trajectory
-        that the caller holds, as :meth:`core.mechanism.base.Mechanism.__call__`
-        does with the decoded action.
+        that the caller holds, for example the Ray adaptor, which writes the
+        decoded follower action at each step.
 
         Examples
         --------
@@ -427,8 +427,8 @@ class FlowTrajectory(Trajectory[T]):
 
     A reward is earned at one timestep and does not persist to the next, so an
     unwritten timestep starts from ``0`` instead of the previous value. Deltas
-    added at the same timestep are still summed, which is how a penalty or a
-    subsidy composes with an agent's utility.
+    added at the same timestep are still summed, which is how a penalty or an
+    incentive composes with an agent's utility.
 
     Observations follow the same rule: every agent rebuilds its whole
     observation at each step, so adding it on top of the previous one would

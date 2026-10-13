@@ -85,7 +85,7 @@ class MechanismConfig:
     Notes
     -----
     When to use: subclass it to make a mechanism available to an agent
-    configuration; use the existing subclasses (``Quota``, ``Subsidy``,
+    configuration; use the existing subclasses (``Quota``, ``Incentive``,
     ``ThresholdPenalty``, ``SocialInfluence``) in an experiment.
 
     Examples
