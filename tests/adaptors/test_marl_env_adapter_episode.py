@@ -43,17 +43,26 @@ class Follower:
         self.observation_space = spaces.Box(0.0, 100.0, shape=(2,), dtype=np.float32)
         self.mechanisms = {
             "quota": SimpleNamespace(
-                action_space=spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32)
+                action_space=spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
+                # The adapter decodes the policy outputs before the step, and
+                # the tests pass actions that are already decoded.
+                decode=lambda mdp, action: action,
             )
         }
         self.quota_seen: list[float] = []
 
-    def action(self, mdp: MDPState) -> MDPState:
+    def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
+        if reset:
+            # The environment also calls ``action(reset=True)`` after each
+            # transition, to collect the initial contributions of the
+            # mechanisms; a follower has none and holds no action yet.
+            return MDPState()
+
         quota = mdp.actions.data.get(self.aid, {}).get("quota")
 
         self.quota_seen.append(float(quota[mdp.t][0]) if quota else float("nan"))
 
-        return mdp
+        return MDPState()
 
     def reward(self, mdp: MDPState) -> MDPState:
         quota = self.quota_seen[-1]
@@ -68,24 +77,22 @@ class Regulator:
     """Leader whose mechanism writes ``t + 1`` into the second entry.
 
     Its mechanism has no default action, so it is inactive until a candidate
-    is fetched.
+    is fetched; the environment decodes the candidate with it and holds the
+    result as the leader's action.
     """
 
-    mechanisms: dict = {}
+    mechanisms = {"quota": SimpleNamespace(decode=lambda mdp, action: action, _u=None)}
 
-    def action(self, mdp: MDPState) -> MDPState:
-        return mdp
-
-    def reward(self, mdp: MDPState) -> MDPState:
-        return MDPState()
-
-    def mechanism_observations(self, mdp: MDPState) -> list[MDPState]:
-        if "regulator" not in mdp.actions.data:
-            return []
+    def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
+        if not reset or "regulator" not in mdp.actions.data:
+            return MDPState()
 
         signal = np.asarray([0.0, float(mdp.t + 1)], dtype=np.float32)
 
-        return [MDPState(obs={aid: signal for aid in ("fisher:0", "fisher:1")})]
+        return MDPState(obs={aid: signal for aid in ("fisher:0", "fisher:1")})
+
+    def reward(self, mdp: MDPState) -> MDPState:
+        return MDPState()
 
 
 class ScriptedWorld:
@@ -115,6 +122,7 @@ class StepEnv(MultiAgentEnv):
         self._t = 0
         self.m = self.m_ctx = None
         self._using_default_mechanism = True
+        self.env_id = None
         self.mechanism_id = "7"
         self.seed = 11
         self.policy_seed = 22

@@ -23,8 +23,8 @@ class StockObserver:
     def __init__(self, aid: str) -> None:
         self.aid = aid
 
-    def action(self, mdp: MDPState) -> MDPState:
-        return mdp
+    def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
+        return MDPState()
 
     def reward(self, mdp: MDPState) -> MDPState:
         return MDPState(rewards={self.aid: 0.0})
@@ -43,16 +43,16 @@ class PeerSignalLeader:
 
     mechanisms: dict = {}
 
-    def action(self, mdp: MDPState) -> MDPState:
-        return mdp
+    def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
+        if not reset:
+            return MDPState()
+
+        signal = np.asarray([0.0, float(mdp.t + 1)], dtype=np.float32)
+
+        return MDPState(obs={"fisherman:0": signal})
 
     def reward(self, mdp: MDPState) -> MDPState:
         return MDPState()
-
-    def mechanism_observations(self, mdp: MDPState) -> list[MDPState]:
-        signal = np.asarray([0.0, float(mdp.t + 1)], dtype=np.float32)
-
-        return [MDPState(obs={"fisherman:0": signal})]
 
 
 def make_env(stocks: list[float], leaders: dict | None = None):
@@ -66,6 +66,7 @@ def make_env(stocks: list[float], leaders: dict | None = None):
         leaders=leaders,
         logger=MetricLogger.from_schema(EpisodeRolloutSchema),
         horizon=None,
+        _t=0,
     )
     env.transition = lambda mdp: mdp.advance(state={"fish": stocks[mdp.t + 1]})
     env.termination = lambda mdp: MultiAgentEnv.termination(env, mdp)
@@ -113,12 +114,14 @@ def test_reset_adds_the_leaders_contribution(monkeypatch):
         get_mechanism_by_id=SimpleNamespace(remote=lambda **kwargs: None)
     )
     env.logger = MetricLogger.from_schema(EpisodeRolloutSchema)
+    env.env_id = None
     env.mechanism_id = 0
     env.seed = env.policy_seed = 1
     env.mode = MechanismStatus.train
     env.lids = {"regulator"}
     env.leaders = {"regulator": PeerSignalLeader()}
     env.followers = {"fisherman:0": StockObserver("fisherman:0")}
+    env.agents = {**env.leaders, **env.followers}
     env.m = env.m_ctx = None
     env._using_default_mechanism = True
     mdp = env.reset(MDPState(state={"fish": 0.8}))

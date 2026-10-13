@@ -33,18 +33,36 @@ class ScriptedWorld:
         return self.answers.pop(0)
 
 
+class QuotaLeader:
+    """Leader with one ``quota`` mechanism whose decoding is the identity.
+
+    ``reset`` decodes the candidate with the mechanisms of the leaders and
+    writes the result as their action, so the leader must hold the mechanism.
+    """
+
+    def __init__(self) -> None:
+        self.mechanisms = {
+            "quota": SimpleNamespace(decode=lambda mdp, action: action, _u=None)
+        }
+
+    def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
+        return MDPState()
+
+
 def make_env(world: ScriptedWorld) -> MultiAgentEnv:
     """``MultiAgentEnv`` with only the attributes ``reset`` touches."""
 
     env = MultiAgentEnv.__new__(MultiAgentEnv)
     env.world = world
     env.logger = MetricLogger.from_schema(EpisodeRolloutSchema)
+    env.env_id = None
     env.mechanism_id = 0
     env.seed = env.policy_seed = 1
     env.mode = MechanismStatus.train
     env.lids = {"regulator"}
-    env.leaders = {}
+    env.leaders = {"regulator": QuotaLeader()}
     env.followers = {}
+    env.agents = dict(env.leaders)
     env.m = env.m_ctx = None
     env._using_default_mechanism = True
 
