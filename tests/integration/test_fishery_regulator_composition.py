@@ -12,8 +12,9 @@ the stock read before each step, not from the mechanisms:
 
 - delivered harvest fraction: the quota cuts the request ``f = sigmoid(z / 4)``
   to ``f - softplus0(f - allowed)`` (see ``tests/mechanism/algorithms/test_quota.py``);
-- subsidy residual: ``rate * MAX * e - cost * e**2`` with the restoration
-  effort ``e = sigmoid(z_restore / 4)``;
+- incentive residual: ``rate * MAX * e`` with the restoration effort
+  ``e = sigmoid(z_restore / 4)``, and the restoration cost ``cost * e**2``
+  that the fisher's own Restore mechanism charges;
 - penalty residual: ``-amount / (1 + exp((b - threshold) / width))`` at the
   normalised stock ``b`` of the step.
 """
@@ -28,6 +29,7 @@ from core.mechanism.algorithms.incentive import MAX, Incentive
 from core.mechanism.algorithms.penalty import ThresholdPenalty
 from core.mechanism.algorithms.quota import Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
+from examples.bilevel_fishery.regulated_env import RestoreConfig
 
 CAPACITY = 5_000.0
 HORIZON = 20
@@ -40,7 +42,9 @@ USAGE_WIDTH = 0.005
 # requests and a penalty threshold inside it is crossed during the episode.
 QUOTA = float(np.float32(0.78))
 SUBSIDY_RATE = float(np.float32(0.6))
-SUBSIDY_COST = 0.5
+# Charged by the Restore mechanism of the fisher, at the default cost of its
+# configuration; the incentive mechanism has no cost of its own.
+RESTORATION_COST = RestoreConfig.restoration_cost
 PENALTY_THRESHOLD = 0.77
 PENALTY_AMOUNT = 0.1
 PENALTY_WIDTH = 0.03
@@ -86,7 +90,7 @@ def delivered_fraction(z: float, level: float, quota: float) -> float:
 def subsidy_residual(z_restore: float) -> float:
     effort = requested_fraction(z_restore)
 
-    return SUBSIDY_RATE * MAX * effort - SUBSIDY_COST * effort**2
+    return SUBSIDY_RATE * MAX * effort - RESTORATION_COST * effort**2
 
 
 def penalty_residual(level: float) -> float:
@@ -227,11 +231,15 @@ class TestRewardComposition:
             effort = r["stored_restore"]
             expected = (
                 r["stored_harvest"]
-                + (SUBSIDY_RATE * MAX * effort - SUBSIDY_COST * effort**2)
+                + (SUBSIDY_RATE * MAX * effort - RESTORATION_COST * effort**2)
                 + penalty_residual(r["level"])
             )
 
-            assert r["reward"] == pytest.approx(expected, abs=1e-12)
+            # The effort is decoded from a float32 policy output and the
+            # restoration cost is charged on it, which leaves rounding errors of
+            # about 1e-9 that the exact comparison of the former mechanism did
+            # not have.
+            assert r["reward"] == pytest.approx(expected, abs=1e-8)
 
     def test_reward_matches_the_formulas_of_the_three_mechanisms(
         self, build_fishery, candidate_context
