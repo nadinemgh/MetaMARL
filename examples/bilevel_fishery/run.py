@@ -233,6 +233,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                     "ecology_cfg": {
                         "sustainability_weight": 2,  # assert between 0 and 5
                         "sustainability_threshold": 0.20,
+                        "K": 5_000,  # has to match the environment K
                     }
                 },
             )
