@@ -45,10 +45,7 @@ def mdp_with(efforts: dict[str, float], rate: float = 0.6) -> MDPState:
 
     return MDPState(
         aids=set(efforts),
-        actions={
-            REGULATOR: {"subsidy": np.float32(rate)},
-            **follower_actions(efforts),
-        },
+        actions={REGULATOR: {"subsidy": np.float32(rate)}, **follower_actions(efforts)},
     )
 
 
@@ -104,9 +101,7 @@ class TestRewardResidual:
         delta = make(acts_on=("fisherman", "harvest"))(mdp, 1.0)
 
         # ``follower_actions`` sets the harvest effort to 0.8.
-        assert delta.rewards["fisherman:0"][0] == pytest.approx(
-            MAX * 0.8, abs=1e-6
-        )
+        assert delta.rewards["fisherman:0"][0] == pytest.approx(MAX * 0.8, abs=1e-6)
 
     def test_each_targeted_agent_gets_its_own_residual(self):
         mdp = mdp_with({"fisherman:0": 0.2, "fisherman:1": 0.9})
@@ -149,8 +144,7 @@ class TestComposition:
         efforts = {"fisherman:0": 0.4}
         regulator = Agent(id=REGULATOR, policy_id="p", mechanisms={"subsidy": make()})
         mdp = MDPState(
-            aids=set(efforts),
-            actions={REGULATOR: {"subsidy": np.float32(0.6)}},
+            aids=set(efforts), actions={REGULATOR: {"subsidy": np.float32(0.6)}}
         )
         residuals = []
 
@@ -166,3 +160,36 @@ class TestComposition:
             assert mdp.actions[REGULATOR]["subsidy"][t] == np.float32(0.6)
 
         assert residuals == pytest.approx([0.6 * MAX * 0.4] * 4, abs=1e-6)
+
+
+@pytest.mark.unit
+class TestOnReset:
+    def test_without_a_rate_nothing_is_written(self):
+        assert make().on_reset(mdp_with({"fisherman:0": 0.4}), None).obs.data == {}
+
+    def test_the_rate_is_written_in_the_last_slot_only(self):
+        residual = make().on_reset(mdp_with({"fisherman:0": 0.4}), 0.3)
+        expected = np.zeros(9, dtype=np.float32)
+        expected[8] = np.float32(0.3)
+
+        np.testing.assert_array_equal(residual.obs["fisherman:0"][0], expected)
+
+    def test_the_delta_is_taken_from_the_current_step(self):
+        mdp = mdp_with({"fisherman:0": 0.4}).add(
+            MDPState(obs={"fisherman:0": np.full(9, 2.0, dtype=np.float32)})
+        )
+        residual = make().on_reset(mdp, 0.3).obs["fisherman:0"][0]
+
+        assert residual[8] == pytest.approx(0.3 - 2.0, abs=1e-6)
+
+    def test_a_step_without_an_observation_yet_receives_the_rate(self):
+        # Observations are per-step flows: the previous step's value must not
+        # enter the difference, or the slot alternates between the rate and
+        # zero from one step to the next.
+        mdp = mdp_with({"fisherman:0": 0.4}).add(
+            MDPState(obs={"fisherman:0": np.full(9, 2.0, dtype=np.float32)})
+        )
+        mdp = mdp.advance(state={})
+        residual = make().on_reset(mdp, 0.3).obs["fisherman:0"][0]
+
+        assert residual[8] == pytest.approx(0.3, abs=1e-6)

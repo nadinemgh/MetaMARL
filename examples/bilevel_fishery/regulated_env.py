@@ -139,10 +139,13 @@ class Fisherman(Agent):
         harvest_norm = mdp.state["harvest"][mdp.t - 1] / K if mdp.t > 0 else 0.0
 
         # Observation residual
+        # Observations are per-step flows: the slot of the current step starts
+        # at zero, so the difference is taken against what this step already
+        # holds, not against the previous step.
         history = mdp.obs.data.get(self.id, [])
         current = (
-            np.asarray(history[min(mdp.t, len(history) - 1)], dtype=np.float32)
-            if history
+            np.asarray(history[mdp.t], dtype=np.float32)
+            if len(history) > mdp.t
             else np.zeros(self.observation_space.shape, dtype=np.float32)
         )
         do = np.zeros_like(current)

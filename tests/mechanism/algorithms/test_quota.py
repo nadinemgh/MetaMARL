@@ -687,7 +687,7 @@ class TestOnReset:
             delta.obs["fisherman:0"][0], expected, atol=FLOAT32_ATOL
         )
 
-    def test_the_delta_is_taken_from_the_last_observation(self):
+    def test_the_delta_is_taken_from_the_current_step(self):
         mdp = mdp_with({"fisherman:0": 0.9}, level=0.4)
         later = np.full(OBS_SIZE, 2.0, dtype=np.float32)
         mdp = mdp.advance(state={"fish": 0.4 * K}, obs={"fisherman:0": later})
@@ -704,6 +704,17 @@ class TestOnReset:
 
         for slot, value in target.items():
             assert residual[slot] == pytest.approx(value - 2.0, abs=FLOAT32_ATOL)
+
+    def test_a_step_without_an_observation_yet_receives_the_target(self):
+        # Observations are per-step flows: the previous step's value must not
+        # enter the difference, or the slots alternate between the target and
+        # zero from one step to the next.
+        mdp = mdp_with({"fisherman:0": 0.9}, level=0.4)
+        mdp = mdp.advance(state={"fish": 0.4 * K})
+        residual = make().on_reset(mdp, 0.6).obs["fisherman:0"][0]
+        target = [allowed_fraction(0.4, 0.6), 0.6, MAX_DEMAND, FINE, 0.0, 0.0]
+
+        np.testing.assert_allclose(residual[LEGACY_SLOTS], target, atol=FLOAT32_ATOL)
 
     def test_only_the_legacy_slots_are_written(self):
         mdp = mdp_with({"fisherman:0": 0.9}, level=0.4)

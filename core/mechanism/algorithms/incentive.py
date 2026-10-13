@@ -159,10 +159,13 @@ class IncentiveMechanism(Mechanism):
             if not str(aid).startswith(f"{self.acts_on[0]}:"):
                 continue
 
+            # Observations are per-step flows: the slot of the current step starts
+            # at zero, so the difference is taken against what this step already
+            # holds, not against the previous step.
             history = mdp.obs.data.get(aid, [])
             current = (
-                np.asarray(history[-1], dtype=np.float32)
-                if history
+                np.asarray(history[mdp.t], dtype=np.float32)
+                if len(history) > mdp.t
                 else np.zeros(9, dtype=np.float32)
             )
             delta = np.zeros(9, dtype=np.float32)

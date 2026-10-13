@@ -204,9 +204,11 @@ class QuotaMechanism(Mechanism):
         The "legacy attributes" of the observation are the slots 1 (allowed
         fraction), 3 (fixed quota), 4 (``MAX_DEMAND_FRAC``), 5 (``FINE_AMOUNT``),
         6 (``RISK_PENALTY_SCALE``) and 7 (risk penalty power, set to ``0``). The
-        residual moves each of them from the value of the last observation of
-        the agent (``0`` when it has none) to its target, and leaves the other
-        slots alone.
+        residual moves each of them from the value the agent's observation
+        already holds at ``mdp.t`` to its target, and leaves the other slots
+        alone. Observations are per-step flows, so a step the agent has not
+        written yet holds ``0`` and the residual is the target itself, whatever
+        the previous step held.
 
         Parameters
         ----------
@@ -271,10 +273,13 @@ class QuotaMechanism(Mechanism):
             if not str(aid).startswith(f"{self.acts_on[0]}:"):
                 continue
 
+            # Observations are per-step flows: the slot of the current step starts
+            # at zero, so the difference is taken against what this step already
+            # holds, not against the previous step.
             history = mdp.obs.data.get(aid, [])
             existing = (
-                np.asarray(history[-1], dtype=np.float32)
-                if history
+                np.asarray(history[mdp.t], dtype=np.float32)
+                if len(history) > mdp.t
                 else np.zeros_like(target)
             )
             delta = np.zeros_like(target)
