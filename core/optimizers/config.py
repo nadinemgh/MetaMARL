@@ -81,6 +81,10 @@ class OptimizerConfig(_Config, ABC):
         Episode length in steps. ``None`` until a subclass or the caller sets
         it; ``environment(horizon=...)`` stores the value in
         ``env_config["horizon"]`` and does not change this attribute.
+    disable_env_checking : bool or None
+        Whether RLlib skips its environment check; ``None`` keeps RLlib's
+        default. Set by ``environment`` and replayed on the RLlib config by
+        ``RayOptimizerConfig.build_optimizer``.
     agents_cfgs : dict[AgentID, AgentConfig] or None
         Agent configurations keyed by agent id, set by ``agents``.
     episodes : int or None
@@ -141,6 +145,7 @@ class OptimizerConfig(_Config, ABC):
         self.env: Optional[Union[str, EnvType]] = None
         self.env_config: dict = {}
         self.horizon: Optional[int] = None
+        self.disable_env_checking: Optional[bool] = None
         self.agents_cfgs: Optional[dict[AgentID, AgentConfig]] = None
 
         # training
