@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
+
 from core.annotations import override
-from core.metrics.metric.base import PrimitiveType
+from core.metrics.metric.base import PrimitiveType, as_number
 from core.metrics.metric.series import SeriesMetric
 
 
@@ -59,12 +61,7 @@ class MinMetric(SeriesMetric):
             If ``value`` is a ``bool`` (or ``np.bool_``) or not a number.
         """
 
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise TypeError(
-                f"MinMetric only accepts int or float, got {type(value).__name__}."
-            )
-
-        self.values.append(value)
+        self.values.append(as_number(value, "MinMetric"))
 
     def peek(self, compile: bool = True) -> int | float | list[int | float] | None:
         """Return the minimum (``None`` when empty).
@@ -89,7 +86,17 @@ class MinMetric(SeriesMetric):
         if not self.values:
             return None
 
-        return min(self.values)
+        # NaN is how the Ray adaptor marks a statistic that RLlib did not report,
+        # so it carries no ordering information. Python's min() compares with
+        # ``<``, which is false against NaN, and would then return
+        # NaN or a number depending on the push order. NaN values are skipped
+        # instead; a window holding nothing but NaN stays NaN.
+        valid = [value for value in self.values if not math.isnan(value)]
+
+        if not valid:
+            return self.values[0]
+
+        return min(valid)
 
     def reduce(self, compile: bool = True) -> int | float | MinMetric | None:
         """Return the minimum and clear the history.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from core.annotations import override
-from core.metrics.metric.base import PrimitiveType
+from core.metrics.metric.base import PrimitiveType, as_number
 from core.metrics.metric.series import SeriesMetric
 
 
@@ -48,12 +48,7 @@ class MeanMetric(SeriesMetric):
             If ``value`` is a ``bool`` (or ``np.bool_``) or not a number.
         """
 
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise TypeError(
-                f"MeanMetric only accepts int or float, got {type(value).__name__}."
-            )
-
-        self.values.append(value)
+        self.values.append(as_number(value, "MeanMetric"))
 
     def peek(self, compile: bool = True) -> float | list[float] | None:
         """Return the arithmetic mean (``None`` when empty).
