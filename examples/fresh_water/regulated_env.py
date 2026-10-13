@@ -717,8 +717,10 @@ class WaterRegulatedEnv(MultiAgentEnv):
         """Draw the planting day, start the lake and expose the first day.
 
         The planting day is drawn uniformly from ``PLANTING_DAY_OF_YEAR`` with
-        the environment's seeded generator, counting from January 1 of 1980, and
-        the episode starts that day. The lake model is told the last day the
+        the environment's generator, counting from January 1 of 1980, and
+        the episode starts that day. ``MultiAgentEnv.reset`` draws that
+        generator from the seed at every reset, so the episodes of one
+        environment replay the same planting day. The lake model is told the last day the
         episode can reach, the planting day plus ``horizon`` days (``None``
         without a horizon), and returns the initial state, with no withdrawal so
         far.
@@ -747,6 +749,7 @@ class WaterRegulatedEnv(MultiAgentEnv):
         ...     agents_cfg_dict={},
         ...     schema=WaterMetricSchema,
         ... )
+        >>> env.rng = np.random.default_rng(env.seed)  # MultiAgentEnv.reset does it
         >>> residual = env.reset_water(MDPState())
         >>> residual.state["usage_m3_day"]
         [0.0]
@@ -831,6 +834,7 @@ class WaterRegulatedEnv(MultiAgentEnv):
         ...     agents_cfg_dict={"utilizer:0": farm},
         ...     schema=WaterMetricSchema,
         ... )
+        >>> env.rng = np.random.default_rng(env.seed)  # MultiAgentEnv.reset does it
         >>> mdp = MDPState().add(env.reset_water(MDPState()))
         >>> mdp = mdp.add(MDPState(actions={"utilizer:0": {"irrigate": [1.0]}}))
         >>> after = env.step_water(mdp=mdp)
