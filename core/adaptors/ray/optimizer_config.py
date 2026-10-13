@@ -423,7 +423,10 @@ class RayOptimizerConfig(OptimizerConfig):
 
         self.num_mechanisms = kwargs.get("num_envs_per_env_runner", 1)
 
-        return self._env_runners(**kwargs)
+        self._env_runners(**kwargs)
+        self._scale_env_count_by_seeds()
+
+        return self
 
     @rllib_config_mutator
     def learners(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
@@ -1263,14 +1266,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
         super().debugging(seed=seed, num_seeds=num_seeds)
 
-        if seed is not None:
-            env_runners_op = self._cfg_ops.get("_env_runners")
-
-            if env_runners_op is not None:
-                self.num_mechanisms = env_runners_op.kwargs["num_envs_per_env_runner"]
-                env_runners_op.kwargs["num_envs_per_env_runner"] = (
-                    env_runners_op.kwargs.get("num_envs_per_env_runner", 1) * num_seeds
-                )
+        self._scale_env_count_by_seeds()
 
         # Lazy construction
         return self._debugging_rllib(seed=seed, **kwargs)
