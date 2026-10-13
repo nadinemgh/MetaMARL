@@ -638,6 +638,34 @@ class FisheryRegulatedEnv(MultiAgentEnv):
 
         return MDPState(state={"fish": fish_init, "harvest": 0.0}, params=self.ecology)
 
+    def step(self, mdp: MDPState) -> MDPState:
+        """Play one step and log the step's reward in ``reward_series``.
+
+        The step is that of :class:`core.envs.marl_regulated.MultiAgentEnv`.
+        Afterwards the mean over the fishers of the reward they received at
+        this step is pushed to ``reward_series``, the series that the regulator
+        environment reads to average the reward over the last steps of an
+        episode.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            State returned by ``reset`` or by the previous ``step``, holding
+            the fishers' actions of the current step.
+
+        Returns
+        -------
+        MDPState
+            The state after the transition, as returned by the base class.
+        """
+
+        mdp = super().step(mdp)
+        step_reward = float(
+            np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
+        )
+        self.logger.push(key=("reward_series",), value=step_reward)
+        return mdp
+
     @transition
     def pella_tomlinson(self, mdp: MDPState) -> MDPState:
         """Advance the stock one step with the surplus-production equation.
@@ -753,10 +781,14 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         self.logger.push(
             key=("fish_norm_next_last",), value=fish_next / max(self.K, EPS)
         )
+        self.logger.push(
+            key=("fish_norm_next_series",), value=fish_next / max(self.K, EPS)
+        )
         self.logger.push(key=("growth",), value=growth)
         self.logger.push(key=("growth_noise",), value=noise)
         self.logger.push(key=("H_attempted",), value=H)
         self.logger.push(key=("H_realized",), value=H_realized)
+        self.logger.push(key=("H_realized_series",), value=H_realized)
         self.logger.push(key=("total_usage_norm",), value=H_realized / max(EPS, self.K))
 
         # TODO (nadine) add observation

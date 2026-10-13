@@ -211,4 +211,14 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     #     json_schema_extra={"reduce": ReduceProtocol.MEAN},
     # )
 
+    fish_norm_next_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    H_realized_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    reward_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+
     by_agent: dict[AgentID, FisheryAgentMetricSchema] = Field(default_factory=dict)

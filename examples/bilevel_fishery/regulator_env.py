@@ -241,58 +241,59 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
                 for episode_metrics in seed_metrics.by_episode.values():
                     # TODO this is the mean however this is not good representation for late learning mechanisms
-                    rewards = np.atleast_1d(
-                        np.asarray(episode_metrics.reward_mean, dtype=np.float32)
+                    # Each leaf holds one entry per logged episode: the list of
+                    # its steps, or its MSY.
+                    logged_episodes = zip(
+                        episode_metrics.reward_series,
+                        episode_metrics.fish_norm_next_series,
+                        episode_metrics.H_realized_series,
+                        np.atleast_1d(episode_metrics.MSY),
+                        strict=True,
                     )
-                    fish = np.atleast_1d(
-                        np.asarray(
-                            episode_metrics.fish_norm_next_mean, dtype=np.float32
-                        )
-                    )
-                    realized_harvest = np.atleast_1d(
-                        np.asarray(episode_metrics.H_realized, dtype=np.float32)
-                    )
-                    msy = np.atleast_1d(
-                        np.asarray(episode_metrics.MSY, dtype=np.float32)
-                    )
-                    harvest_scores = realized_harvest / np.maximum(msy, 1e-6)
-                    sustainability_penalties = np.maximum(
-                        0.0,
-                        (self.sustainability_threshold - fish)
-                        / max(1e-6, self.sustainability_threshold),
-                    )
-                    num_steps = len(fish)
-                    tail_steps = min(self.fitness_tail_steps, num_steps)
-                    tail_start = num_steps - tail_steps
-                    tail_rewards = rewards[tail_start:]
-                    tail_fish = fish[tail_start:]
-                    tail_realized_harvest = realized_harvest[tail_start:]
-                    tail_harvest_scores = harvest_scores[tail_start:]
-                    sustainability_penalties = np.maximum(
-                        0.0,
-                        (self.sustainability_threshold - tail_fish)
-                        / max(1e-6, self.sustainability_threshold),
-                    )
+                    for reward_steps, fish_steps, harvest_steps, msy in logged_episodes:
+                        # A gap of the metric logger: no episode under this key
+                        # in that inner iteration.
+                        if reward_steps is None:
+                            continue
 
-                    metrics_by_mechanism[idx].append(
-                        {
-                            "seed": seed,
-                            "mean_reward": float(tail_rewards.mean()),
-                            "reward_std": float(tail_rewards.std()),
-                            "mean_realized_harvest": float(
-                                tail_realized_harvest.mean()
-                            ),
-                            "harvest_score": float(tail_harvest_scores.mean()),
-                            "collapse_rate": float(
-                                (tail_fish < self.sustainability_threshold).mean()
-                            ),
-                            "sustainability_penalty": float(
-                                sustainability_penalties.mean()
-                            ),
-                            "min_fish": float(tail_fish.min()),
-                            "mean_fish": float(tail_fish.mean()),
-                        }
-                    )
+                        rewards = np.asarray(reward_steps, dtype=np.float32)
+                        fish = np.asarray(fish_steps, dtype=np.float32)
+                        realized_harvest = np.asarray(harvest_steps, dtype=np.float32)
+                        harvest_scores = realized_harvest / np.maximum(
+                            np.float32(msy), 1e-6
+                        )
+                        num_steps = len(fish)
+                        tail_steps = min(self.fitness_tail_steps, num_steps)
+                        tail_start = num_steps - tail_steps
+                        tail_rewards = rewards[tail_start:]
+                        tail_fish = fish[tail_start:]
+                        tail_realized_harvest = realized_harvest[tail_start:]
+                        tail_harvest_scores = harvest_scores[tail_start:]
+                        sustainability_penalties = np.maximum(
+                            0.0,
+                            (self.sustainability_threshold - tail_fish)
+                            / max(1e-6, self.sustainability_threshold),
+                        )
+
+                        metrics_by_mechanism[idx].append(
+                            {
+                                "seed": seed,
+                                "mean_reward": float(tail_rewards.mean()),
+                                "reward_std": float(tail_rewards.std()),
+                                "mean_realized_harvest": float(
+                                    tail_realized_harvest.mean()
+                                ),
+                                "harvest_score": float(tail_harvest_scores.mean()),
+                                "collapse_rate": float(
+                                    (tail_fish < self.sustainability_threshold).mean()
+                                ),
+                                "sustainability_penalty": float(
+                                    sustainability_penalties.mean()
+                                ),
+                                "min_fish": float(tail_fish.min()),
+                                "mean_fish": float(tail_fish.mean()),
+                            }
+                        )
 
         max_idx = max(metrics_by_mechanism)
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
