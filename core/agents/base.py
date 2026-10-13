@@ -127,10 +127,9 @@ class Agent:
 
         The state holds, under the agent's identifier, one action per
         mechanism, stored as a trajectory over time. For every mechanism the
-        agent owns and holds an action for, the raw entry of the current step
-        ``mdp.t`` (``mdp.raw_actions``, as it arrived and not as a previous step
-        decoded it) is passed to the mechanism, which decodes it, records the
-        decoded value in ``mdp.actions`` and returns a residual ``MDPState``
+        agent owns and holds an action for, the entry of the current step
+        ``mdp.t`` of ``mdp.actions``, already decoded by the environment, is
+        passed to the mechanism, which returns a residual ``MDPState``
         describing its effect. The residuals are composed with
         the original state by ``MDPState.add``: additive quantities are summed
         and constrained spaces are intersected. Actions for identifiers the

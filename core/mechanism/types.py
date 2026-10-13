@@ -1,7 +1,12 @@
-"""Time-indexed trees for environment states and mechanism interactions.
+"""Time-indexed trees that store what a mechanism and an environment exchange.
 
-A Trajectory stores histories of states, actions, rewards, observations,
-and mechanism residuals as nested dictionaries of timestep-indexed lists.
+A :class:`Trajectory` is a tree of dictionaries whose leaves are lists with one
+entry per timestep. The state, the actions, the rewards and the observations of
+an :class:`~core.mechanism.base.MDPState` are all trajectories, and the
+residuals returned by the mechanisms are trajectories too, which is how they are
+composed with the shared state. :class:`FlowTrajectory` differs only in how an
+unwritten timestep is filled: stocks keep their previous value, flows restart
+from zero.
 """
 
 from dataclasses import dataclass, field
@@ -81,6 +86,16 @@ class Trajectory(Generic[T]):
         return len(node)
 
     @classmethod
+    def _fill_value(cls, history: list[Any]) -> Any:
+        """Value of a timestep that has not been written yet.
+
+        A trajectory records stocks (state, actions in force), so an unwritten
+        timestep keeps the previous value; see ``FlowTrajectory`` for flows.
+        """
+
+        return history[-1] if history else 0
+
+    @classmethod
     def _carry_forward(cls, node: Any) -> None:
         """Open the next timestep on every existing leaf with its fill value."""
 
@@ -91,7 +106,7 @@ class Trajectory(Generic[T]):
             return
 
         if node:
-            node.append(node[-1])
+            node.append(cls._fill_value(node))
 
     @classmethod
     def _set_at_t(
@@ -125,7 +140,7 @@ class Trajectory(Generic[T]):
             history = destination[key]
 
             while len(history) < t:
-                history.append(history[-1] if history else 0)
+                history.append(cls._fill_value(history))
 
             if len(history) == t:
                 history.append(value)
@@ -172,7 +187,7 @@ class Trajectory(Generic[T]):
             history = destination[key]
 
             while len(history) <= t:
-                history.append(history[-1] if history else 0)
+                history.append(cls._fill_value(history))
 
             # Avoid += here because leaves can be numpy arrays.
             # += could mutate an array shared with the original trajectory.
@@ -299,3 +314,42 @@ class Trajectory(Generic[T]):
         self._set_at_t(result.data, incoming.data, t)
 
         return result
+
+
+class FlowTrajectory(Trajectory[T]):
+    """Trajectory of per-step values, such as rewards and observations.
+
+    A reward is earned at one timestep and does not persist to the next, so an
+    unwritten timestep starts from ``0`` instead of the previous value. Deltas
+    added at the same timestep are still summed, which is how a penalty or a
+    subsidy composes with an agent's utility.
+
+    Observations follow the same rule: every agent rebuilds its whole
+    observation at each step, so adding it on top of the previous one would
+    hand the policy a running sum. Contributions written at the same timestep
+    are summed, which lets a mechanism fill entries of the observation vector
+    that the agent leaves at zero.
+
+    Attributes
+    ----------
+    data : dict
+        The tree, with ``list`` leaves, one entry per timestep. Defaults to an
+        empty dictionary.
+
+    Notes
+    -----
+    When to use: for the rewards and the observations of an episode, and for
+    the residuals that a mechanism adds to them.
+
+    Examples
+    --------
+    >>> reward = FlowTrajectory({"fisherman:0": 1.0}).append({})
+    >>> reward["fisherman:0"]
+    [1.0, 0]
+    >>> reward.add(1, [FlowTrajectory({"fisherman:0": -0.25})])["fisherman:0"]
+    [1.0, -0.25]
+    """
+
+    @classmethod
+    def _fill_value(cls, history: list[Any]) -> Any:
+        return 0
