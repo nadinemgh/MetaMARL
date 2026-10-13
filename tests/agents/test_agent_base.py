@@ -103,7 +103,7 @@ def test_action_with_an_empty_entry_returns_the_same_mdp():
 @pytest.mark.unit
 def test_action_applies_every_mechanism_it_holds_an_action_for():
     agent = make_agent("m1", "m2")
-    mdp = mdp_holding({"m1": [0.1], "m2": [0.2]})
+    mdp = mdp_holding({"m1": [1.0], "m2": [2.0]})
     result = agent.action(mdp)
 
     # Both decoded actions (x10) are summed into the state.
@@ -113,7 +113,7 @@ def test_action_applies_every_mechanism_it_holds_an_action_for():
 @pytest.mark.unit
 def test_action_ignores_actions_for_mechanisms_the_agent_does_not_own():
     agent = make_agent("m1")
-    mdp = mdp_holding({"m1": [0.1], "stranger": [5.0]})
+    mdp = mdp_holding({"m1": [1.0], "stranger": [5.0]})
     result = agent.action(mdp)
 
     assert result.state["total"] == pytest.approx([1.0])
@@ -122,7 +122,7 @@ def test_action_ignores_actions_for_mechanisms_the_agent_does_not_own():
 @pytest.mark.unit
 def test_action_uses_the_entry_of_the_current_timestep():
     agent = make_agent("m")
-    mdp = mdp_holding({"m": [0.1, 0.3]}, t=1)
+    mdp = mdp_holding({"m": [1.0, 3.0]}, t=1)
     result = agent.action(mdp)
 
     assert result.state["total"] == pytest.approx([0.0, 3.0])
@@ -131,7 +131,7 @@ def test_action_uses_the_entry_of_the_current_timestep():
 @pytest.mark.unit
 def test_action_records_the_decoded_action_in_the_mdp():
     agent = make_agent("m")
-    mdp = mdp_holding({"m": [0.1]})
+    mdp = mdp_holding({"m": [1.0]})
     result = agent.action(mdp)
 
     assert result.actions["a0"]["m"] == pytest.approx([1.0])

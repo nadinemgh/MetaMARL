@@ -1,8 +1,7 @@
 """``Mechanism``: the interface a concrete mechanism inherits.
 
-``__call__`` decodes the action, writes the decoded value back into the
-action trajectory (not into the raw one) and applies it; ``apply`` is abstract
-and ``observe`` contributes nothing by default.
+``__call__`` applies an action that the adapter or the environment already
+decoded; ``apply`` is abstract.
 """
 
 import typing
@@ -83,7 +82,7 @@ class TestCall:
     def test_call_applies_the_decoded_action(self):
         mechanism = Recorder(aid="regulator", id="quota")
         mdp = MDPState(actions={"regulator": {"quota": np.array([0.5])}})
-        residual = mechanism(mdp, 0.25)
+        residual = mechanism(mdp, mechanism.decode(mdp, 0.25))
 
         assert mechanism.received == [0.5]
         assert residual.rewards["fisherman:0"] == [0.5]
