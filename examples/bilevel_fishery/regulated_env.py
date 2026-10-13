@@ -732,7 +732,8 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         ... )
         >>> env.rng = np.random.default_rng(env.seed)  # MultiAgentEnv.reset does it
         >>> mdp = MDPState().add(env.reset_fishery(MDPState()))
-        >>> requests = MDPState(state={"fish": -100.0, "harvest": 100.0, "restore": 0.0})
+        >>> state = {"fish": -100.0, "harvest": 100.0, "restore": 0.0}
+        >>> requests = MDPState(state=state)
         >>> advanced = env.pella_tomlinson(mdp.add(requests))
         >>> [round(float(value), 3) for value in advanced.state["fish"]]
         [700.0, 748.0]

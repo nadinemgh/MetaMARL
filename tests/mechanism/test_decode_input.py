@@ -48,7 +48,7 @@ class Halver(Mechanism):
 
 
 def decode_actions(agent, mdp, raw=None):
-    """Decode ``raw`` (or the actions stored at the current step) once, store the result.
+    """Decode ``raw`` (or the stored actions of the current step) once and store it.
 
     This is what the callers of ``Mechanism.__call__`` do: the Ray adaptor for
     the followers at each step and ``MultiAgentEnv.reset`` for the leaders.
@@ -262,7 +262,7 @@ def initial_state() -> MDPState:
 
 
 def decoding_inside_the_call(agent: Agent, mdp: MDPState) -> MDPState:
-    """``Agent.action`` as it was: decode the stored action in the call, write it back."""
+    """``Agent.action`` as it was: decode in the call and write the result back."""
 
     acts = mdp.actions.data.get(agent.id)
 
