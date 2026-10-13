@@ -33,11 +33,44 @@ class PolicyActor:
     ``_init_weights`` so that ``reset`` can restore the same starting point
     at each outer iteration.
 
+    The class is decorated with ``@ray.remote(num_cpus=1)``: callers create it
+    with ``PolicyActor.remote(algo_config)`` and invoke its methods with
+    ``actor.<method>.remote(...)``, collecting results with ``ray.get``.
+
     Parameters
     ----------
     algo_config : AlgorithmConfig
         Fully resolved RLlib configuration (environment registered, RLModule
         specs and policy mapping applied). Kept so that ``reset`` can rebuild.
+
+    Attributes
+    ----------
+    algo_config : AlgorithmConfig
+        The configuration the actor was created with.
+    algo : Algorithm
+        The live RLlib algorithm; replaced by ``reset``.
+
+    When to use: you do not create it directly. ``RayOptimizer`` spawns one per
+    inner optimizer and forwards ``train``, ``evaluate``, ``reset`` and ``stop``
+    to it, so the algorithm and its workers live outside the driver process.
+
+    Examples
+    --------
+    The plain Python class behind the decorator can be exercised without a Ray
+    runtime when the configuration is a stand-in whose ``build_algo`` returns a
+    fake algorithm:
+
+    >>> from types import SimpleNamespace
+    >>> algo = SimpleNamespace(
+    ...     get_weights=lambda: {"w": 1},
+    ...     train=lambda: {"training_iteration": 1},
+    ... )
+    >>> config = SimpleNamespace(build_algo=lambda: algo)
+    >>> actor = PolicyActor.__ray_metadata__.modified_class(config)
+    >>> actor.train()
+    {'training_iteration': 1}
+    >>> actor._init_weights
+    {'w': 1}
     """
 
     def __init__(self, algo_config: AlgorithmConfig):
@@ -59,13 +92,6 @@ class PolicyActor:
             The raw RLlib result dictionary of the iteration.
         """
 
-        # TODO config ability to debug remote actors
-        # import debugpy, os
-        # debugpy.listen(("127.0.0.1", 5678))
-        # print(f"[debugpy] worker pid={os.getpid()} listening on 5678")
-        # debugpy.wait_for_client()
-        # debugpy.breakpoint()
-        # TODO mapping result
         return self.algo.train()
 
     def evaluate(self) -> ResultDict:
@@ -79,6 +105,19 @@ class PolicyActor:
         -------
         ResultDict
             RLlib evaluation results.
+
+        Raises
+        ------
+        Exception
+            Whatever ``wait_for_learner_thread`` raised on a learner (for
+            example ``TimeoutError``), re-raised before evaluating.
+
+        Notes
+        -----
+        APPO applies its updates on a background learner thread, so
+        ``train`` can return before the last one is done, and ``evaluate``
+        reads the learner's weights straight away. Waiting for that thread
+        first makes the evaluated policy the fully trained one in every run.
         """
 
         return self.algo.evaluate()
@@ -127,16 +166,19 @@ class PolicyActor:
     def reset(self) -> None:
         """Rebuild the ``Algorithm`` and restore the initial weights.
 
-        A brand-new ``Algorithm`` is built from the stored config, then the
-        weights captured at actor construction are loaded into it, so every
-        outer iteration starts the inner policy from the same parameters. The
-        hash of the restored weights is logged for cross-run comparison.
+        The previous ``Algorithm`` is stopped first (its learner thread, env
+        runners and evaluation env runners are released), then a brand-new one
+        is built from the stored config and the weights captured at actor
+        construction are loaded into it, so every outer iteration starts the
+        inner policy from the same parameters. The hash of the restored
+        weights is logged for cross-run comparison.
 
-        Notes
-        -----
-        The previous ``Algorithm`` is replaced without calling ``stop()`` on
-        it, so its env runners and learner threads are left to garbage
-        collection.
+        Raises
+        ------
+        Exception
+            Whatever ``stop_learner_thread`` raised on a learner of the
+            previous algorithm (for example ``TimeoutError``); the algorithm
+            is stopped all the same and no new one is built.
         """
 
         # TODO verify reset is using the same seed
@@ -149,11 +191,23 @@ class PolicyActor:
         weights = self.algo.get_weights()
 
         logger.info(
-            "[PPO] Initial policy weight hash: %s",
+            "[Ray] Initial policy weight hash: %s",
             hash_weights(weights),
         )
 
     def stop(self) -> None:
-        """Stop the owned ``Algorithm`` and release its workers."""
+        """Stop the owned ``Algorithm`` and release its workers.
+
+        The learner threads are ended first: ``Algorithm.stop`` leaves the
+        thread of a learner running in this process polling its empty buffer
+        (see ``stop_learner_thread``). The algorithm is stopped even when
+        ending a thread fails, and that failure is then re-raised.
+
+        Raises
+        ------
+        Exception
+            Whatever ``stop_learner_thread`` raised on a learner (for example
+            ``TimeoutError``), re-raised after the algorithm has been stopped.
+        """
 
         self.algo.stop()

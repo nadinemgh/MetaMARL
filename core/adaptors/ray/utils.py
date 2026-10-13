@@ -3,9 +3,12 @@
 The metric getters accept both the new API stack layout (``env_runners/...``)
 and the classic one (top-level ``episode_reward_mean``, ``timesteps_total``,
 ``info/learner/...``), returning a neutral default when a key is absent.
-``hash_weights`` fingerprints a weights structure, and the ``build_*``
+``hash_weights`` fingerprints a weights structure, ``parse_learner_id`` splits
+an RLModule name into policy, mechanism and seed, and the ``build_*``
 functions turn a full result dict into the ``RolloutSchema``,
 ``PerformanceSchema`` and ``LearnerSchema`` consumed by the reporting layer.
+``RayOptimizer`` is their only caller: it feeds each ``Algorithm.train()`` or
+``Algorithm.evaluate()`` result through them before logging it.
 """
 
 import hashlib
@@ -17,19 +20,21 @@ from ray.rllib.utils.typing import ResultDict
 
 from core.adaptors.ray.schema import (
     LearnerSchema,
-    MechanismID,
     MechanismLearnerSchema,
     MechanismRolloutSchema,
     PerformanceSchema,
-    PolicyID,
     PolicyLearnerSchema,
     RolloutSchema,
-    SeedID,
     SeedLearnerSchema,
     SeedRolloutSchema,
 )
 from core.envs.schema import EpisodeRolloutSchema
 from core.utils import finite, safe_ratio, to_float
+from core.types import (
+    MechanismID,
+    PolicyID,
+    SeedID,
+)
 
 
 def _get_env(result: dict) -> dict:
@@ -42,7 +47,9 @@ def get_episode_return_mean(result: dict) -> float:
     """Extract the mean episode return from an RLlib result.
 
     Looks at ``env_runners/episode_return_mean`` first (new API stack), then
-    the legacy ``episode_reward_mean`` keys.
+    at the legacy top-level ``episode_reward_mean`` and finally at
+    ``env_runners/episode_reward_mean``. The first key that holds a number
+    wins, a value of ``0.0`` included.
 
     Parameters
     ----------
@@ -52,7 +59,20 @@ def get_episode_return_mean(result: dict) -> float:
     Returns
     -------
     float
-        The mean return, or ``0.0`` if no key is present.
+        The mean episode return in reward units, or ``0.0`` if no key is
+        present or the value cannot be converted.
+
+    When to use: to log a single training-progress number per inner
+    iteration, whichever RLlib API stack produced the result.
+
+    Examples
+    --------
+    >>> get_episode_return_mean({"env_runners": {"episode_return_mean": 1.5}})
+    1.5
+    >>> get_episode_return_mean({"episode_reward_mean": 2.0})
+    2.0
+    >>> get_episode_return_mean({})
+    0.0
     """
 
     env = _get_env(result)
@@ -79,10 +99,28 @@ def get_env_steps(result: dict) -> tuple[int, int]:
     Returns
     -------
     tuple[int, int]
-        ``(steps_this_iteration, steps_lifetime)`` read from
-        ``env_runners/num_env_steps_sampled[_lifetime]`` with the legacy
+        ``(steps_this_iteration, steps_lifetime)`` in environment steps, read
+        from ``env_runners/num_env_steps_sampled[_lifetime]`` with the legacy
         ``timesteps_this_iter`` / ``timesteps_total`` as fallback; ``0`` when
         missing.
+
+    When to use: to report how much experience an inner iteration consumed
+    and how much the algorithm has consumed in total.
+
+    Examples
+    --------
+    >>> result = {
+    ...     "env_runners": {
+    ...         "num_env_steps_sampled": 400,
+    ...         "num_env_steps_sampled_lifetime": 1200,
+    ...     }
+    ... }
+    >>> get_env_steps(result)
+    (400, 1200)
+    >>> get_env_steps({"timesteps_this_iter": 8, "timesteps_total": 80})
+    (8, 80)
+    >>> get_env_steps({})
+    (0, 0)
     """
 
     env = _get_env(result)
@@ -99,10 +137,15 @@ def get_env_steps(result: dict) -> tuple[int, int]:
 def get_policy_loss_if_present(result: dict) -> float:
     """Average ``policy_loss`` across policies, if the result exposes it.
 
-    Reads the classic layout ``info/learner/<policy>/learner_stats/
-    policy_loss``. The new API stack reports losses under
-    ``learners/<module>/policy_loss`` instead, so on that stack this returns
-    NaN and the training log prints ``policy_loss=NA``.
+    Reads the new API stack layout ``learners/<module>/policy_loss`` (the
+    ``__all_modules__`` entry carries no loss), and falls back to the classic
+    ``info/learner/<policy>/learner_stats/policy_loss`` when the new layout
+    yields no finite loss. On the new layout, non-finite losses are skipped:
+    RLlib's IMPALA/APPO learner reduces its stats only once every 20 gradient
+    updates (``IMPALALearner.update`` in Ray 2.53), and the module entries of
+    the iterations in between hold NaN. Those iterations return NaN and the
+    training log prints ``policy_loss=NA``. The classic layout is filtered the
+    same way, so a NaN loss of one policy does not poison the mean.
 
     Parameters
     ----------
@@ -112,7 +155,25 @@ def get_policy_loss_if_present(result: dict) -> float:
     Returns
     -------
     float
-        Mean of the per-policy losses, or ``nan`` when none is found.
+        Mean of the per-policy losses (dimensionless loss units), or ``nan``
+        when none is found.
+
+    When to use: to track one training-loss number per inner iteration
+    without caring how many policies the society trains.
+
+    Examples
+    --------
+    >>> result = {
+    ...     "learners": {
+    ...         "__all_modules__": {},
+    ...         "fisher_m0_s1": {"policy_loss": -1.0},
+    ...         "fisher_m1_s1": {"policy_loss": -2.0},
+    ...     }
+    ... }
+    >>> get_policy_loss_if_present(result)
+    -1.5
+    >>> get_policy_loss_if_present({})
+    nan
     """
 
     learner_info = (result.get("info") or {}).get("learner") or {}
@@ -133,7 +194,8 @@ def hash_weights(weights: dict) -> str:
     """Compute a SHA-256 fingerprint of a (nested) weights structure.
 
     Used to check that ``PolicyActor.reset`` restores identical parameters
-    across outer iterations and across runs.
+    across outer iterations and across runs. Shapes and dtypes are not
+    hashed separately: they only influence the hash through the raw bytes.
 
     Parameters
     ----------
@@ -146,8 +208,24 @@ def hash_weights(weights: dict) -> str:
     Returns
     -------
     str
-        Hex digest. Tensors are moved to CPU and hashed by raw bytes, arrays
-        likewise, and any other leaf by its ``repr``.
+        Hex digest (64 characters). Tensors are moved to CPU and hashed by
+        raw bytes, arrays likewise, and any other leaf by its ``repr``.
+
+    When to use: to compare two sets of network parameters for exact
+    equality, for example before and after a policy reset, without keeping
+    both sets in memory.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> a = {"layer": {"w": np.arange(3, dtype=np.float32)}}
+    >>> b = {"layer": {"w": np.arange(3, dtype=np.float32)}}
+    >>> hash_weights(a) == hash_weights(b)
+    True
+    >>> len(hash_weights(a))
+    64
+    >>> hash_weights(a) == hash_weights({"layer": {"w": np.ones(3, np.float32)}})
+    False
     """
 
     h = hashlib.sha256()
@@ -178,6 +256,42 @@ def hash_weights(weights: dict) -> str:
 def parse_learner_id(
     learner_id: str,
 ) -> tuple[PolicyID, MechanismID, SeedID]:
+    """Split an RLModule name into its policy, mechanism and seed.
+
+    ``RayOptimizerConfig`` names every RLModule
+    ``<policy>_m<mechanism_idx>_s<policy_seed>``. The split starts from the
+    right, so the policy part may itself contain ``_m`` or ``_s``.
+
+    Parameters
+    ----------
+    learner_id : str
+        Module name, for example ``"fisher_policy_m0_s123"``.
+
+    Returns
+    -------
+    tuple[str, str, str]
+        ``(policy_id, mechanism_id, policy_seed)``, all strings (the
+        mechanism index and the seed are not converted to integers).
+
+    Raises
+    ------
+    ValueError
+        If ``learner_id`` does not have the ``<policy>_m<mechanism>_s<seed>``
+        form.
+
+    When to use: to file the learner statistics of a module under its
+    mechanism and seed, as ``build_learner`` does.
+
+    Examples
+    --------
+    >>> parse_learner_id("fisher_policy_m0_s123")
+    ('fisher_policy', '0', '123')
+    >>> parse_learner_id("fisher")  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    ValueError: Expected learner ID of the form '<policy>_m<mechanism>_s<seed>', ...
+    """
+
     try:
         policy_and_mechanism, policy_seed = learner_id.rsplit("_s", 1)
         policy_id, mechanism_id = policy_and_mechanism.rsplit("_m", 1)
@@ -198,7 +312,30 @@ def build_episode_aggregate(results: ResultDict) -> EpisodeRolloutSchema:
     """Aggregate episode return and length statistics from ``env_runners``.
 
     Fields that RLlib does not provide at the aggregate level (total and
-    terminal rewards, terminal values) are left ``None``.
+    terminal rewards, terminal values) are left ``None``, and so is any value
+    that is missing or not finite.
+
+    Parameters
+    ----------
+    results : ResultDict
+        Result of ``Algorithm.train()`` or ``Algorithm.evaluate()``; only the
+        ``env_runners`` block is read.
+
+    Returns
+    -------
+    EpisodeRolloutSchema
+        Mean, minimum and maximum episode return (reward units), episode
+        length statistics (steps) and episode counts.
+
+    When to use: to build the ``aggregate`` entry of a ``RolloutSchema``; use
+    ``build_rollout`` when the per-episode breakdown is needed too.
+
+    Examples
+    --------
+    >>> result = {"env_runners": {"episode_return_mean": 1.5, "num_episodes": 3}}
+    >>> aggregate = build_episode_aggregate(result)
+    >>> aggregate.reward_mean, aggregate.num_episodes, aggregate.reward_min
+    (1.5, 3, None)
     """
 
     env = results.get("env_runners", {}) or {}
@@ -224,7 +361,38 @@ def build_performance(results: ResultDict) -> PerformanceSchema:
 
     Agent step counts, reported per agent by RLlib, are summed; throughput is
     read from the ``since_last_reduce`` window and falls back to
-    ``since_last_restore``.
+    ``since_last_restore``. A missing, non-finite or non-numeric value leaves
+    its field ``None``.
+
+    Parameters
+    ----------
+    results : ResultDict
+        Result of ``Algorithm.train()`` or ``Algorithm.evaluate()``; the
+        ``env_runners`` and ``timers`` blocks are read.
+
+    Returns
+    -------
+    PerformanceSchema
+        Step counters (steps), throughput (steps per second) and timers
+        (seconds).
+
+    When to use: to track the cost of an inner iteration alongside its
+    learning metrics.
+
+    Examples
+    --------
+    >>> result = {
+    ...     "env_runners": {
+    ...         "num_env_steps_sampled": 100,
+    ...         "num_agent_steps_sampled": {"fisher:0": 60, "fisher:1": 40},
+    ...     },
+    ...     "timers": {"sample": 0.5},
+    ... }
+    >>> performance = build_performance(result)
+    >>> performance.env_steps_this_iter, performance.agent_steps_this_iter_sum
+    (100.0, 100.0)
+    >>> performance.sample_s
+    0.5
     """
 
     env = results.get("env_runners", {}) or {}
@@ -268,12 +436,57 @@ def build_performance(results: ResultDict) -> PerformanceSchema:
 
 
 def build_rollout(results: ResultDict) -> RolloutSchema:
-    """Group the per-episode entries of ``env_runners/by_episode`` by mechanism and seed.
+    """Group the ``env_runners/by_episode`` entries by mechanism and seed.
 
-    The ``by_episode`` values are the ``EpisodeRolloutSchema`` objects stored
-    by ``log_and_report_episode_metrics``; each is filed under
-    ``by_mechanism[<mechanism_id>].by_seed[<seed>].by_episode[<episode_id>]``,
-    alongside the aggregate from ``build_episode_aggregate``.
+    Each ``by_episode`` entry is the list of ``EpisodeRolloutSchema`` objects
+    that ``log_and_report_episode_metrics`` appended under one episode prefix
+    during the iteration (empty when that sub-environment ended no episode).
+    RLlib's ``MetricsLogger.compile`` (Ray 2.53) unwraps a list of one item,
+    so a lone ``EpisodeRolloutSchema`` stands for a list holding it. The
+    episode at position ``n`` of the list for prefix ``<prefix>`` is filed
+    under ``by_mechanism[<mechanism_id>].by_seed[<seed>]
+    .by_episode["<prefix>|n=<n>"]``, alongside the aggregate from
+    ``build_episode_aggregate``. The mechanism ID and the seed are converted to
+    strings.
+
+    Parameters
+    ----------
+    results : ResultDict
+        Result of ``Algorithm.train()`` or ``Algorithm.evaluate()``; the
+        ``env_runners`` block is read.
+
+    Returns
+    -------
+    RolloutSchema
+        The aggregate statistics and the per-mechanism, per-seed,
+        per-episode breakdown (empty when the result has no ``by_episode``).
+
+    Raises
+    ------
+    TypeError
+        If a ``by_episode`` entry is neither a list nor an
+        ``EpisodeRolloutSchema``.
+
+    When to use: to turn an RLlib result into the structure from which the
+    regulator computes one fitness per candidate mechanism.
+
+    Examples
+    --------
+    >>> first = EpisodeRolloutSchema(mechanism_id=0, seed=11, reward_mean=2.0)
+    >>> second = EpisodeRolloutSchema(mechanism_id=0, seed=11, reward_mean=4.0)
+    >>> prefix = "env=0|m=0|ps=11|ss=11"
+    >>> result = {"env_runners": {"by_episode": {prefix: [first, second]}}}
+    >>> rollout = build_rollout(result)
+    >>> by_episode = rollout.by_mechanism["0"].by_seed["11"].by_episode
+    >>> {key: episode.reward_mean for key, episode in by_episode.items()}
+    {'env=0|m=0|ps=11|ss=11|n=0': 2.0, 'env=0|m=0|ps=11|ss=11|n=1': 4.0}
+
+    A prefix that ended a single episode arrives unwrapped:
+
+    >>> result = {"env_runners": {"by_episode": {prefix: first}}}
+    >>> by_episode = build_rollout(result).by_mechanism["0"].by_seed["11"].by_episode
+    >>> list(by_episode)
+    ['env=0|m=0|ps=11|ss=11|n=0']
     """
 
     env = results.get("env_runners", {}) or {}
@@ -295,7 +508,7 @@ def build_rollout(results: ResultDict) -> RolloutSchema:
 
 
 def build_learner(results: ResultDict) -> LearnerSchema:
-    """Build one ``PolicyLearnerSchema`` per learner module from ``results["learners"]``.
+    """Build one ``PolicyLearnerSchema`` per module in ``results["learners"]``.
 
     Besides copying the finite scalar stats, it derives
     ``policy_relative_entropy`` (entropy / entropy coefficient),
@@ -303,6 +516,64 @@ def build_learner(results: ResultDict) -> LearnerSchema:
     ``sample_staleness`` (sum of the available lag indicators: gradient-update
     lag, training calls since the last weight sync, outstanding async requests
     and learner queue wait).
+
+    Every module named in ``module_ids`` gets an entry even when the result
+    has none for it, and every float statistic it lacks is NaN instead of
+    unset. APPO reduces its learner statistics only once every 20 gradient
+    updates (``IMPALALearner.update`` in Ray 2.53): on the other iterations
+    ``learners`` is empty, or holds the modules with NaN values. The metric
+    logger skips unset values, so without this a learner series would be
+    shorter than the iteration axis and could not be plotted against it;
+    with it, every series keeps one value per iteration and shows a gap
+    where nothing was measured. Modules absent from ``module_ids`` keep
+    their missing statistics unset.
+
+    Parameters
+    ----------
+    results : ResultDict
+        Result of ``Algorithm.train()``; the ``learners`` and ``learner_group``
+        blocks and the legacy lag counter are read. Module names must follow
+        ``<policy>_m<mechanism>_s<seed>`` (see ``parse_learner_id``).
+    module_ids : iterable of str, optional
+        Learner IDs that must appear in the output even when the result has
+        no entry for them. Defaults to none.
+
+    Returns
+    -------
+    LearnerSchema
+        Statistics grouped as ``by_mechanism -> by_seed -> by_policy``.
+
+    Raises
+    ------
+    ValueError
+        If a module name in the result or in ``module_ids`` does not have the
+        ``<policy>_m<mechanism>_s<seed>`` form.
+
+    When to use: to type the learner block of a result before logging it,
+    passing the modules declared in the RLlib config so that every series has
+    one value per iteration.
+
+    Examples
+    --------
+    >>> import math
+    >>> result = {
+    ...     "learners": {
+    ...         "__all_modules__": {},
+    ...         "fisher_m0_s1": {
+    ...             "policy_loss": 0.5,
+    ...             "entropy": 2.0,
+    ...             "curr_entropy_coeff": 0.01,
+    ...         },
+    ...     }
+    ... }
+    >>> learner = build_learner(result)
+    >>> stats = learner.by_mechanism["0"].by_seed["1"].by_policy["fisher"]
+    >>> stats.policy_loss, stats.policy_relative_entropy
+    (0.5, 200.0)
+    >>> learner = build_learner({}, module_ids=["fisher_m0_s1"])
+    >>> stats = learner.by_mechanism["0"].by_seed["1"].by_policy["fisher"]
+    >>> math.isnan(stats.policy_loss)
+    True
     """
 
     learners = results.get("learners", {}) or {}

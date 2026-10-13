@@ -8,12 +8,19 @@ in ``RayOptimizerConfig`` picks the right RLModule.
 environment's metric logger to its reporter and into RLlib's
 ``MetricsLogger``. ``_evaluate_with_fixed_duration_once`` is a
 ``custom_evaluation_function`` that replaces RLlib's fixed-duration evaluation
-loop with a strict single round.
+loop with a strict single round. The first two are registered on the RLlib
+config through ``callbacks(on_episode_created=..., on_episode_end=...)`` (the
+fishery ``config.yaml`` does so with ``_symbol_`` entries); the third is
+installed by ``RayOptimizerConfig.build_optimizer``. Everything here runs inside
+RLlib env-runner processes, which is why the hooks only touch plain attributes of
+the sub-environment.
 """
 
 import logging
 import time
+from typing import Any
 
+import gymnasium as gym
 from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.env.vector.vector_multi_agent_env import VectorMultiAgentEnv
@@ -21,16 +28,7 @@ from ray.rllib.evaluation.metrics import summarize_episodes
 from ray.rllib.utils.metrics import ENV_RUNNER_RESULTS, EVALUATION_RESULTS, NUM_EPISODES
 from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
 
-from core.envs.base import BaseEnv
-
 logger = logging.getLogger(__name__)
-
-# def tag_episode_with_env_idx(*, episode: MultiAgentEpisode, env_index: int, **kwargs):
-#     episode_id = episode.id_
-#     episode.id_ = f"{env_index}|{episode_id}"
-
-
-# def tag_episode_with_env_identity(
 
 
 def tag_episode_with_env_idx(
@@ -39,7 +37,7 @@ def tag_episode_with_env_idx(
     env_runner: MultiAgentEnvRunner,
     env: VectorMultiAgentEnv,
     env_index: int,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """Rewrite the episode ID to carry the sub-environment identity.
 
@@ -65,8 +63,8 @@ def tag_episode_with_env_idx(
         Runner owning the vectorised environment; the sub-env is fetched as
         ``env_runner.env.envs[env_index].unwrapped``.
     env : VectorMultiAgentEnv
-        Vector env passed by RLlib; immediately shadowed by the unwrapped
-        sub-environment and otherwise unused.
+        Vector env passed by RLlib; unused (the sub-environment is read from
+        ``env_runner``).
     env_index : int
         Position of the sub-environment in the vector env.
     **kwargs
@@ -82,10 +80,31 @@ def tag_episode_with_env_idx(
     Notes
     -----
     Side effect: on the first episode the sub-environment's ``env_id`` is set
-    to ``env_index``; ``EnvStepContext.env_id`` is ``None`` before that.
+    to ``env_index``; the attribute is ``None`` before that.
+
+    When to use: pass it as ``on_episode_created`` in ``AlgorithmConfig.callbacks``
+    whenever the policies are laid out one RLModule per (mechanism, training
+    seed), so that ``policy_mapping_fn`` can recover the module from the
+    episode ID.
+
+    Examples
+    --------
+    >>> from types import SimpleNamespace
+    >>> sub_env = SimpleNamespace(mechanism_id=2, seed=7, policy_seed=11, env_id=None)
+    >>> runner = SimpleNamespace(
+    ...     env=SimpleNamespace(envs=[SimpleNamespace(unwrapped=sub_env)])
+    ... )
+    >>> episode = SimpleNamespace(id_="abc123")
+    >>> tag_episode_with_env_idx(
+    ...     episode=episode, env_runner=runner, env=None, env_index=0
+    ... )
+    >>> episode.id_
+    'env=0|m=2|ps=11|ss=7|raw=abc123'
+    >>> sub_env.env_id
+    0
     """
 
-    env: BaseEnv = env_runner.env.envs[env_index].unwrapped
+    env: gym.Env = env_runner.env.envs[env_index].unwrapped
 
     # Access env seed and mechanism id
     if getattr(env, "mechanism_id", None) is None:
@@ -123,17 +142,22 @@ def log_and_report_episode_metrics(
     env: VectorMultiAgentEnv,
     env_index: int,
     metrics_logger: MetricsLogger,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """Report the sub-environment's episode metrics and hand them to RLlib.
 
     Intended for the ``on_episode_end`` hook. The sub-environment's
-    ``MetricLogger`` is peeked and sent to the env-level reporter, then
-    reduced and stored in RLlib's ``MetricsLogger`` under
-    ``("by_episode", <episode_id>)`` with ``reduce="item"``, where
+    ``MetricLogger`` is peeked and sent to the env-level reporter (when the
+    environment has one), then
+    reduced and appended to RLlib's ``MetricsLogger`` under
+    ``("by_episode", <episode_id>)`` with ``reduce="item_series"``, where
     ``<episode_id>`` is the structured prefix written by
     ``tag_episode_with_env_idx`` (the ``|raw=...`` suffix is stripped).
-    ``build_rollout`` later regroups these entries by mechanism and seed.
+    Several episodes of the same sub-environment can end within one training
+    iteration (always with PPO, which samples until its batch is full), so the
+    entry is a list that keeps every one of them; RLlib empties it at the end
+    of each iteration. ``build_rollout`` later regroups these episodes by
+    mechanism and seed.
 
     Parameters
     ----------
@@ -143,16 +167,53 @@ def log_and_report_episode_metrics(
         Runner owning the vectorised environment; the sub-env is fetched as
         ``env_runner.env.envs[env_index].unwrapped``.
     env : VectorMultiAgentEnv
-        Vector env passed by RLlib; shadowed by the unwrapped sub-environment.
+        Vector env passed by RLlib; unused (the sub-environment is read from
+        ``env_runner``).
     env_index : int
         Position of the sub-environment in the vector env.
     metrics_logger : MetricsLogger
         RLlib metrics logger of the env runner.
     **kwargs
         Other callback arguments, ignored.
+
+    Raises
+    ------
+    AttributeError
+        If the sub-environment was built without a metric schema, so that its
+        ``logger`` is ``None``.
+
+    When to use: pass it as ``on_episode_end`` in ``AlgorithmConfig.callbacks``
+    so that the regulator can read per-episode metrics grouped by mechanism and
+    seed from the iteration results.
+
+    Examples
+    --------
+    >>> from types import SimpleNamespace
+    >>> from core.metrics.logger import MetricLogger
+    >>> from core.metrics.schemas import MetricSchema
+    >>> class Score(MetricSchema):
+    ...     value: float = 0.0
+    >>> logger = MetricLogger.from_schema(Score)
+    >>> logger.push(("value",), 2.0)
+    >>> logger.push(("value",), 4.0)
+    >>> sub_env = SimpleNamespace(logger=logger, reporter=None)
+    >>> runner = SimpleNamespace(
+    ...     env=SimpleNamespace(envs=[SimpleNamespace(unwrapped=sub_env)])
+    ... )
+    >>> class RecordingMetricsLogger:
+    ...     def log_value(self, key, value, reduce):
+    ...         print(key, value.value, reduce)
+    >>> log_and_report_episode_metrics(
+    ...     episode=SimpleNamespace(id_="env=0|m=1|ps=2|ss=3|raw=xyz"),
+    ...     env_runner=runner,
+    ...     env=None,
+    ...     env_index=0,
+    ...     metrics_logger=RecordingMetricsLogger(),
+    ... )
+    ('by_episode', 'env=0|m=1|ps=2|ss=3') 3.0 item_series
     """
 
-    env: BaseEnv = env_runner.env.envs[env_index].unwrapped
+    env: gym.Env = env_runner.env.envs[env_index].unwrapped
 
     metrics = env.logger.peek()
 

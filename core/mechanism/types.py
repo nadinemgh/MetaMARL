@@ -1,0 +1,294 @@
+"""Time-indexed trees for environment states and mechanism interactions.
+
+A Trajectory stores histories of states, actions, rewards, observations,
+and mechanism residuals as nested dictionaries of timestep-indexed lists.
+"""
+from dataclasses import dataclass, field
+from typing import Any, Generic, TypeVar
+
+T = TypeVar("T")
+
+@dataclass
+class Trajectory(Generic[T]):
+    """Tree of per-timestep histories.
+
+    Every leaf of the tree is a list holding one value per timestep. A value
+    that is not a ``dict`` becomes a one-entry list when the trajectory is built
+    (a ``list`` is copied and taken as a history, so a NumPy array is a single
+    timestep, not a history). The operations never modify the trajectory they
+    are called on: :meth:`add`, :meth:`append` and :meth:`update` return a new
+    one. A trajectory records stocks, such as the fish stock or the actions in
+    force, so a timestep that nothing has written keeps the previous value; see
+    :class:`FlowTrajectory` for quantities that do not persist.
+
+    Attributes
+    ----------
+    data : dict
+        The tree, with ``list`` leaves, one entry per timestep. Keys are agent
+        identifiers, mechanism identifiers or state names. Defaults to an empty
+        dictionary.
+
+    Notes
+    -----
+    When to use: to hold anything that evolves along an episode and that
+    mechanisms must be able to adjust at the current step, such as the state of
+    the environment or the actions of the agents. Reach for
+    :class:`FlowTrajectory` for rewards and observations.
+
+    Examples
+    --------
+    >>> stock = Trajectory({"fish": 10.0})
+    >>> stock = stock.append({"fish": 8.0})
+    >>> stock["fish"]
+    [10.0, 8.0]
+    >>> stock.length
+    2
+    >>> stock.add(1, [Trajectory({"fish": -2.0})])["fish"]
+    [10.0, 6.0]
+    """
+
+    data: dict[Any, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.data = self._normalize(self.data)
+
+    @classmethod
+    def _normalize(cls, node: Any) -> Any:
+        """Turn every non-dict leaf into a trajectory list."""
+
+        if isinstance(node, dict):
+            return {key: cls._normalize(value) for key, value in node.items()}
+
+        if isinstance(node, list):
+            return node.copy()
+
+        return [node]
+
+    @classmethod
+    def _copy_tree(cls, node: Any) -> Any:
+        if isinstance(node, dict):
+            return {key: cls._copy_tree(value) for key, value in node.items()}
+
+        return node.copy()
+
+    @classmethod
+    def _length(cls, node: Any) -> int:
+        if isinstance(node, dict):
+            return max((cls._length(value) for value in node.values()), default=0)
+
+        return len(node)
+
+    @classmethod
+    def _carry_forward(cls, node: Any) -> None:
+        """Open the next timestep on every existing leaf with its fill value."""
+
+        if isinstance(node, dict):
+            for value in node.values():
+                cls._carry_forward(value)
+
+            return
+
+        if node:
+            node.append(node[-1])
+
+    @classmethod
+    def _set_at_t(
+        cls, destination: dict[Any, Any], source: dict[Any, Any], t: int
+    ) -> None:
+        for key, value in source.items():
+            if isinstance(value, dict):
+                if key not in destination:
+                    destination[key] = {}
+
+                if not isinstance(destination[key], dict):
+                    raise TypeError(
+                        f"Tree mismatch at key {key!r}: destination is a leaf but source is a branch."
+                    )
+
+                cls._set_at_t(destination[key], value, t)
+                continue
+
+            value = value[-1]
+
+            if key not in destination:
+                destination[key] = [0] * t + [value]
+
+                continue
+
+            if isinstance(destination[key], dict):
+                raise TypeError(
+                    f"Tree mismatch at key {key!r}: destination is a branch but source is a leaf."
+                )
+
+            history = destination[key]
+
+            while len(history) < t:
+                history.append(history[-1] if history else 0)
+
+            if len(history) == t:
+                history.append(value)
+            else:
+                history[t] = value
+
+    @classmethod
+    def _add_at_t(
+        cls, destination: dict[Any, Any], source: dict[Any, Any], t: int
+    ) -> None:
+        """Add the latest values from source into destination at timestep t.
+
+        ``destination`` belongs to the result being built, but the branches and
+        lists below it may still be shared with the trajectory it was copied
+        from. ``owned`` holds the ids of the nodes this result already owns; any
+        other node is copied before it is written to.
+        """
+
+        for key, value in source.items():
+            if isinstance(value, dict):
+                if key not in destination:
+                    destination[key] = {}
+
+                if not isinstance(destination[key], dict):
+                    raise TypeError(
+                        f"Tree mismatch at key {key!r}: destination is a leaf but source is a branch."
+                    )
+
+                cls._add_at_t(destination[key], value, t)
+                continue
+
+            latest = value[-1]
+
+            if key not in destination:
+                destination[key] = [0] * t + [latest]
+
+                continue
+
+            if isinstance(destination[key], dict):
+                raise TypeError(
+                    f"Tree mismatch at key {key!r}: destination is a branch but source is a leaf."
+                )
+
+            history = destination[key]
+
+            while len(history) <= t:
+                history.append(history[-1] if history else 0)
+
+            # Avoid += here because leaves can be numpy arrays.
+            # += could mutate an array shared with the original trajectory.
+            history[t] = history[t] + latest
+
+    def __getitem__(self, key: Any) -> Any:
+        return self.data[key]
+
+    def __contains__(self, key: Any) -> bool:
+        return key in self.data
+
+    def copy(self) -> "Trajectory[T]":
+        """Return an independent copy of the tree.
+
+        The lists are copied, so appending to the copy leaves the original
+        alone. The values inside the lists, such as NumPy arrays, are shared.
+        """
+        return type(self)(self._copy_tree(self.data))
+
+    @property
+    def length(self) -> int:
+        """Number of timesteps recorded, that is the length of the longest leaf.
+
+        An empty trajectory has length ``0``.
+        """
+        return self._length(self.data)
+
+    def add(self, t: int, deltas: list["Trajectory[T]"]) -> "Trajectory[T]":
+        """Return a copy with the latest value of each delta added at step ``t``.
+
+        For each leaf of each delta, the last entry is summed into the entry of
+        the same path at step ``t``. A path that does not exist yet is created,
+        with zeros before ``t``. A leaf that lags behind ``t`` is first filled
+        up to ``t`` with its fill value, then summed. The sum is not done in
+        place, so arrays shared with this trajectory are not modified. The
+        lists and branches that no delta writes to are shared with this
+        trajectory rather than copied; no operation of this class except
+        :meth:`write` modifies a list in place, and :meth:`write` copies what it
+        modifies, so the sharing is never visible through them.
+
+        As in :meth:`update`, a step cannot be skipped: ``t`` is at most the
+        current :attr:`length`, which is the step ``add`` opens when it is
+        equal. A leaf may lag behind the rest of the tree, a whole tree may not
+        lag behind ``t``. The check applies only when a delta holds a value to
+        add, so adding nothing is always allowed.
+
+        Parameters
+        ----------
+        t : int
+            Timestep at which the deltas are added, between ``0`` and
+            :attr:`length` included.
+        deltas : list of Trajectory
+            Residual trajectories; only the last entry of each leaf is used.
+
+        Returns
+        -------
+        Trajectory
+            New trajectory of the same type as this one.
+        """
+        result = self.copy()
+
+        for delta in deltas:
+            self._add_at_t(result.data, delta.data, t)
+
+        return result
+
+    def append(self, values: dict[Any, Any]) -> "Trajectory[T]":
+        """Return a copy with one more timestep holding ``values``.
+
+        Equivalent to :meth:`update` at step :attr:`length`. Leaves that
+        ``values`` does not mention receive their fill value for the new step.
+        """
+        return self.update(self.length, values)
+
+    def update(self, t: int, values: dict[Any, Any]) -> "Trajectory[T]":
+        """Return a copy with ``values`` written at step ``t``.
+
+        Writing at an existing step overwrites it. Writing at step
+        :attr:`length` opens a new step, on which every existing leaf first
+        receives its fill value. A leaf that lags behind ``t`` is filled up to
+        ``t`` before it is written, and a new path is created with zeros before
+        ``t``. As in :meth:`add`, only the last entry of each leaf of ``values``
+        is used.
+
+        Parameters
+        ----------
+        t : int
+            Timestep to write, between ``0`` and :attr:`length` included.
+        values : dict
+            Tree of values, normalised like the ``data`` of a trajectory.
+
+        Returns
+        -------
+        Trajectory
+            New trajectory of the same type as this one.
+
+        Raises
+        ------
+        ValueError
+            If ``t`` is negative, or larger than the current length (a step
+            cannot be skipped).
+        TypeError
+            If a path is a leaf in one tree and a branch in the other.
+        """
+        result = self.copy()
+
+        if t < 0:
+            raise ValueError("t must be non-negative")
+
+        if t == result.length:
+            self._carry_forward(result.data)
+        elif t > result.length:
+            raise ValueError(
+                f"Cannot skip from trajectory length {result.length} to timestep {t}"
+            )
+
+        incoming = type(self)(values)
+
+        self._set_at_t(result.data, incoming.data, t)
+
+        return result

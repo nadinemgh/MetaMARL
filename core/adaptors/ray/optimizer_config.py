@@ -6,9 +6,9 @@ not touch an ``AlgorithmConfig`` while the user is chaining calls. Each builder
 decorated with ``rllib_config_mutator`` only records an ``RLlibConfigOp`` (the
 target function plus its arguments) in ``_cfg_ops``, keyed by method name. The
 ops are replayed, in insertion order, on ``algo_class.get_default_config()`` the
-first time ``build_optimizer`` runs. This deferral lets later calls such as
-``debugging`` or ``build_optimizer`` patch the recorded keyword arguments of an
-earlier call (for example scaling ``num_envs_per_env_runner`` by the number of
+first time ``build_optimizer`` runs. This deferral lets ``env_runners``,
+``debugging`` and ``build_optimizer`` patch the recorded keyword arguments of
+a call (for example scaling ``num_envs_per_env_runner`` by the number of
 seeds) before RLlib ever validates them.
 
 Policies are laid out as one RLModule per ``(mechanism candidate, training
@@ -22,16 +22,20 @@ an episode and its RLModule is carried in the episode ID, which the
 the module. During evaluation the same parsing applies, but the environments
 are created with ``env_seed`` drawn from the evaluation seeds while
 ``policy_seed`` still names the trained module to test.
+
+``build_optimizer`` replays the recorded ops, registers the environment
+creator with ``ray.tune`` and returns a ``RayOptimizer``; the ``Algorithm``
+itself is only built later, inside the ``PolicyActor``.
 """
 
-import uuid
-from dataclasses import dataclass
+import uuid 
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
 
 import numpy as np
 import ray
 import torch
-from gymnasium import Space
+from gymnasium import Space, spaces
 from ray.actor import ActorHandle
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
@@ -42,7 +46,9 @@ from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.rllib.utils.typing import AgentID
 from ray.tune.registry import register_env
 
+from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.adaptors.ray.optimizer import RayOptimizer
+from core.agents.base import Agent, AgentConfig
 from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
 from core.metrics.schemas import MetricSchema
@@ -53,35 +59,6 @@ from core.world.base import World
 
 # TODO override environment to attach docstrings
 P = ParamSpec("P")
-
-
-@dataclass
-class AgentSpec:
-    """Declaration of one agent type in a multi-agent environment.
-
-    Attributes
-    ----------
-    count : int
-        Number of agent instances of this type; instances are named
-        ``"<agent_type>:<i>"``.
-    policy : str
-        Base policy name. The actual RLModule IDs are derived from it as
-        ``<policy>_m<mechanism_idx>_s<seed>``.
-    observation_space, action_space : gymnasium.Space
-        Spaces shared by all instances of the type.
-
-    Notes
-    -----
-    ``RayOptimizerConfig.agents`` and ``_apply_agents_to_rllib`` currently
-    read the specs as plain dicts (``spec["count"]``, ``spec.get(...)``), so
-    callers pass dicts with these keys rather than ``AgentSpec`` instances.
-    """
-
-    count: int
-    policy: str
-    observation_space: Space
-    action_space: Space
-
 
 FnID: TypeAlias = str
 
@@ -100,6 +77,19 @@ class RLlibConfigOp:
     kwargs : dict
         Keyword arguments recorded at builder-call time. Mutable on purpose:
         ``debugging`` and ``build_optimizer`` edit them before replay.
+
+    When to use: you never build one yourself; the builders of
+    ``RayOptimizerConfig`` create one per call. Read ``kwargs`` of a recorded
+    op to see what will be handed to RLlib.
+
+    Examples
+    --------
+    >>> from ray.rllib.algorithms.ppo import PPOConfig
+    >>> op = RLlibConfigOp(
+    ...     fn=lambda cfg, **kw: cfg.training(**kw), args=(), kwargs={"lr": 1e-3}
+    ... )
+    >>> op(PPOConfig()).lr
+    0.001
     """
 
     fn: Callable[..., AlgorithmConfig]
@@ -107,6 +97,8 @@ class RLlibConfigOp:
     kwargs: dict[str, Any]
 
     def __call__(self, cfg: AlgorithmConfig) -> AlgorithmConfig:
+        """Replay the recorded call on ``cfg`` and return the updated config."""
+
         return self.fn(cfg, *self.args, **self.kwargs)
 
 
@@ -116,27 +108,66 @@ class RayOptimizerConfig(OptimizerConfig):
     Subclasses must set ``algo_class`` (e.g. ``APPO``); its
     ``get_default_config()`` is the base on which the recorded ops are
     replayed. See the module docstring for the deferral mechanism and the
-    policy/environment layout.
+    policy/environment layout. The inherited builders ``environment``,
+    ``agents`` and ``reporting`` (extended here) describe the society and its
+    metrics; ``training``, ``debugging``, ``env_runners`` and ``evaluation``
+    describe how it is trained and evaluated.
 
     Attributes
     ----------
+    algo_class : type[Algorithm] or None
+        RLlib algorithm class whose default config is the replay base. Set by
+        the subclass; ``None`` on this class.
     _cfg_ops : dict[str, RLlibConfigOp]
         Recorded builder calls keyed by method name; one entry per method, a
         second call to the same builder overwrites the first.
     rllib_cfg : AlgorithmConfig or None
         Resolved RLlib config; ``None`` until ``build_optimizer`` replays the
         ops, and cached afterwards.
-    agent_specs : dict or None
-        Agent declarations set through ``agents``.
     num_mechanisms : int or None
         Mechanism candidates per env runner (before seed multiplication).
     world_name : str or None
         Name of the World actor, stored by ``build_optimizer``.
-    eval_episodes, rollout_fragment_length : int or None
-        Reserved; not set by the current builders.
+
+    Raises
+    ------
+    ValueError
+        At construction, if the subclass does not define ``algo_class``.
+
+    When to use: subclass it (as ``APPOptimizerConfig`` and
+    ``PPOptimizerConfig`` do) to describe the inner RL level of a bilevel run,
+    then pass it to the bilevel configuration. The RLlib-style builders may be
+    chained in any order; the environment count is scaled by the number of
+    seeds whether ``env_runners`` or ``debugging`` comes first.
+
+    Examples
+    --------
+    Builders only record their arguments; nothing touches RLlib until the
+    optimizer is built:
+
+    >>> from core.optimizers.appo.config import APPOptimizerConfig
+    >>> cfg = (
+    ...     APPOptimizerConfig()
+    ...     .env_runners(num_env_runners=0, num_envs_per_env_runner=4)
+    ...     .training(episodes=2, lr=1e-4)
+    ...     .debugging(seed=7, num_seeds=2)
+    ... )
+    >>> list(cfg._cfg_ops)
+    ['_env_runners', '_training_rllb', '_debugging_rllib']
+    >>> cfg.num_mechanisms, len(cfg.seeds)
+    (4, 2)
+    >>> cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"]
+    8
+    >>> cfg.rllib_cfg is None
+    True
+
+    References
+    ----------
+    .. [1] Liang, E., Liaw, R., Moritz, P., et al. (2018). RLlib: Abstractions
+       for Distributed Reinforcement Learning. ICML 2018. arXiv:1712.09381.
+       The library whose ``AlgorithmConfig`` builder pattern this class mirrors.
     """
 
-    # TODO review this
     # must be overriden in subclasses
     algo_class: Optional[type[Algorithm]] = None
 
@@ -149,7 +180,6 @@ class RayOptimizerConfig(OptimizerConfig):
         # TODO termporary setting until find out how to share world context accross runners
         self._cfg_ops: dict[FnID, RLlibConfigOp] = {}
         self.rllib_cfg: AlgorithmConfig | None = None
-        self.agent_specs: Optional[dict] = None  # TODO default
         self.world_name: Optional[str] = None
         self.num_mechanisms: Optional[int] = None
         self.eval_episodes: Optional[int] = None
@@ -168,7 +198,21 @@ class RayOptimizerConfig(OptimizerConfig):
         stored in ``self._cfg_ops[fn.__name__]`` and ``self`` is returned so
         that builders chain. Defined inside the class body without
         ``@staticmethod``; it works as a decorator at class-definition time
-        but is also exposed as an (unusable) instance method.
+        but is also exposed as an (unusable) instance method. The wrapper
+        takes over the name, docstring and ``__wrapped__`` link of ``fn``
+        (``functools.wraps``), so the builders keep their own documentation.
+
+        Parameters
+        ----------
+        fn : Callable[[AlgorithmConfig, ...], AlgorithmConfig]
+            Function whose first argument is the RLlib config and whose
+            remaining arguments are the builder's own.
+
+        Returns
+        -------
+        Callable[[RayOptimizerConfig, ...], RayOptimizerConfig]
+            Builder method that records ``fn`` and its arguments and returns
+            ``self``.
         """
 
         def wrapper(self: Self, *args: P.args, **kwargs: P.kwargs) -> Self:
@@ -182,49 +226,131 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     def validate(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.validate``."""
+        """Record a deferred ``AlgorithmConfig.validate`` call.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.validate``, recorded and
+            replayed when ``build_optimizer`` resolves the RLlib config.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.validate(**kwargs)
 
     @rllib_config_mutator
     def get_config_for_module(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.get_config_for_module``."""
+        """Record a deferred ``AlgorithmConfig.get_config_for_module`` call.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.get_config_for_module``, recorded and
+            replayed when ``build_optimizer`` resolves the RLlib config.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.get_config_for_module(**kwargs)
 
     @rllib_config_mutator
     def python_environment(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Sets the config's python environment settings.
+        """Record a deferred ``AlgorithmConfig.python_environment`` call.
 
-        Args:
-            extra_python_environs_for_driver: Any extra python env vars to set in the
-                algorithm's process, e.g., {"OMP_NUM_THREADS": "16"}.
-            extra_python_environs_for_worker: The extra python environments need to set
-                for worker processes.
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.python_environment``, for
+            example ``extra_python_environs_for_driver`` (environment variables
+            set in the algorithm's process, e.g. ``{"OMP_NUM_THREADS": "16"}``)
+            and ``extra_python_environs_for_worker`` (the same for worker
+            processes).
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
         """
 
         return cfg.python_environment(**kwargs)
 
     @rllib_config_mutator
     def resources(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Specifies resources allocated for an Algorithm and its ray actors/workers."""
+        """Record a deferred ``AlgorithmConfig.resources`` call.
+
+        It sets the resources allocated to the algorithm and its Ray actors.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.resources``, recorded and
+            replayed when ``build_optimizer`` resolves the RLlib config.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.resources(**kwargs)
 
     @rllib_config_mutator
     def framework(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Sets the config's DL framework settings."""
+        """Record a deferred ``AlgorithmConfig.framework`` call (DL framework).
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.framework``, recorded and
+            replayed when ``build_optimizer`` resolves the RLlib config.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.framework(**kwargs)
 
     @rllib_config_mutator
     def api_stack(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Sets the config's API stack settings."""
+        """Record a deferred ``AlgorithmConfig.api_stack`` call (RLlib API stack).
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.api_stack``, recorded and
+            replayed when ``build_optimizer`` resolves the RLlib config.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.api_stack(**kwargs)
 
     def model(self, **kwargs: Any) -> Self:
-        """Record model keyword arguments to merge into ``cfg.model`` at build time."""
+        """Record model keyword arguments to merge into ``cfg.model`` at build time.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Entries merged into the ``AlgorithmConfig.model`` dict when the ops
+            are replayed (for example ``fcnet_hiddens``).
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         def _set_model(cfg):
             """Merge the recorded kwargs into ``cfg.model``."""
@@ -239,18 +365,53 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     def _env_runners(cfg, **kwargs: Any) -> AlgorithmConfig:
-        """Sets the rollout worker configuration."""
+        """Record a deferred ``AlgorithmConfig.env_runners`` call (raw pass-through)."""
 
         return cfg.env_runners(**kwargs)
+
+    def _scale_env_count_by_seeds(self) -> None:
+        """Record ``num_mechanisms * len(seeds)`` as the env count of each runner.
+
+        Each mechanism candidate gets one environment per training seed. The
+        count is always derived from ``num_mechanisms`` and ``seeds``, never
+        from the previously recorded kwarg, so calling it again (or from
+        ``env_runners`` and ``debugging`` in either order) gives the same
+        result. Without seeds the kwarg is restored to ``num_mechanisms`` if
+        it was recorded. Does nothing when ``env_runners`` was not called.
+        """
+
+        env_runners_op = self._cfg_ops.get("_env_runners")
+
+        if env_runners_op is None:
+            return
+
+        if self.seeds:
+            env_runners_op.kwargs["num_envs_per_env_runner"] = (
+                self.num_mechanisms * len(self.seeds)
+            )
+        elif "num_envs_per_env_runner" in env_runners_op.kwargs:
+            env_runners_op.kwargs["num_envs_per_env_runner"] = self.num_mechanisms
 
     def env_runners(self, **kwargs: Any) -> Self:
         """Deferred ``AlgorithmConfig.env_runners`` that records the env count.
 
         ``num_envs_per_env_runner`` is read as the number of mechanism
-        candidates evaluated per runner and stored in ``num_mechanisms``.
-        ``debugging`` later multiplies the recorded kwarg by the number of
-        training seeds, so this builder must be called before ``debugging``
-        for the multiplication to happen.
+        candidates evaluated per runner and stored in ``num_mechanisms``
+        (``1`` when the argument is absent). The recorded kwarg is the
+        mechanism count multiplied by the number of training seeds, whether
+        ``debugging`` was called before or after this builder (see
+        ``debugging``).
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.env_runners``, for example
+            ``num_env_runners`` and ``num_envs_per_env_runner``.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
         """
 
         self.num_mechanisms = kwargs.get("num_envs_per_env_runner", 1)
@@ -259,29 +420,44 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     def learners(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Sets LearnerGroup and Learner worker related configurations."""
+        """Record a deferred ``AlgorithmConfig.learners`` call.
+
+        It sets the learner group and the learner workers.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.learners``.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.learners(**kwargs)
 
     @rllib_config_mutator
     def callbacks(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.callbacks`` (episode and training hooks)."""
+        """Record a deferred ``AlgorithmConfig.callbacks`` call.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.callbacks`` (episode and
+            training hooks, for example ``on_episode_created``).
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.callbacks(**kwargs)
 
-    # def evaluation(self, *, episodes: int = None, rollout_fragment_length: int, base_seed: Optional[int]=None, **kwargs) -> Self:
-    #     if episodes is not None:
-    #         self.eval_episodes = episodes
-    #     if base_seed is not None:
-    #         self.eval_base_seed = base_seed
-    #     # TODO to infer from horizon
-    #     if rollout_fragment_length is not None:
-    #         self.rollout_fragment_length = rollout_fragment_length
-    #     return self
-
     @rllib_config_mutator
     def _evaluation_rllib(cfg, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.evaluation`` (raw pass-through)."""
+        """Record a deferred ``AlgorithmConfig.evaluation`` call (raw pass-through)."""
 
         return cfg.evaluation(**kwargs)
 
@@ -328,7 +504,29 @@ class RayOptimizerConfig(OptimizerConfig):
         -----
         ``build_optimizer`` later overrides ``evaluation_num_env_runners``,
         ``evaluation_duration`` and ``custom_evaluation_function`` in the
-        recorded kwargs; values passed here for those keys are replaced.
+        recorded kwargs; values passed here for those keys are replaced. When
+        none of ``seeds``, ``base_seed`` and ``num_seeds`` is given,
+        ``eval_seeds`` is left unchanged.
+
+        When to use: call it once, after ``env_runners``, to declare how the
+        trained policies are evaluated: which environment seeds to test them
+        under and the RLlib evaluation settings (at least
+        ``evaluation_config={"rollout_fragment_length": ...}``, which
+        ``RayOptimizer`` requires).
+
+        Examples
+        --------
+        >>> from core.optimizers.appo.config import APPOptimizerConfig
+        >>> cfg = APPOptimizerConfig().evaluation(
+        ...     seeds=[1, 2], evaluation_config={"rollout_fragment_length": 5}
+        ... )
+        >>> cfg.eval_seeds
+        [1, 2]
+        >>> kwargs = cfg._cfg_ops["_evaluation_rllib"].kwargs
+        >>> kwargs["evaluation_config"]["env_config"]
+        {'mode': 'eval'}
+        >>> kwargs["evaluation_interval"] is None
+        True
         """
 
         eval_config: dict = kwargs.setdefault("evaluation_config", {})
@@ -360,19 +558,45 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     def offline_data(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.offline_data``."""
+        """Record a deferred ``AlgorithmConfig.offline_data`` call.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.offline_data``.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.offline_data(**kwargs)
 
     @rllib_config_mutator
     def multi_agent(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Sets the config's multi-agent settings."""
+        """Record a deferred ``AlgorithmConfig.multi_agent`` call.
+
+        ``build_optimizer`` applies its own ``multi_agent`` call after the
+        recorded ops, which overrides ``policies``, ``policy_mapping_fn`` and
+        ``policies_to_train``.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.multi_agent``.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.multi_agent(**kwargs)
 
     @rllib_config_mutator
     def _reporting_rllib(cfg, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.reporting`` (raw pass-through)."""
+        """Record a deferred ``AlgorithmConfig.reporting`` call (raw pass-through)."""
 
         return cfg.reporting(**kwargs)
 
@@ -390,8 +614,6 @@ class RayOptimizerConfig(OptimizerConfig):
         queries : tuple of Query or None
             Queries rendered by the optimizer-level reporter, stored through
             ``OptimizerConfig.reporting``.
-        schema : type[MetricSchema] or None
-            Metric schema attached to the optimizer-level reporter.
         **kwargs
             Forwarded to the deferred ``AlgorithmConfig.reporting`` (RLlib's
             own reporting knobs such as ``metrics_num_episodes_for_smoothing``).
@@ -400,6 +622,10 @@ class RayOptimizerConfig(OptimizerConfig):
         -------
         RayOptimizerConfig
             ``self`` for chaining.
+
+        When to use: to choose which metrics the inner optimizer reports and
+        how RLlib smooths them; the query paths refer to ``RaySchema``, the
+        schema the inner optimizer logs into.
         """
 
         super().reporting(queries=queries, schema=schema)
@@ -408,25 +634,75 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @rllib_config_mutator
     def checkpointing(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.checkpointing``."""
+        """Record a deferred ``AlgorithmConfig.checkpointing`` call.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.checkpointing``.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.checkpointing(**kwargs)
 
     @rllib_config_mutator
     def fault_tolerance(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.fault_tolerance`` (worker restart policy)."""
+        """Record a deferred ``AlgorithmConfig.fault_tolerance`` call.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.fault_tolerance`` (worker
+            restart policy).
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.fault_tolerance(**kwargs)
 
     @rllib_config_mutator
     def rl_module(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.rl_module`` (RLModule spec and model settings)."""
+        """Record a deferred ``AlgorithmConfig.rl_module`` call.
+
+        ``build_optimizer`` applies its own ``rl_module`` call after the
+        recorded ops, which sets the ``rl_module_spec``.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.rl_module`` (RLModule spec
+            and model settings).
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.rl_module(**kwargs)
 
     @rllib_config_mutator
     def experimental(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.experimental`` (RLlib experimental flags)."""
+        """Record a deferred ``AlgorithmConfig.experimental`` call.
+
+        Parameters
+        ----------
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.experimental`` (RLlib
+            experimental flags).
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+        """
 
         return cfg.experimental(**kwargs)
 
@@ -513,7 +789,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
         return init_
 
-    def _apply_agents_to_rllib(self) -> list[AgentID]:
+    def _apply_agents_to_rllib(self) -> list[AgentConfig]:
         """Expand ``agent_specs`` into per-(mechanism, seed) RLModules.
 
         For every agent type and every ``(seed, mechanism_idx)`` pair an
@@ -527,9 +803,9 @@ class RayOptimizerConfig(OptimizerConfig):
 
         Returns
         -------
-        list[AgentID]
-            Agent instance IDs ``"<agent_type>:<i>"``, passed to the env
-            creator.
+        dict[str, AgentConfig]
+            One single-agent ``AgentConfig`` per agent instance, keyed by the
+            instance ID ``"<agent_type>:<i>"``; passed to the env creator.
 
         Raises
         ------
@@ -548,8 +824,6 @@ class RayOptimizerConfig(OptimizerConfig):
         policies = {}
         agent_type_map = {}
 
-        agents: list[AgentID] = []
-
         observation_spaces = {}
         action_spaces = {}
 
@@ -565,29 +839,22 @@ class RayOptimizerConfig(OptimizerConfig):
         # Get number of mechanisms (one policy per mechanism, per seed)
         num_mechanisms = num_envs // num_seeds
         module_specs = {}
+        agents_cfgs = {}
 
-        for agent_type, spec in self.agent_specs.items():
-            obs_space = spec.get("observation_space")
-            act_space = spec.get("action_space")
-            base_policy = spec.get("policy")
+        for aid, agent in self.agents_cfgs.items():
+            obs_space = agent.observation_space
+            act_space = spaces.Dict({m.id: m.action_space for m in agent.mechanisms})
+            base_policy = agent.policy_id
+            count = agent.count
 
-            # TODO (nadinemgh) this does not guarantee tht different mechanism's policy will be
-            # initiated with the same seed !
-            # what we want :
-            # run mechanism 0, seed 101
-            # run mechanism 1, seed 101
-            # run mechanism 2, seed 101
-            # run mechanism 0, seed 202
-            # run mechanism 1, seed 202
-            # run mechanism 2, seed 202
             for seed in self.seeds:
                 # TODO verify case when null seed
                 for m_idx in range(num_mechanisms):
                     policy_id = f"{base_policy}_m{m_idx}_s{seed}"
                     policies[policy_id] = (
                         None,
-                        spec.get("observation_space"),
-                        spec.get("action_space"),
+                        obs_space,
+                        act_space,
                         {},
                     )
                     module_specs[policy_id] = RLModuleSpec(
@@ -604,11 +871,9 @@ class RayOptimizerConfig(OptimizerConfig):
                         ),
                     )
 
-            for i in range(spec.get("count")):
-                agent_id = f"{agent_type}:{i}"
-
-                agents.append(agent_id)
-
+            for i in range(count):
+                agent_id = f"{aid}:{i}"
+                agents_cfgs[agent_id] = replace(agent,id=agent_id, count=1)
                 agent_type_map[agent_id] = base_policy
                 observation_spaces[agent_id] = obs_space
                 action_spaces[agent_id] = act_space
@@ -624,10 +889,6 @@ class RayOptimizerConfig(OptimizerConfig):
             """Route an agent to ``<policy>_m<m>_s<ps>`` from the episode ID."""
 
             base_policy = agent_type_map[agent_id]
-
-            # Old Api Stack Route to policy based on environment index
-            # TODO this is depregated !
-            # env_idx = getattr(episode, "env_id", None)
 
             # New API
             identity = self._parse_episode_identity(episode.id_)
@@ -654,41 +915,7 @@ class RayOptimizerConfig(OptimizerConfig):
             policies_to_train=all_policies,
         )
 
-        return agents
-
-    # TODO agent spec for stricter schema enforcement
-    def agents(self, agents: dict[str, AgentSpec]) -> Self:
-        """Declare the agent types of the environment.
-
-        Parameters
-        ----------
-        agents : dict[str, AgentSpec]
-            Mapping ``agent_type -> spec``. In practice the specs are plain
-            dicts with ``count``, ``policy``, ``observation_space`` and
-            ``action_space`` keys, because ``_apply_agents_to_rllib`` indexes
-            them with ``spec.get(...)``.
-
-        Returns
-        -------
-        RayOptimizerConfig
-            ``self`` for chaining.
-        """
-
-        self.agent_specs = agents
-
-        return self
-
-    # lazy resolution : better encapsulation ?
-    # @cached_property
-    # def result_mapper(self) -> ResultMapper:
-    #     return self._resolve_result_mapper()
-
-    # def _resolve_result_mapper(cfg: AlgorithmConfig) -> ResultMapper:
-    #     uses_new_stack = bool(
-    #         getattr(cfg, "enable_rl_module_and_learner", False)
-    #         and getattr(cfg, "enable_env_runner_and_connector_v2", False)
-    #     )
-    #     return from_new_api if uses_new_stack else from_old_api
+        return agents_cfgs
 
     @override(OptimizerConfig)
     def build_optimizer(
@@ -701,21 +928,26 @@ class RayOptimizerConfig(OptimizerConfig):
 
         Steps, in order:
 
-        1. If ``evaluation`` was called, patch its recorded kwargs so that
+        1. Check the inputs: a ``world`` handle, declared agents and at least
+           one training seed are required.
+        2. If ``evaluation`` was called, patch its recorded kwargs so that
            there is one evaluation env runner per ``(eval seed, train seed)``
            pair, ``evaluation_duration`` equals ``runners * num_mechanisms``
            episodes, and ``_evaluate_with_fixed_duration_once`` is the custom
            evaluation function.
-        2. Replay all recorded ops onto ``algo_class.get_default_config()``
+        3. Replay all recorded ops onto ``algo_class.get_default_config()``
            (only the first time; ``rllib_cfg`` is cached afterwards).
-        3. Draw a fresh optimizer ID from the World's registry.
-        4. Expand ``agent_specs`` into RLModules (``_apply_agents_to_rllib``).
-        5. Register a uniquely named env with ``ray.tune`` whose creator maps
+        4. Draw a fresh optimizer ID from the World's registry.
+        5. Expand ``agents_cfgs`` into RLModules (``_apply_agents_to_rllib``).
+        6. Register a uniquely named env with ``ray.tune`` whose creator maps
            each sub-environment to a mechanism index and a pair of seeds (see
            ``env_creator`` below), and point ``rllib_cfg`` at it.
-        6. Freeze a deep copy of this config and hand it to ``RayOptimizer``;
-           the ``Algorithm`` itself is built later inside ``PolicyActor``.
-        7. Build the optimizer-level reporter through ``_build_reporter``
+        7. Take a deep copy of this config with ``copy(copy_frozen=True)`` and
+           hand it to ``RayOptimizer``, so the optimizer owns an immutable
+           snapshot (assigning one of its attributes raises
+           ``AttributeError``); the ``Algorithm`` itself is built later
+           inside ``PolicyActor``.
+        8. Build the optimizer-level reporter from ``reporter_cfg``
            (``None`` when no ``reporter_cfg`` was set) and attach it as
            ``opt.reporting``. Each environment receives a copy of
            ``reporter_cfg`` plus the env-level queries and schema so it can
@@ -725,8 +957,10 @@ class RayOptimizerConfig(OptimizerConfig):
         ----------
         world : ActorHandle[World]
             Shared world actor, given to every environment.
-        world_name : str, optional
-            Required when ``world`` is given; stored in ``world_name``.
+        world_name : str or None, optional
+            Name of the world actor; stored in ``world_name``. It is required:
+            ``None`` raises ``ValueError``, after the RLlib config has been
+            replayed.
 
         Returns
         -------
@@ -736,15 +970,50 @@ class RayOptimizerConfig(OptimizerConfig):
         Raises
         ------
         ValueError
-            If ``world`` is given without ``world_name`` or ``opt_class`` is
-            unset.
+            If ``world`` is ``None``, no agents were declared (``agents`` not
+            called), no training seed was set (``debugging`` not called with a
+            seed), ``world_name`` is missing or ``opt_class`` is unset.
 
-        Notes
-        -----
-        ``opt_id`` and ``agents`` are only bound when ``world`` is not ``None``
-        and ``agent_specs`` is set; otherwise the env creator raises
-        ``NameError`` when RLlib first instantiates an environment.
+        When to use: you rarely call it yourself; the bilevel optimizer calls
+        it once the ``World`` actor exists. Call it directly to check that a
+        society configuration is complete: the errors above are raised before
+        any RLlib environment is created.
+
+        Examples
+        --------
+        A configuration without a world fails with a clear message:
+
+        >>> from core.optimizers.appo.config import APPOptimizerConfig
+        >>> APPOptimizerConfig().build_optimizer(world=None)  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+            ...
+        ValueError: APPOptimizerConfig.build_optimizer needs the shared World actor: ...
+
+        A complete build needs a ``World`` actor, so it is not executed here:
+
+        >>> opt = cfg.build_optimizer(world=world, world_name="world")  # doctest: +SKIP
         """
+
+        # Every environment fetches its mechanism from the World and builds
+        # its followers from the declared agents: fail here rather than when
+        # RLlib first creates an environment.
+        if world is None:
+            raise ValueError(
+                f"{type(self).__name__}.build_optimizer needs the shared World "
+                + "actor: every environment fetches its mechanism from it."
+            )
+        if not self.agents_cfgs:
+            raise ValueError(
+                f"{type(self).__name__} has no agents: call .agents(...) on the "
+                + "society optimizer config."
+            )
+        # One RLModule is declared per (mechanism, training seed) pair, so an
+        # empty seed list would declare none.
+        if not self.seeds:
+            raise ValueError(
+                f"{type(self).__name__} has no training seeds: call "
+                + ".debugging(seed=...) on the society optimizer config."
+            )
 
         evaluation_op = self._cfg_ops.get("_evaluation_rllib")
 
@@ -755,7 +1024,6 @@ class RayOptimizerConfig(OptimizerConfig):
             num_eval_episodes = num_eval_runners * self.num_mechanisms
             evaluation_op.kwargs["evaluation_num_env_runners"] = num_eval_runners
 
-            # TODO verify this
             evaluation_op.kwargs["evaluation_duration"] = num_eval_episodes
             evaluation_op.kwargs["custom_evaluation_function"] = (
                 _evaluate_with_fixed_duration_once
@@ -772,21 +1040,20 @@ class RayOptimizerConfig(OptimizerConfig):
 
         env_name = f"regulated_env_{uuid.uuid4().hex}"
 
-        if world is not None:
-            if world_name is None:
-                raise ValueError(
-                    "world_name must be provided when using Ray world actor"
-                )
-
-            self.world_name = world_name
-            registry = ray.get(world.get_opt_registry.remote())
-
-            # Register the new ID and get the result
-            opt_id = ray.get(
-                world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
+        if world_name is None:
+            raise ValueError(
+                "world_name must be provided when using Ray world actor"
             )
 
-        if self.agent_specs:
+        self.world_name = world_name
+        registry = ray.get(world.get_opt_registry.remote())
+
+        # Register the new ID and get the result
+        opt_id = ray.get(
+            world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
+        )
+
+        if self.agents_cfgs:
             agents = self._apply_agents_to_rllib()
 
         env_counter = {"train": 0, "eval": 0}
@@ -813,8 +1080,11 @@ class RayOptimizerConfig(OptimizerConfig):
 
             ``seed`` and ``policy_seed`` are written into ``env_ctx`` and the
             environment is instantiated through ``OptimizerConfig._env_creator``
-            with ``world``, ``opt_id``, ``agents`` and ``mechanism_id``.
-            Counters are per process (the closure is pickled to each runner).
+            with ``world``, ``opt_id``, ``env_name``, ``agents_cfg_dict``,
+            ``mechanism_id``, the reporter configuration and queries, and the
+            ``env_ctx`` entries; the result is wrapped in an
+            ``RLlibMultiAgentEnvAdapter``. Counters are per process (the
+            closure is pickled to each runner).
             """
 
             mode = env_ctx.get("mode", "train")
@@ -843,19 +1113,18 @@ class RayOptimizerConfig(OptimizerConfig):
             env_ctx["seed"] = env_seed
             env_ctx["policy_seed"] = policy_seed
 
-            return self._env_creator(
+            env = self._env_creator(
                 world=world,
                 opt_id=opt_id,
                 env_name=env_name,
-                agents=agents,
+                agents_cfg_dict=agents,
                 mechanism_id=mechanism_idx,
-                reporter_cfg=self._reporter_cfg.copy()
-                if self._reporter_cfg is not None
-                else None,
+                reporter_cfg=self._reporter_cfg.copy() if self._reporter_cfg is not None else None,
                 queries=self._reporting_queries_env,
                 schema=self._reporting_schema_env,
                 **dict(env_ctx),
             )
+            return RLlibMultiAgentEnvAdapter(env)
 
         register_env(env_name, env_creator)
 
@@ -863,26 +1132,17 @@ class RayOptimizerConfig(OptimizerConfig):
             env=env_name, env_config=self.env_config
         )
 
-        # Building defferred to policyActor
-        # algo = self.rllib_cfg.build_algo(**kwargs)
-
         cfg = self.copy(copy_frozen=True)
 
-        # TODO do not give world to ray optimizer. temp solution until environment factory
-        opt = RayOptimizer(config=cfg)
-        opt.world = world
-
         # Build reporter
-        reporter = self._reporter_cfg.build(label=self.opt_class.__name__)
-        reporter.schema = self._reporting_schema
+        reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
+        reporting.schema = self._reporting_schema
+        reporting.add_query(*(self._reporting_queries or ()))
 
-        reporter.add_query(*(self._reporting_queries or ()))
+        opt = RayOptimizer(world=world, reporting=reporting, config=cfg)
 
-        opt.reporting = reporter
-
-        # register optimizer in world to link contexts to optimizers
         if world is not None:
-            opt.set_id(opt_id)
+            opt.id = opt_id
 
         return opt
 
@@ -899,17 +1159,48 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.freeze(**kwargs)
 
     @rllib_config_mutator
-    @override(OptimizerConfig)
-    def training(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
+    def _training_rllb(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
         """Deferred ``AlgorithmConfig.training`` (algorithm hyperparameters)."""
 
         return cfg.training(**kwargs)
+
+    @override(OptimizerConfig)
+    def training(self, *, episodes: Optional[int] = None, **kwargs: Any) -> Self:
+        """Set the inner training length and record the RLlib hyperparameters.
+
+        Parameters
+        ----------
+        episodes : int or None, optional
+            Number of inner training iterations per ``RayOptimizer.train`` call
+            (iterations), stored in ``episodes``. ``None`` keeps the previous
+            value.
+        **kwargs : Any
+            Keyword arguments of ``AlgorithmConfig.training`` (algorithm
+            hyperparameters such as ``lr`` and ``gamma``), recorded for replay.
+
+        Returns
+        -------
+        RayOptimizerConfig
+            ``self`` for chaining.
+
+        When to use: to state how many iterations each inner training run lasts
+        and which RLlib hyperparameters it uses.
+
+        Examples
+        --------
+        >>> from core.optimizers.appo.config import APPOptimizerConfig
+        >>> cfg = APPOptimizerConfig().training(episodes=3, lr=1e-3)
+        >>> cfg.episodes, cfg._cfg_ops["_training_rllb"].kwargs
+        (3, {'lr': 0.001})
+        """
+        super().training(episodes=episodes)
+        return self._training_rllb(**kwargs)
 
     @rllib_config_mutator
     def _debugging_rllib(
         cfg: AlgorithmConfig, seed: Optional[int] = None, **kwargs: Any
     ) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.debugging`` (raw pass-through)."""
+        """Record a deferred ``AlgorithmConfig.debugging`` call (raw pass-through)."""
 
         return cfg.debugging(seed=seed, **kwargs)
 
@@ -927,7 +1218,8 @@ class RayOptimizerConfig(OptimizerConfig):
         ----------
         seed : int or None, optional
             Base seed. ``OptimizerConfig.debugging`` derives ``num_seeds``
-            training seeds from it with a ``SeedSequence``.
+            training seeds from it with a ``SeedSequence``. ``None`` leaves
+            the seeds empty, and ``build_optimizer`` then refuses to build.
         num_seeds : int, optional
             Number of training seeds (default 3).
         **kwargs
@@ -941,12 +1233,31 @@ class RayOptimizerConfig(OptimizerConfig):
 
         Notes
         -----
-        When a seed is given and ``env_runners`` was already called, the
-        recorded ``num_envs_per_env_runner`` is taken as the number of
-        mechanisms (stored in ``num_mechanisms``) and multiplied by
-        ``num_seeds`` so each mechanism candidate gets one environment per
-        seed. If ``env_runners`` is called *after* ``debugging``, no scaling
-        happens and ``num_mechanisms`` is whatever ``env_runners`` records.
+        The ``num_envs_per_env_runner`` passed to ``env_runners`` is the number
+        of mechanisms (stored in ``num_mechanisms``, ``1`` when absent); the
+        value recorded for RLlib is that number multiplied by the number of
+        seeds, so each mechanism candidate gets one environment per seed. The
+        product is recomputed from ``num_mechanisms`` each time, so the result
+        does not depend on whether ``env_runners`` is called before or after
+        ``debugging``, and calling ``debugging`` again replaces the seeds
+        without compounding the scaling. Without a seed the seeds are cleared
+        and the recorded count goes back to ``num_mechanisms``.
+
+        When to use: call it, before or after ``env_runners``, to fix the base
+        seed and the number of independent training seeds of the society.
+
+        Examples
+        --------
+        >>> from core.optimizers.appo.config import APPOptimizerConfig
+        >>> cfg = (
+        ...     APPOptimizerConfig()
+        ...     .env_runners(num_env_runners=0, num_envs_per_env_runner=4)
+        ...     .debugging(seed=7, num_seeds=2)
+        ... )
+        >>> cfg.num_mechanisms, len(cfg.seeds)
+        (4, 2)
+        >>> cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"]
+        8
         """
 
         super().debugging(seed=seed, num_seeds=num_seeds)

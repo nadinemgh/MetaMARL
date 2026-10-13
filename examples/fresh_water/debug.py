@@ -208,5 +208,5 @@ bilevel_opt_cfg: BilevelConfig = (
 
 bilevel_opt = bilevel_opt_cfg.build_optimizer()
 
-bilevel_opt.run()
+bilevel_opt.train()
 ray.shutdown()

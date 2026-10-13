@@ -1,34 +1,47 @@
 """Outer-level environment driving the inner optimizer.
 
-``RegulatorEnv`` is the environment seen by the outer optimizer (Evolution
-Strategies). One outer step evaluates a population of candidate mechanisms:
+``RegulatorEnv`` is the environment the outer optimizer (evolution strategies)
+steps. One outer step receives a population of candidate mechanisms, publishes
+each of them to the shared ``World`` once per policy seed, asks the inner
+optimizer to train the follower policies against those candidates and returns
+the value of ``reward`` computed from the training results as the fitness of
+the population:
 
-1. ``action(population)`` decodes each optimizer vector into a ``Mechanism``
-   through the env's mechanism space (or wraps it in a ``VectorMechanism``
-   when no space is configured);
-2. ``_step(mechanisms)`` publishes one ``MechanismContext`` per (candidate,
-   seed) to the ``World``, resets the inner policy, trains it for
-   ``train_iters`` inner iterations, optionally evaluates it on ``eval_seeds``,
-   renders the inner reports and aggregates the inner optimizer's accumulated
-   metrics into one fitness per candidate with :meth:`aggregate_rewards`;
-3. consumed contexts are flushed from the World.
+1. for every candidate and every seed, a ``Context`` carrying a
+   ``MechanismContext`` in the ``published`` state is appended to the
+   ``World``, where the inner environments fetch it by candidate index and
+   policy seed;
+2. ``inner.train()`` runs the inner optimization and returns its results;
+3. ``reward(results)`` turns those results into the step's reward, which the
+   subclass of a benchmark computes (see
+   ``examples/bilevel_fishery/regulator_env.py``), and the inner metrics are
+   reduced into the ``info`` dictionary.
 
-Without an inner optimizer the env runs in *analytic* mode: subclasses override
-``_step`` with a closed-form fitness, which is how the ES is unit-tested.
+The class itself defines no fitness: its ``action``, ``observation`` and
+``reward`` hooks return ``None``, and a benchmark overrides the ones it needs.
+The environment does not evaluate the candidates itself, does not flush
+contexts from the ``World`` and does not decode optimizer vectors; the
+optimizer hands it candidates that are already mechanisms.
 """
 
-from abc import abstractmethod
 from typing import Any, Optional, SupportsFloat
 
-import numpy as np
+import gymnasium as gym
 import ray
-import torch
 from gymnasium.core import ActType, ObsType
+from ray.actor import ActorHandle
 
+from core.agents.base import Agent, AgentConfig
 from core.annotations import override
-from core.envs.base import BaseEnv
-from core.mechanism.base import Mechanism, VectorMechanism
+from core.mechanism.base import MDPState
+from core.metrics.logger import MetricLogger
+from core.metrics.schemas import MetricSchema
 from core.optimizers.base import Optimizer
+from core.reporting.base import Reporter
+from core.reporting.config import ReporterConfig
+from core.reporting.query import Query
+from core.types import AgentID, OptimizerID
+from core.world.base import World
 from core.world.context import (
     Context,
     MechanismContext,
@@ -36,210 +49,328 @@ from core.world.context import (
 )
 
 
-class RegulatorEnv(BaseEnv):
-    """Outer-loop environment: candidate mechanisms in, one fitness per candidate out.
+class RegulatorEnv(gym.Env):
+    """Outer-loop environment: candidate mechanisms in, one fitness out.
+
+    A step of this environment is one generation of the outer optimizer. It
+    publishes the candidate mechanisms of the generation to the ``World``,
+    trains the inner optimizer against them and returns the reward computed
+    by ``reward`` from the training results. The environment keeps no
+    observation (``step`` and ``reset`` return ``None`` for it) and never sets
+    ``truncated``.
 
     Parameters
     ----------
-    optimizer : Optimizer, optional
-        Inner optimizer (e.g. ``RayOptimizer`` wrapping APPO). ``None`` selects
-        the analytic mode.
-    train_iters : int
-        Inner training iterations per outer step (``>= 1`` with an optimizer).
-    seeds : list[int], optional
-        Policy seeds; one ``MechanismContext`` is published per (candidate, seed).
-    eval_seeds : list[int], optional
-        If given, ``inner.evaluate()`` runs after training.
+    world : ActorHandle[World]
+        Handle of the ``World`` Ray actor through which candidates are
+        published to the inner environments.
+    optimizer : Optimizer
+        Inner optimizer (for example the Ray optimizer wrapping an RL
+        algorithm). It must provide ``reset()``, ``train()`` and
+        ``reduce_metrics()``; the environment stores it as ``inner``.
+    horizon : int or None
+        Number of outer steps of an episode. ``None`` means ``terminated`` is
+        never set.
+    agents_cfgs : dict[AgentID, AgentConfig]
+        Configurations of the regulator's agents; each is built once and kept
+        in ``agents``.
+    seeds : list[int] or None
+        Policy seeds of the inner training. One ``MechanismContext`` is
+        published per (candidate, seed) pair; ``None`` becomes an empty list,
+        in which case nothing is published.
+    reporter_cfg : ReporterConfig, optional
+        Builds the env-level ``Reporter``, labelled with the class name;
+        ``None`` disables reporting (default ``None``).
+    queries : tuple[Query, ...], optional
+        Queries added to the reporter when there is one (default ``None``).
+    schema : type[MetricSchema], optional
+        Metric schema from which the env logger is built, and handed to the
+        reporter; ``None`` disables the logger (default ``None``).
+    opt_id : OptimizerID, optional
+        Identifier of the optimizer that owns this environment, stamped on
+        every published context. It can be set later through the ``opt_id``
+        property (default ``None``).
     **kwargs
-        Forwarded to :class:`BaseEnv` (``world``, ``mechanism_space``,
-        ``horizon``, ...).
+        Forwarded to ``gymnasium.Env.__init__``, which accepts no argument:
+        any extra keyword raises ``TypeError``.
+
+    Attributes
+    ----------
+    world : ActorHandle[World]
+        The ``World`` handle.
+    horizon : int or None
+        Number of outer steps of an episode.
+    agents : dict[AgentID, Agent]
+        The regulator's agents built from ``agents_cfgs``.
+    inner : Optimizer
+        The inner optimizer.
+    seeds : list[int]
+        Policy seeds, one context per candidate and seed.
+    logger : MetricLogger or None
+        Env-level metric logger; ``step`` pushes the outer step counter to its
+        ``iter`` entry.
+    reporter : Reporter or None
+        Env-level reporter.
+
+    When to use: as the base class of the environment the ES optimizer steps,
+    in any bilevel benchmark where each outer step must evaluate a population
+    of mechanisms by training the inner agents against them. Override
+    ``reward`` to turn the inner results into a fitness.
+
+    Examples
+    --------
+    A step with stand-ins for the world and the inner optimizer (no Ray
+    runtime is needed; ``ray.get`` is replaced by the identity for the
+    duration of the call):
+
+    >>> from types import SimpleNamespace
+    >>> from unittest.mock import patch
+    >>> class Fitness(RegulatorEnv):
+    ...     def reward(self, results=None, **kwargs):
+    ...         return [results["fitness"]]
+    >>> class Inner:
+    ...     def reset(self):
+    ...         pass
+    ...     def train(self):
+    ...         return {"fitness": 1.5}
+    ...     def reduce_metrics(self):
+    ...         return {}
+    >>> contexts = []
+    >>> world = SimpleNamespace(append_context=SimpleNamespace(remote=contexts.append))
+    >>> env = Fitness(
+    ...     world=world, optimizer=Inner(), horizon=3, agents_cfgs={}, seeds=[7, 8]
+    ... )
+    >>> with patch.object(ray, "get", lambda ref: ref):
+    ...     obs, reward, terminated, truncated, info = env.step([{"fee": 0.1}])
+    >>> reward, terminated, truncated, info
+    ([1.5], False, False, {'metrics': {}})
+    >>> [(c.payload.index, c.payload.seed, c.payload.status.value) for c in contexts]
+    [(0, 7, 'published'), (0, 8, 'published')]
     """
 
     def __init__(
         self,
         *,
-        optimizer: Optional[Optimizer] = None,
-        train_iters: int = 5,
-        seeds: Optional[list[int]] = None,
-        eval_seeds: Optional[list[int]] = None,
-        **kwargs,
+        world: ActorHandle[World],
+        optimizer: Optimizer, # TODO (nadine) not clear and avoid providing instantiated obj
+        horizon: Optional[int],
+        agents_cfgs: dict[AgentID, AgentConfig],
+        # Agent policy seeds required for mechanism publishing.
+        seeds: Optional[list[int]],
+        reporter_cfg: Optional[ReporterConfig] = None,
+        queries: Optional[tuple[Query, ...]] = None,
+        schema: Optional[type[MetricSchema]] = None,
+        opt_id: Optional[OptimizerID] = None,
+        **kwargs: Any,
     ):
         super().__init__(**kwargs)
 
+        self.world = world
+        self._opt_id = opt_id
+        self.horizon = horizon
+        self._t = 0
+        self.agents: dict[AgentID, Agent] = {aid: cfg.build() for aid, cfg in agents_cfgs.items()}
         self.inner: Optimizer = optimizer
-        self.train_iters: int = train_iters
         self.seeds: list[int] = seeds or []
-        self.eval_seeds: Optional[list[int]] = eval_seeds or None
 
-        self._validate()
+        # logging
+        self.logger: Optional[MetricLogger] = (
+            MetricLogger.from_schema(schema) if schema else None
+        )
 
-    def _validate(self):
-        if self.inner is None:
-            return  # analytic override mode allowed
+        # reporting
+        reporting_env_id = self.__class__.__name__
+        self.reporter: Optional[Reporter] = None
 
-        if self.train_iters <= 0:
-            raise ValueError("train_iters must be >= 1 when optimizer is provided")
+        if reporter_cfg is not None:
+            self.reporter = reporter_cfg.build(label=reporting_env_id)
+            self.reporter.schema = schema
+            self.reporter.add_query(*(queries or ()))
 
-    @override(BaseEnv)
-    def _reset(self):
-        if self.observation_space is None:
-            return 0.0
+    @property
+    def opt_id(self) -> Optional[OptimizerID]:
+        """Identifier of the optimizer that owns this environment.
 
-        return np.zeros(self.observation_space.shape, dtype=np.float32)
+        ``None`` until an identifier is given at construction or assigned to the
+        property.
+        """
+        return self._opt_id
 
-    @override(BaseEnv)
-    def _step(
-        self, mechanisms: list[Mechanism]
-    ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-        if self.inner is None:
-            raise NotImplementedError(
-                f"{self.__class__.__name__} has no inner optimizer. "
-                f"Override `_step()` for analytic reward computation."
-            )
+    @opt_id.setter
+    def opt_id(self, opt_id: Optional[OptimizerID]) -> None:
+        """Set the optimizer identifier stamped on every context this env publishes."""
+        self._opt_id = opt_id
 
-        if not isinstance(mechanisms, list) or not all(
-            isinstance(t, Mechanism) for t in mechanisms
-        ):
-            raise TypeError(
-                f"{self.__class__.__name__} expected list[Mechanism], got {type(mechanisms)}"
-            )
+    @override(gym.Env)
+    def reset(
+        self, *, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None
+    ) -> tuple[ObsType, dict[str, Any]]:
+        """Start a new episode and reset the inner policy.
 
-        # Reset policy weights for fresh equilibrium search each ES iteration
-        if hasattr(self.inner, "reset"):
+        The outer step counter returns to 0. Unless ``options`` holds a true
+        ``persist_agents_policy``, the inner optimizer is reset as well, which
+        restarts its policy from scratch.
+
+        Parameters
+        ----------
+        seed : int, optional
+            Accepted for the Gymnasium signature and ignored. The environment
+            draws no random number: the policy seeds of the training are the
+            ``seeds`` fixed at construction, and the optimizer owns the random
+            generator of the search.
+        options : dict, optional
+            ``{"persist_agents_policy": True}`` keeps the inner policy
+            instead of resetting it (default ``None``, which resets it).
+
+        Returns
+        -------
+        tuple
+            ``(None, {})``: the environment has no observation and no info.
+        """
+        # The seed is fixed at construction (``seeds``); a per-call seed is ignored.
+        self._t = 0
+
+        if not (options or {}).get("persist_agents_policy", False):
             self.inner.reset()
 
-        # TODO PARALLELIZE Vectorize environment across θ candidates and train one ppo policy over mehcanism candidates
-        # TODO other techiniques can also speed this up
-        # for theta in thetas:
-        #     self._publish(MechanismContext(theta=theta))
-        for idx, m in enumerate(mechanisms):
+        return None, {}
+
+    # TODO (nadine) input should only be one action. regulator env parallelized instead
+    @override(gym.Env)
+    def step(
+        self, actions: ActType
+    ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
+        """Evaluate one population of candidate mechanisms.
+
+        Every candidate is published to the ``World`` for every policy seed as
+        a ``Context`` whose payload is a ``MechanismContext`` in the
+        ``published`` state, with the candidate's position in ``actions`` as
+        its index, and stamped with this env's class name, the optimizer
+        identifier and the current outer step. The publication is blocking
+        (``ray.get``). The inner optimizer then trains once against the
+        published candidates and its results are passed to :meth:`reward`.
+        Afterwards the outer step counter is incremented and, when there is a
+        logger, pushed to its ``iter`` entry.
+
+        Parameters
+        ----------
+        actions : iterable of dict[MechanismID, array_like]
+            The candidate mechanisms of the generation, each already decoded by
+            the optimizer into a dictionary from mechanism identifier to the
+            action array of that mechanism.
+
+        Returns
+        -------
+        obs : None
+            The environment has no observation.
+        reward : object
+            Whatever :meth:`reward` returns for the inner training results; the
+            base implementation returns ``None``. Benchmarks return one fitness
+            per candidate.
+        terminated : bool
+            ``True`` when ``horizon`` is not ``None`` and the step counter,
+            already incremented, has reached ``horizon``: an episode of
+            ``horizon`` steps ends on the ``horizon``-th step. With a
+            ``horizon`` of 5, the fifth step is the first to report ``True``.
+        truncated : bool
+            Always ``False``.
+        info : dict
+            ``{"metrics": ...}`` holding the inner optimizer's accumulated
+            metrics, reduced by ``inner.reduce_metrics()`` (which also clears
+            them).
+        """
+        # TODO (nadine) alternative way to pass mechanism to agents
+        self._t_agents = 0
+
+        for idx, a in enumerate(actions):
             for seed in self.seeds:
-                self._publish(
-                    MechanismContext(
+                ctx = Context(
+                    id=None,
+                    opt_id=self._opt_id,
+                    step=self._t,
+                    env=self.__class__.__name__,
+                    payload=MechanismContext(
                         index=idx,
                         seed=seed,
                         status=MechanismStatus.published,
                         env_id=None,
-                        mechanism=m,
+                        mechanism=a,
                         metrics=None,
-                    )
+                    ),
                 )
+                ray.get(self.world.append_context.remote(ctx))
 
-        # TODO : why eval gets repeated ?
-        # Train policy for train_iters iterations
-        for _ in range(self.train_iters):
-            ctx_registry = ray.get(self.world.get_ctx_registry.remote())
 
-            # TODO remove env step contexsts
-            ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
-            ray.get(self.world.flush.remote(status=MechanismStatus.eval))
-            self.inner.run()
+        # TODO (nadine) return reduced results to avoid L:223
+        results = self.inner.train()
 
-        # TODO check if eval mechanisms published. If parallel and sequential eval both turned on
-        # will be a problem
-        if self.eval_seeds:
-            # TODO flush all remote mechanisms and env_step ctx.
-            # TODO initializing the envs with the seeds from eval_seeds
-            # TODO flush all remote mechanisms and env_step ctx.
-            # TODO eval results accumulate in eval and maintain training data !
-            self.inner.evaluate()
+        # TODO (nadine) self.reward func should not be taking metrics
+        reward = self.reward(results)
+        obs = None
+        info = {"metrics": self.inner.reduce_metrics()}
 
-        # plot results
-        self.inner.report_metrics()
+        self._t += 1
 
-        metrics = self.inner.logger.peek()
+        if self.logger is not None:
+            self.logger.push(key=("iter",), value=self._t)
 
-        # Aggregate rewards
-        reward = self.aggregate_rewards(metrics)
+        truncated = False
+        terminated = self.horizon is not None and (self._t + 1) >= self.horizon
 
-        # flush consumed contexts
-        ray.get(self.world.flush_ctx.remote(ctx_registry.keys()))
-        ray.get(self.world.flush.remote(status=MechanismStatus.eval))
+        return obs, reward, terminated, truncated, info
 
-        # return reduced data to outer optimizer
-        # TODO route this through world in future
-        # TODO applying nested reducers or in sequence
-        reduced = self.inner.reduce_metrics()
+    def action(self, action: ActType) -> Optional[ActType]:
+        """Hook for transforming the optimizer's action; does nothing here.
 
-        return None, reward, False, False, {"metrics": reduced}
-
-    # @abstractmethod
-    # @override(BaseEnv)
-    # def observation(self, observation: ObsType) -> ObsType:
-    #     # read downstream results from optimizer and compute aggregate
-    #     raise NotImplementedError
-
-    @abstractmethod
-    def aggregate_rewards(self, ctx: list[Context]) -> SupportsFloat:
-        """Reduce the inner optimizer's accumulated metrics to fitness values.
+        The base implementation returns ``None``. ``step`` does not call it,
+        so overriding it has no effect on the step.
 
         Parameters
         ----------
-        ctx
-            What ``inner.logger.peek()`` returned after training (and
-            evaluation): the inner metric schema holding the per-mechanism,
-            per-seed, per-episode rollouts. The parameter name and annotation
-            predate the metric logger; no ``Context`` list is passed.
+        action : ActType
+            The action to transform.
 
         Returns
         -------
-        SupportsFloat or list[float]
-            One fitness per candidate index, in candidate order.
+        ActType or None
+            ``None`` in the base class.
         """
 
-        return NotImplementedError
+    def observation(self, observation: ObsType) -> Optional[ObsType]:
+        """Hook for transforming the observation; does nothing here.
 
-    # @abstractmethod
-    @override(BaseEnv)
-    def action(self, action: ActType) -> list[Mechanism]:
-        """Decode optimizer vectors into mechanisms.
+        The base implementation returns ``None``. ``step`` does not call it
+        and always returns ``None`` as the observation.
 
-        Accepts a ``(d,)`` or ``(n, d)`` array-like (list, ndarray or torch
-        tensor) and returns ``n`` mechanisms decoded through the mechanism
-        space. Without a mechanism space each row is wrapped in a
-        :class:`VectorMechanism` and an already-built mechanism is passed
-        through. In analytic mode the raw action is returned unchanged.
+        Parameters
+        ----------
+        observation : WrapperObsType
+            The observation to transform.
+
+        Returns
+        -------
+        object
+            ``None`` in the base class; a benchmark may return a constant.
         """
 
-        # analytic path
-        if self.inner is None:
-            return action
+    def reward(self, reward: Any = None, **kwargs: Any) -> Any:
+        """Compute the step's reward from the inner training results.
 
-        # 1) Mechanism space path (preferred)
-        if self.m_space is not None:
-            if isinstance(action, (list, tuple)):
-                action = np.asarray(action, dtype=np.float32)
+        ``step`` calls this method with the value returned by
+        ``inner.train()`` as the first positional argument. The base
+        implementation returns ``None``; a benchmark overrides it to return
+        the fitness of each candidate of the population.
 
-            if isinstance(action, np.ndarray):
-                if action.ndim == 1:
-                    action = action[None, :]  # (d,) -> (1, d)
+        Parameters
+        ----------
+        reward : object, optional
+            The inner training results (despite the parameter's name).
+        **kwargs
+            Unused extra keywords.
 
-                # TODO parallelize
-                return [self.m_space.decode(x) for x in action]
-
-            if torch.is_tensor(action):
-                return self.action(action.detach().cpu().numpy())
-
-            raise TypeError(f"Unsupported action type: {type(action)}")
-
-        # 2) No mechanism_space: still guarantee Mechanism objects
-        if isinstance(action, (list, tuple)):
-            action = np.asarray(action, dtype=np.float32)
-
-        if isinstance(action, np.ndarray):
-            if action.ndim == 1:
-                action = action[None, :]
-
-            return [VectorMechanism(v) for v in action]
-
-        if torch.is_tensor(action):
-            return self.action(action.detach().cpu().numpy())
-
-        # If someone passed an already-built Mechanism, allow it
-        # (e.g., analytic tests).
-        if hasattr(action, "to_vector"):
-            return [action]  # type: ignore
-
-        raise TypeError(
-            f"Unsupported action type with no mechanism_space: {type(action)}"
-        )
+        Returns
+        -------
+        object
+            ``None`` in the base class; the fitness (one value per candidate,
+            in the benchmarks of this repository) in a subclass.
+        """
