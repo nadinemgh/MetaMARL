@@ -110,8 +110,28 @@ def make_env(
     )
 
 
-def actions(n: int, harvest: float, restore: float = RAW_OFF) -> dict:
+def decoded_actions(env: FisheryRegulatedEnv, mdp: MDPState, raw_actions: dict) -> dict:
+    """Decode policy outputs at the adapter boundary before updating the MDP."""
+
     return {
+        aid: {
+            mid: env.followers[aid].mechanisms[mid].decode(mdp, action)
+            for mid, action in acts.items()
+        }
+        for aid, acts in raw_actions.items()
+    }
+
+
+def actions(
+    env: FisheryRegulatedEnv,
+    mdp: MDPState,
+    n: int,
+    harvest: float,
+    restore: float = RAW_OFF,
+) -> dict:
+    """Return the decoded actions corresponding to the supplied policy outputs."""
+
+    raw_actions = {
         aid: {
             "harvest": np.asarray([harvest], dtype=np.float32),
             "restore": np.asarray([restore], dtype=np.float32),
@@ -119,14 +139,16 @@ def actions(n: int, harvest: float, restore: float = RAW_OFF) -> dict:
         for aid in fisher_ids(n)
     }
 
+    return decoded_actions(env, mdp, raw_actions)
+
 
 def play(env: FisheryRegulatedEnv, n: int, steps: int, harvest: float, **kwargs):
-    """Reset, then step ``steps`` times with constant raw actions."""
+    """Reset, then decode and step with constant raw policy outputs."""
 
     mdp = env.reset(MDPState(aids=set(fisher_ids(n))))
 
     for _ in range(steps):
-        mdp.update(actions=actions(n, harvest, **kwargs))
+        mdp.update(actions=actions(env, mdp, n, harvest, **kwargs))
 
         mdp = env.step(mdp)
 
@@ -206,7 +228,7 @@ def test_a_single_fisher_requests_a_sigmoid_fraction_of_its_capacity(raw, fracti
     env = make_env(n=1)
     mdp = env.reset(MDPState(aids=set(fisher_ids(1))))
 
-    mdp.update(actions=actions(1, raw))
+    mdp.update(actions=actions(env, mdp, 1, raw))
 
     mdp = env.step(mdp)
 
@@ -220,7 +242,7 @@ def test_one_step_of_the_schaefer_equation_by_hand():
     env = make_env(n=1)
     mdp = env.reset(MDPState(aids=set(fisher_ids(1))))
 
-    mdp.update(actions=actions(1, 0.0))
+    mdp.update(actions=actions(env, mdp, 1, 0.0))
 
     mdp = env.step(mdp)
 
@@ -241,7 +263,7 @@ def test_one_step_of_the_pella_tomlinson_equation_by_hand():
     env = make_env(n=1, r=0.4, K=2000.0, p=2.0, fish_init=1000.0)
     mdp = env.reset(MDPState(aids=set(fisher_ids(1))))
 
-    mdp.update(actions=actions(1, 0.0))
+    mdp.update(actions=actions(env, mdp, 1, 0.0))
 
     mdp = env.step(mdp)
 
@@ -260,7 +282,7 @@ def test_the_first_step_already_delivers_its_catch():
     env = make_env(n=2)
     mdp = env.reset(MDPState(aids=set(fisher_ids(2))))
 
-    mdp.update(actions=actions(2, 0.0))
+    mdp.update(actions=actions(env, mdp, 2, 0.0))
 
     mdp = env.step(mdp)
 
@@ -303,16 +325,20 @@ def test_requests_above_the_stock_are_shared_pro_rata():
     mdp = env.reset(MDPState(aids=set(fisher_ids(2))))
 
     mdp.update(
-        actions={
-            "fisherman:0": {
-                "harvest": np.asarray([0.0], dtype=np.float32),
-                "restore": np.asarray([RAW_OFF], dtype=np.float32),
+        actions=decoded_actions(
+            env,
+            mdp,
+            {
+                "fisherman:0": {
+                    "harvest": np.asarray([0.0], dtype=np.float32),
+                    "restore": np.asarray([RAW_OFF], dtype=np.float32),
+                },
+                "fisherman:1": {
+                    "harvest": np.asarray([RAW_ON], dtype=np.float32),
+                    "restore": np.asarray([RAW_OFF], dtype=np.float32),
+                },
             },
-            "fisherman:1": {
-                "harvest": np.asarray([RAW_ON], dtype=np.float32),
-                "restore": np.asarray([RAW_OFF], dtype=np.float32),
-            },
-        }
+        )
     )
 
     mdp = env.step(mdp)
@@ -350,13 +376,17 @@ def test_the_outcome_does_not_depend_on_the_order_of_the_fishers():
         mdp = env.reset(MDPState(aids=set(fisher_ids(2))))
 
         mdp.update(
-            actions={
-                aid: {
-                    "harvest": np.asarray([raw], dtype=np.float32),
-                    "restore": np.asarray([RAW_OFF], dtype=np.float32),
-                }
-                for aid, raw in raw_by_fisher.items()
-            }
+            actions=decoded_actions(
+                env,
+                mdp,
+                {
+                    aid: {
+                        "harvest": np.asarray([raw], dtype=np.float32),
+                        "restore": np.asarray([RAW_OFF], dtype=np.float32),
+                    }
+                    for aid, raw in raw_by_fisher.items()
+                },
+            )
         )
 
         mdp = env.step(mdp)
@@ -394,7 +424,7 @@ def test_restoration_adds_biomass_shared_over_the_fishermen():
     env = make_env(n=2, restoration_effectiveness=0.01, fish_init=1000.0)
     mdp = env.reset(MDPState(aids=set(fisher_ids(2))))
 
-    mdp.update(actions=actions(2, RAW_OFF, restore=RAW_ON))
+    mdp.update(actions=actions(env, mdp, 2, RAW_OFF, restore=RAW_ON))
 
     mdp = env.step(mdp)
 
@@ -408,7 +438,7 @@ def test_restoration_enters_the_equation_next_to_the_production():
     env = make_env(n=2, restoration_effectiveness=0.01)
     mdp = env.reset(MDPState(aids=set(fisher_ids(2))))
 
-    mdp.update(actions=actions(2, RAW_OFF, restore=RAW_ON))
+    mdp.update(actions=actions(env, mdp, 2, RAW_OFF, restore=RAW_ON))
 
     mdp = env.step(mdp)
 
@@ -421,7 +451,7 @@ def test_no_restoration_effectiveness_makes_the_effort_inert():
     env = make_env(n=2, restoration_effectiveness=0.0)
     mdp = env.reset(MDPState(aids=set(fisher_ids(2))))
 
-    mdp.update(actions=actions(2, RAW_OFF, restore=RAW_ON))
+    mdp.update(actions=actions(env, mdp, 2, RAW_OFF, restore=RAW_ON))
 
     mdp = env.step(mdp)
 
@@ -560,7 +590,7 @@ def test_the_first_noise_draw_is_sigma_times_a_normal_draw_times_the_stock():
     env = make_env(n=1, sigma=0.2)
     mdp = env.reset(MDPState(aids=set(fisher_ids(1))))
 
-    mdp.update(actions=actions(1, RAW_OFF))
+    mdp.update(actions=actions(env, mdp, 1, RAW_OFF))
 
     mdp = env.step(mdp)
 
