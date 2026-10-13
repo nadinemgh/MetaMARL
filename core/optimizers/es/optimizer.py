@@ -182,7 +182,7 @@ class ESOptimizer(Optimizer):
     ...     def reset(self):
     ...         return None, {}
     ...     def step(self, actions):
-    ...         fitness = [-((a["quota"][0] - 0.8) ** 2) for a in actions]
+    ...         fitness = [-((a["quota"] - 0.8) ** 2) for a in actions]
     ...         return None, fitness, True, False, {}
     >>> opt.env = ToyRegulatorEnv()
     >>> summary = opt.train()

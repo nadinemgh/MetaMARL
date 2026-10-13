@@ -383,7 +383,9 @@ class BilevelOptimizer(Optimizer):
     ...                 "best_mechanism": [0.5]}
     ...     def stop(self):
     ...         self.stopped = True
-    >>> config = SimpleNamespace(episodes=None, env=None, world_name="w")
+    >>> config = SimpleNamespace(
+    ...     episodes=None, env=None, world_name="w", output_dir=None
+    ... )
     >>> outer, inner = Level(), Level()
     >>> bilevel = BilevelOptimizer(config, outer=outer, inner=inner, reporter=None)
     >>> bilevel.train()["best_fitness"]
