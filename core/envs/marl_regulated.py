@@ -304,12 +304,21 @@ class MultiAgentEnv(ABC):
 
         super().__init_subclass__(**kwargs)
 
-        for name, func in tuple(cls.__dict__.items()):
-            if getattr(func, "reset", False):
-                cls._reset = name
+        marked: dict[str, str] = {}
 
-            if getattr(func, "transition", False):
-                cls._transition = name  # S_{t+1} = T(S_t, A_t)
+        for name, func in tuple(cls.__dict__.items()):
+            for hook in ("reset", "transition"):
+                if not getattr(func, hook, False):
+                    continue
+
+                if hook in marked:
+                    raise TypeError(
+                        f"{cls.__name__} marks both {marked[hook]!r} and {name!r} "
+                        + f"as the {hook!r} hook; a class can have only one."
+                    )
+
+                marked[hook] = name
+                setattr(cls, f"_{hook}", name)
 
             if getattr(func, "state_space", False):
                 cls._state_space = name
