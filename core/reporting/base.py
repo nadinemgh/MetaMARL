@@ -29,7 +29,9 @@ from core.metrics.metric.base import PrimitiveType
 from core.metrics.schemas import MetricSchema
 from core.reporting.query import Path, Query
 
+# One series of a query: ``(junction, dynamic_id)`` pairs, ``()`` if no dynamic node.
 Group: TypeAlias = tuple[tuple[str, str], ...]
+# Resolved series of one path: one list of values per group.
 Resolved: TypeAlias = dict[Group, list[PrimitiveType]]
 
 logger = logging.getLogger(__name__)
@@ -319,7 +321,9 @@ class Reporter(ABC):
                 reduced: Resolved = {}
                 errors: Resolved = {}
 
-                for branch_group in groups:
+                # Iterate the first branch's groups, which SERIES built in sorted
+                # order, not the set, whose order depends on PYTHONHASHSEED.
+                for branch_group in branches[0].values:
                     series = [branch.values[branch_group] for branch in branches]
                     lengths = {len(values) for values in series}
 
@@ -329,12 +333,31 @@ class Reporter(ABC):
                             f"{sorted(lengths)}."
                         )
 
-                    values = np.asarray(series, dtype=np.float64)
-                    reduced[branch_group] = np.mean(values, axis=0).tolist()
+                    # A gap (None) is a push in which the logger had no value for
+                    # that branch, so the mean and the standard deviation at each
+                    # point run over the branches that have one; a point where
+                    # every branch is a gap is NaN. A NaN value is not a gap and
+                    # still propagates.
+                    present = np.asarray(
+                        [[value is not None for value in values] for values in series]
+                    )
+                    values = np.where(
+                        present, np.asarray(series, dtype=np.float64), 0.0
+                    )
+                    counts = present.sum(axis=0)
+                    observed = counts > 0
+                    mean = np.full(values.shape[1], np.nan)
+                    mean[observed] = values.sum(axis=0)[observed] / counts[observed]
+                    reduced[branch_group] = mean.tolist()
 
                     if capture_error:
                         if error == "std":
-                            errors[branch_group] = np.std(values, axis=0).tolist()
+                            deviations = np.where(present, values - mean, 0.0)
+                            std = np.full(values.shape[1], np.nan)
+                            std[observed] = np.sqrt(
+                                (deviations**2).sum(axis=0)[observed] / counts[observed]
+                            )
+                            errors[branch_group] = std.tolist()
 
                 return PathResolution(values=reduced, errors=errors)
 
