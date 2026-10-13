@@ -576,8 +576,6 @@ class MultiAgentEnv(ABC):
         mdp = mdp.add([agent.reward(mdp) for agent in self.agents.values()])
         mdp = self.transition(mdp)
 
-        mdp.update(rewards={aid: 0.0 for aid in mdp.rewards.data})
-
         mdp = self.termination(mdp)
 
         if self.logger is not None:
