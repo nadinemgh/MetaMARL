@@ -56,8 +56,8 @@ class TestInterface:
 
         assert Mechanism.decode(mechanism, MDPState(), 0.25) == 0.25
 
-    def test_the_default_observation_is_empty(self):
-        residual = Recorder().observe(MDPState(t=3))
+    def test_the_default_initial_contribution_is_empty(self):
+        residual = Recorder().on_reset(MDPState(t=3))
 
         assert residual.obs.data == {}
         assert residual.rewards.data == {}
