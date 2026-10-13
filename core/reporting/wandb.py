@@ -101,7 +101,6 @@ class WandbConfig(ReporterConfig):
         quiet: Optional[bool] = True,
         max_end_of_run_summary_metrics: Optional[int] = 0,
         max_end_of_run_history_metrics: Optional[int] = 0,
-        **kwargs: Any,
     ) -> None:
         super().__init__(project=project)
 
@@ -368,13 +367,13 @@ class WandbReporter(Reporter):
         errors: list[Resolved],
         colors: Resolved | None,
     ) -> None:
+        if not any(ys):
+            return
+
         self._init_run()
 
         if self._run is None:
             raise RuntimeError("W&B run failed to initialize.")
-
-        if not any(ys):
-            return
 
         fig = self._series_figure(
             query=query, xs=x, yss=ys, error_yss=errors, color_values=colors
