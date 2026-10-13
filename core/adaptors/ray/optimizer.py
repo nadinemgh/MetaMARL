@@ -122,6 +122,11 @@ class RayOptimizer(Optimizer):
 
         # self.rollout_fragment_length = config.rollout_fragment_length
 
+        # Learner modules declared by ``RayOptimizerConfig._apply_agents_to_rllib``;
+        # each gets one learner entry per training iteration (see
+        # ``build_learner``).
+        self._module_ids: tuple[str, ...] = tuple(config.rllib_cfg.policies)
+
         from core.adaptors.ray.policy_actor import PolicyActor
 
         self.policy_actor = PolicyActor.remote(config.rllib_cfg)
@@ -222,7 +227,7 @@ class RayOptimizer(Optimizer):
 
         train = TrainSchema(
             rollout=build_rollout(result),
-            learner=build_learner(result),
+            learner=build_learner(result, module_ids=self._module_ids),
             performance=build_performance(result),
         )
         eval_result = result.get("evaluation")
