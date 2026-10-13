@@ -16,7 +16,12 @@ the stock read before each step, not from the mechanisms:
   ``e = sigmoid(z_restore / 4)``, and the restoration cost ``cost * e**2``
   that the fisher's own Restore mechanism charges;
 - penalty residual: ``-amount / (1 + exp((b - threshold) / width))`` at the
-  normalised stock ``b`` of the step.
+  normalised stock ``b`` of the step;
+- quota fine: ``-min(1, FINE_AMOUNT * violation)``, where the violation is the
+  smooth hinge of the request above the allowed fraction, of width 0.03 (the
+  reward residual of ``Quota.apply``);
+- collapse penalty of the transition: ``-0.1 / (1 + exp((b' - 0.2) / 0.03))``
+  at the normalised stock ``b'`` after the step (``pella_tomlinson``).
 """
 
 import math
@@ -27,7 +32,7 @@ from gymnasium import spaces
 
 from core.mechanism.algorithms.incentive import MAX, Incentive
 from core.mechanism.algorithms.penalty import ThresholdPenalty
-from core.mechanism.algorithms.quota import Quota
+from core.mechanism.algorithms.quota import FINE_AMOUNT, Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
 from examples.bilevel_fishery.regulated_env import RestoreConfig
 
@@ -36,6 +41,10 @@ HORIZON = 20
 TEMPERATURE = 4.0
 QUOTA_WIDTH = 0.03
 USAGE_WIDTH = 0.005
+VIOLATION_WIDTH = 0.03
+COLLAPSE_AMOUNT = 0.1
+COLLAPSE_THRESHOLD = 0.20
+COLLAPSE_WIDTH = 0.03
 
 # Under these seeded actions the stock of the shrunk fishery stays between 0.72
 # and 0.81 of the capacity, so a quota inside that range cuts the larger
@@ -87,6 +96,20 @@ def delivered_fraction(z: float, level: float, quota: float) -> float:
     return requested - softplus0(requested - allowed_fraction(level, quota))
 
 
+def quota_fine(request: float, level: float, quota: float) -> float:
+    violation = softplus0(
+        request - allowed_fraction(level, quota), width=VIOLATION_WIDTH
+    )
+
+    return -min(1.0, FINE_AMOUNT * violation)
+
+
+def collapse_penalty(next_level: float) -> float:
+    return -COLLAPSE_AMOUNT / (
+        1.0 + math.exp((next_level - COLLAPSE_THRESHOLD) / COLLAPSE_WIDTH)
+    )
+
+
 def subsidy_residual(z_restore: float) -> float:
     effort = requested_fraction(z_restore)
 
@@ -110,9 +133,7 @@ def quota_config():
 
 def subsidy_config():
     return Incentive(
-        id="subsidy",
-        action_space=UNIT_BOX,
-        acts_on=("fisherman", "restore"),
+        id="subsidy", action_space=UNIT_BOX, acts_on=("fisherman", "restore")
     )
 
 
@@ -211,6 +232,7 @@ class TestRewardComposition:
                         "aid": aid,
                         "reward": rewards[aid],
                         "level": level,
+                        "next_level": level_of(adapter),
                         "z_harvest": z_of(actions, aid, "harvest"),
                         "z_restore": z_of(actions, aid, "restore"),
                         "stored_harvest": adapter._mdp.actions[aid]["harvest"][t],
@@ -220,7 +242,7 @@ class TestRewardComposition:
 
         return records, truncateds
 
-    def test_reward_is_harvest_plus_subsidy_plus_penalty(
+    def test_reward_is_harvest_plus_subsidy_penalty_fine_and_collapse(
         self, build_fishery, candidate_context
     ):
         records, _ = self.play(build_fishery, candidate_context)
@@ -233,15 +255,18 @@ class TestRewardComposition:
                 r["stored_harvest"]
                 + (SUBSIDY_RATE * MAX * effort - RESTORATION_COST * effort**2)
                 + penalty_residual(r["level"])
+                + quota_fine(requested_fraction(r["z_harvest"]), r["level"], QUOTA)
+                + collapse_penalty(r["next_level"])
             )
 
             # The effort is decoded from a float32 policy output and the
             # restoration cost is charged on it, which leaves rounding errors of
             # about 1e-9 that the exact comparison of the former mechanism did
-            # not have.
-            assert r["reward"] == pytest.approx(expected, abs=1e-8)
+            # not have. The fine is computed from the request in double
+            # precision, which the float32 action only matches to about 1e-7.
+            assert r["reward"] == pytest.approx(expected, abs=FLOAT32_ATOL)
 
-    def test_reward_matches_the_formulas_of_the_three_mechanisms(
+    def test_reward_matches_the_formulas_of_the_mechanisms_and_the_transition(
         self, build_fishery, candidate_context
     ):
         records, _ = self.play(build_fishery, candidate_context)
@@ -251,6 +276,8 @@ class TestRewardComposition:
                 delivered_fraction(r["z_harvest"], r["level"], QUOTA)
                 + subsidy_residual(r["z_restore"])
                 + penalty_residual(r["level"])
+                + quota_fine(requested_fraction(r["z_harvest"]), r["level"], QUOTA)
+                + collapse_penalty(r["next_level"])
             )
 
             assert r["reward"] == pytest.approx(expected, abs=FLOAT32_ATOL)
@@ -259,7 +286,8 @@ class TestRewardComposition:
         self, build_fishery, candidate_context
     ):
         # Guards against a vacuous composition: the quota must bind on some
-        # requests, and the subsidy and the penalty must both move the reward.
+        # requests, and the subsidy, the penalty and the quota fine must all
+        # move the reward.
         records, _ = self.play(build_fishery, candidate_context)
         cut = [
             requested_fraction(r["z_harvest"]) - r["stored_harvest"] for r in records
@@ -273,6 +301,14 @@ class TestRewardComposition:
 
         assert min(penalties) < -0.05
         assert max(penalties) - min(penalties) > 0.02
+
+        fines = [
+            quota_fine(requested_fraction(r["z_harvest"]), r["level"], QUOTA)
+            for r in records
+        ]
+
+        assert min(fines) < -0.01
+        assert max(fines) == pytest.approx(0.0, abs=1e-3)
 
     def test_the_episode_is_truncated_at_the_horizon(
         self, build_fishery, candidate_context
@@ -409,7 +445,7 @@ class TestSocialObservations:
                 assert obs[HARVEST_ENTRY] == 0.0
                 assert obs[RESTORE_ENTRY] == 0.0
 
-    def test_without_a_candidate_the_reward_is_the_requested_harvest(
+    def test_without_a_candidate_the_reward_is_the_requested_harvest_net_of_costs(
         self, build_fishery
     ):
         fishery = build_fishery(
@@ -430,9 +466,17 @@ class TestSocialObservations:
             _, rewards, _, _, _ = adapter.step(actions)
 
             for aid in adapter.possible_agents:
-                assert rewards[aid] == pytest.approx(
-                    requested_fraction(z_of(actions, aid, "harvest")), abs=FLOAT32_ATOL
+                # The requested harvest, less the fisher's own restoration cost
+                # and the collapse penalty of the transition; the regulator
+                # holds no candidate, so none of its mechanisms acts.
+                expected = (
+                    requested_fraction(z_of(actions, aid, "harvest"))
+                    - RESTORATION_COST
+                    * requested_fraction(z_of(actions, aid, "restore")) ** 2
+                    + collapse_penalty(level_of(adapter))
                 )
+
+                assert rewards[aid] == pytest.approx(expected, abs=FLOAT32_ATOL)
 
     def test_entries_fill_in_once_the_candidate_arrives(
         self, build_fishery, candidate_context
