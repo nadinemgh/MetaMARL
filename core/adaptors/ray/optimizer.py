@@ -362,7 +362,7 @@ class RayOptimizer(Optimizer):
         ray.get(self.policy_actor.stop.remote())
         logger.info("[Ray] Algorithm stopped")
 
-        return self.logger.reduce(complie=True)
+        return self.logger.reduce()
 
     @override(Optimizer)
     def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:
