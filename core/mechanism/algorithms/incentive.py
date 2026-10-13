@@ -3,9 +3,12 @@
 For a targeted agent ``i`` with decoded action ``e_i`` in ``(0, 1)``
 and incentive rate ``alpha``, the mechanism contributes
 
-    delta_r_i = alpha * e_i
+    delta_r_i = MAX * alpha * e_i
 
-to the agent's reward at the current step.
+to the agent's reward at the current step, where ``MAX`` is a temporary
+scale factor of the benchmark (``0.5``, see the TODO below). The targeted
+action is read as it is stored: the Ray adaptor decodes the agents' policy
+outputs before the mechanism runs.
 
 The rate is selected by the regulator. Positive rates reward the targeted
 behavior; the current implementation supports only non-negative rates.
@@ -61,9 +64,10 @@ class IncentiveMechanism(Mechanism):
     contributions. It does not compute intrinsic action costs, constrain
     actions or modify the physical environment.
 
-    Targeted actions are interpreted as raw policy outputs and decoded
-    using ``sigmoid(z / ACTION_TEMPERATURE)``. This assumes the targeted
-    actions have not already been decoded or modified.
+    Targeted actions are read as they are stored in ``mdp.actions``, that
+    is already decoded into an effort fraction by the caller (the Ray
+    adaptor for followers, ``sigmoid(z / ACTION_TEMPERATURE)`` in the
+    fishery); the mechanism does not decode them again.
 
     During reset, the mechanism can expose its incentive rate to
     targeted agents through their observations.
@@ -80,13 +84,13 @@ class IncentiveMechanism(Mechanism):
     ... ).build("regulator")
     >>> mdp = MDPState(
     ...     actions={
-    ...         "regulator": {"incentive": np.array([0.5])},
-    ...         "fisherman:0": {"restore": np.array([0.0])},
+    ...         "regulator": {"incentive": 0.5},
+    ...         "fisherman:0": {"restore": np.array([0.5])},  # decoded effort
     ...     }
     ... )
-    >>> delta = mechanism(mdp, np.array([0.5]))
-    >>> delta.rewards["fisherman:0"]  # 0.5 * sigmoid(0)
-    [0.25]
+    >>> delta = mechanism(mdp, 0.5)
+    >>> delta.rewards["fisherman:0"]  # MAX * 0.5 * 0.5
+    [0.125]
     """
 
     @override(Mechanism)
@@ -171,16 +175,14 @@ class IncentiveMechanism(Mechanism):
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:
         """Compute the incentive reward for each targeted agent.
 
-        For each targeted agent ``i``, the raw action ``z_i`` of the
-        specified mechanism is decoded into an effort fraction:
+        For each targeted agent ``i``, the effort fraction ``e_i`` of the
+        specified mechanism, already decoded and stored in ``mdp.actions``, is
+        read at the current step. The reward contribution is:
 
-            e_i = sigmoid(z_i / ACTION_TEMPERATURE)
+            delta_r_i = MAX * alpha * e_i
 
-        The reward contribution is then:
-
-            delta_r_i = alpha * e_i
-
-        where ``alpha`` is the regulator's decoded incentive rate.
+        where ``alpha`` is the regulator's decoded incentive rate and ``MAX``
+        the temporary scale factor of this module.
 
         Parameters
         ----------
