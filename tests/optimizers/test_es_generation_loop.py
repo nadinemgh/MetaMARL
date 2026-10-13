@@ -34,7 +34,7 @@ def quota_fitness(target: float):
 
     def fitness(actions):
         return np.array(
-            [-((a["quota"][0] - target) ** 2) for a in actions], dtype=np.float32
+            [-((a["quota"] - target) ** 2) for a in actions], dtype=np.float32
         )
 
     return fitness
