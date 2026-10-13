@@ -589,7 +589,7 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         Otherwise it is drawn from a lognormal distribution with median
         ``fish_init`` and log-scale spread ``initial_stock_log_sigma``, using
         the environment's seeded generator, and clipped to ``[1e-8, K]``. The
-        usage (the logged harvest of the previous step) starts at 0.
+        harvest recorded for the step starts at 0.
 
         Parameters
         ----------
@@ -600,7 +600,7 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         -------
         MDPState
             A residual with ``state["fish"]`` (biomass units),
-            ``state["usage"]`` (biomass units per step) and ``params`` set to
+            ``state["harvest"]`` (biomass units per step) and ``params`` set to
             the ``ecology`` dictionary itself, not a copy.
 
         Examples
@@ -617,7 +617,7 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         ...                  "initial_stock_log_sigma": 0.0},
         ... )
         >>> residual = env.reset_fishery(MDPState())
-        >>> residual.state["fish"], residual.state["usage"]
+        >>> residual.state["fish"], residual.state["harvest"]
         ([800.0], [0.0])
         """
 
@@ -671,51 +671,54 @@ class FisheryRegulatedEnv(MultiAgentEnv):
     def pella_tomlinson(self, mdp: MDPState) -> MDPState:
         """Advance the stock one step with the surplus-production equation.
 
-        The fishers have already recorded what they request and restore at
-        step ``t = mdp.t``; the stock ``B = mdp.state["fish"][t]`` is untouched.
-        The transition adds up the requests. When their total exceeds ``B``,
-        every fisher receives the same fraction ``B / total`` of its request
-        (a pro-rata share), otherwise every request is delivered in full; the
-        delivered total is the catch ``C``. It then computes the production
-        ``g = (r / p) * B * (1 - (B / K)^p)`` and the process noise
-        ``sigma * N(0, 1) * B``, both on ``B``, and the next stock
-        ``max(B + g + restoration + noise - C, 0)``. The step records the
-        catch as the ``usage`` that the next observation reads, so
-        ``H_realized`` is exactly ``C``.
+        The fishers' mechanisms have already acted at step ``t = mdp.t``: each
+        removed its request from ``state["fish"]`` and added it to
+        ``state["harvest"]``, and each restoration added its biomass to
+        ``state["fish"]`` and to ``state["restore"]``. The transition recovers
+        the stock at the beginning of the step, ``B = fish - restore +
+        harvest``, and computes the production ``g = (r / p) * B * (1 - (B /
+        K)^p)`` and the process noise ``sigma * N(0, 1) * B``, both on ``B``.
+        The growth is the production plus the noise plus the restoration, and
+        the biomass available is ``max(B + growth, 0)``. The catch is the
+        requested harvest, limited to the biomass available, and the next stock
+        is the available biomass minus the catch, clipped to ``[0, K]``. The
+        fishers are not rationed one by one: the request of the whole society
+        is capped at once. Every follower also receives a collapse penalty, a
+        smooth step from ``0.1`` towards ``0`` as the normalized next stock
+        rises above ``0.2``.
 
         The method pushes ``B_msy``, ``MSY``, ``F_msy``, ``fish_stock`` (the
         stock ``B``), ``fish_stock_next``, the four ``fish_norm_next_*``
-        fields and ``fish_norm_next_series``, ``growth`` (production plus
-        noise), ``growth_noise``, ``H_attempted`` (the total request),
-        ``H_realized`` and ``H_realized_series``, ``total_usage_norm`` and,
-        for every fisher,
-        ``by_agent[aid].requested_harvest`` and
-        ``by_agent[aid].delivered_harvest`` into the environment's metric
-        logger, when it has one; without a schema it only advances the stock.
+        fields and ``fish_norm_next_series``, ``growth`` (production,
+        restoration and noise), ``growth_noise``, ``H_attempted`` (the total
+        request), ``H_realized`` (the catch) and ``H_realized_series``, and
+        ``total_usage_norm`` (the catch over ``K``) into the environment's
+        metric logger, when it has one; without a schema it only advances the
+        stock.
 
         Parameters
         ----------
         mdp : MDPState
-            Shared state with the ``fish`` trajectory (biomass units), the
-            ``catch_request`` of each fisher and the total ``restoration`` of
-            the step (both recorded by the fishers' mechanisms), and the
-            ``ecology`` parameters in ``params``.
+            Shared state with the ``fish``, ``harvest`` and ``restore``
+            trajectories (biomass units), written by the fishers' mechanisms,
+            and the ``ecology`` parameters in ``params``.
 
         Returns
         -------
         MDPState
             The state advanced by one time index, with the next stock appended
-            to ``state["fish"]`` (biomass units) and the delivered catch to
-            ``state["usage"]`` (biomass units per step). The requests and the
-            restoration restart from zero at the new index.
+            to ``state["fish"]`` (biomass units); the harvest and the
+            restoration restart from zero at the new index. The collapse
+            penalty is added to the rewards of the followers.
 
         Examples
         --------
-        Two fishers request 600 each from a stock of 800. The total request of
-        1200 exceeds the stock, so each receives two thirds of its request (400)
-        and the catch is 800. With a production of ``0.3 * 800 * (1 - 0.8) =
-        48`` the next stock is ``800 + 48 - 800 = 48``:
+        Two fishers request 100 together from a stock of 800 and nobody
+        restores. With a production of ``0.3 * 800 * (1 - 0.8) = 48`` the
+        biomass available is 848, the catch is the 100 requested and the next
+        stock is 748:
 
+        >>> import numpy as np
         >>> from core.mechanism.base import MDPState
         >>> from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
         >>> env = FisheryRegulatedEnv(
@@ -727,13 +730,14 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         ...     ecology_cfg={"r": 0.3, "K": 1000.0, "p": 1.0, "fish_init": 800.0,
         ...                  "sigma": 0.0, "initial_stock_log_sigma": 0.0},
         ... )
+        >>> env.rng = np.random.default_rng(env.seed)  # MultiAgentEnv.reset does it
         >>> mdp = MDPState().add(env.reset_fishery(MDPState()))
-        >>> mdp = mdp.add(MDPState(state={"catch_request": {"a": 600.0, "b": 600.0}}))
-        >>> advanced = env.pella_tomlinson(mdp)
-        >>> [round(value, 3) for value in advanced.state["fish"]]
-        [800.0, 48.0]
-        >>> advanced.state["usage"]
-        [0.0, 800.0]
+        >>> requests = MDPState(state={"fish": -100.0, "harvest": 100.0, "restore": 0.0})
+        >>> advanced = env.pella_tomlinson(mdp.add(requests))
+        >>> [round(float(value), 3) for value in advanced.state["fish"]]
+        [700.0, 748.0]
+        >>> advanced.state["harvest"]
+        [100.0, 0.0]
         """
 
         # intervention already happened
