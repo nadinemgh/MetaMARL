@@ -542,8 +542,9 @@ class IrrigateConfig(MechanismConfig):
 
     Examples
     --------
-    >>> type(IrrigateConfig(id="irrigate", action_space=IRRIGATE_SPACE).build("u:0"))
-    <class 'examples.fresh_water.regulated_env.Irrigate'>
+    >>> irrigate = IrrigateConfig(id="irrigate", action_space=IRRIGATE_SPACE)
+    >>> type(irrigate.build("u:0")).__name__
+    'Irrigate'
     """
 
     mechanism_cls: ClassVar[type[Mechanism]] = Irrigate
