@@ -196,7 +196,7 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
         json_schema_extra={"reduce": ReduceProtocol.MAX}
     )
     fish_norm_next_last: Optional[float] = Field(
-        json_schema_extra={"reduce": ReduceProtocol.MAX}
+        json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
 
     # full_required_harvest: float = Field(
