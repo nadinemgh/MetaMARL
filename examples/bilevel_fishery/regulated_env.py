@@ -128,21 +128,33 @@ class Fisherman(Agent):
     does for you; instantiate it directly only to test the observation or the
     reward in isolation.
 
+    The observation has nine slots, a layout inherited from the legacy fishery
+    benchmark that the code marks as temporary. The fisher writes the stock
+    fraction into slot 0 and the harvest fraction of the previous step into
+    slot 2. The quota mechanism writes the allowed fraction (slot 1), the fixed
+    quota (slot 3) and the parameters of its fine (slots 4 to 7), and the
+    incentive mechanism writes the restoration subsidy (slot 8). The state
+    keys the observation reads are ``fish``, ``harvest`` and ``restore``.
+
     Examples
     --------
     >>> import numpy as np
     >>> from gymnasium import spaces
     >>> from core.mechanism.base import MDPState
-    >>> box = spaces.Box(-np.inf, np.inf, shape=(5,), dtype=np.float32)
+    >>> box = spaces.Box(-np.inf, np.inf, shape=(9,), dtype=np.float32)
     >>> fisher = Fisherman(
     ...     id="fisherman:0",
     ...     policy_id="fisher_policy",
     ...     mechanisms={},
     ...     observation_space=box,
     ... )
-    >>> mdp = MDPState(state={"fish": 800.0, "harvest": 0.0}, params={"K": 1000.0})
+    >>> mdp = MDPState(
+    ...     state={"fish": [800.0, 640.0], "harvest": [100.0, 0.0]},
+    ...     params={"K": 1000.0},
+    ...     t=1,
+    ... )
     >>> fisher.observation(mdp).obs["fisherman:0"][0].tolist()
-    [0.800000011920929, 0.0, 0.0, 0.0, 0.0]
+    [0.6399999856948853, 0.0, 0.10000000149011612, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     """
 
     def observation(self, mdp: MDPState) -> MDPState:
@@ -236,8 +248,10 @@ class FishermanConfig(AgentConfig):
     shared_policy : bool
         Whether the fishers share one policy (default ``True``).
     observation_space : gymnasium.Space or None
-        Observation space of a fisher, a ``Box``. The fisher fills slots 0 and
-        2; the other slots belong to the leaders' mechanisms.
+        Observation space of a fisher, a ``Box`` of shape ``(9,)`` in the
+        fishery. The fisher fills slots 0 and 2; the other slots belong to the
+        leaders' mechanisms (see the temporary nine-slot layout in
+        :class:`Fisherman`).
 
     When to use: in the ``agents`` of the inner optimizer configuration, once
     for the whole society of fishers.

@@ -48,7 +48,10 @@ ECOLOGY = {
 
 """Ecology of ``examples/bilevel_fishery/debug.py``, unchanged."""
 
-OBSERVATION_SIZE = 5
+# Nine slots, as in the fisher observation space of
+# examples/bilevel_fishery/debug.py: the quota and incentive mechanisms write
+# their legacy slots 1 and 3 to 8 there, so a smaller space cannot hold them.
+OBSERVATION_SIZE = 9
 REGULATOR = "fisheries_regulator"
 
 
