@@ -59,8 +59,7 @@ class OptimizerConfig(_Config, ABC):
     - *Freeze*: ``freeze()`` flips ``_is_frozen``; afterwards any attribute
       assignment raises ``AttributeError`` (enforced in ``__setattr__``).
       Freezing is shallow: nested objects such as ``env_config`` stay
-      mutable. ``RayOptimizerConfig`` overrides ``freeze`` with a deferred
-      RLlib mutator, so its copies are not frozen by ``copy(copy_frozen=True)``.
+      mutable.
     - *Copy*: ``copy(copy_frozen=...)`` deep-copies the config and sets the
       frozen flag of the copy. ``build_optimizer`` builds from
       ``self.copy(copy_frozen=True)``, so the original stays editable.

@@ -1158,18 +1158,6 @@ class RayOptimizerConfig(OptimizerConfig):
         return opt
 
     @rllib_config_mutator
-    @override(OptimizerConfig)
-    def freeze(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.freeze``.
-
-        Records a freeze of the *RLlib* config for replay; it does not freeze
-        this ``RayOptimizerConfig`` (``build_optimizer`` does that through
-        ``copy(copy_frozen=True)``).
-        """
-
-        return cfg.freeze(**kwargs)
-
-    @rllib_config_mutator
     def _training_rllb(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
         """Deferred ``AlgorithmConfig.training`` (algorithm hyperparameters)."""
 
