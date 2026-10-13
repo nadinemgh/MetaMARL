@@ -6,12 +6,15 @@ Walters, 1992), here with the Pella-Tomlinson production function
 (Pella & Tomlinson, 1969) in the parametrization with an intrinsic growth rate
 ``r`` and a shape parameter ``p``:
 
-    B(t + 1) = max(B(t) + g(B(t)) + R(t) + noise(t) - C(t), 0)
+    A(t) = max(B(t) + g(B(t)) + R(t) + noise(t), 0)
+
+    B(t + 1) = clip(A(t) - C(t), 0, K)
 
     g(B) = (r / p) * B * (1 - (B / K)^p)
 
 where ``K`` is the carrying capacity, ``R(t)`` the total restoration of the
-fishers, ``C(t)`` the total catch actually delivered and
+fishers, ``A(t)`` the biomass available at the step, ``C(t) = min(H(t), A(t))``
+the total catch actually delivered (``H(t)`` is the total catch requested) and
 ``noise(t) = sigma * N(0, 1) * B(t)`` Gaussian process noise proportional to
 the stock. ``p = 1`` gives the Schaefer logistic model ``r * B * (1 - B / K)``.
 The maximum sustainable yield reference points follow from ``g'(B) = 0``:
@@ -26,33 +29,47 @@ fraction ``f = sigmoid(z / 4)`` in ``(0, 1)``:
   ``m * F_msy * B / N`` (``m`` the unregulated fishing-mortality multiplier)
   that is removed from the stock;
 - the ``restore`` action is the fraction of the maximal restoration
-  ``restoration_effectiveness * K / N`` that is added to the stock.
+  ``restoration_power * K / N`` that is added to the stock; ``restoration_power``
+  is a parameter of ``RestoreConfig`` and the restoration also costs the fisher
+  ``restoration_cost`` times the square of that fraction in reward.
 
-The environment itself applies no regulation, no fine and no restoration cost.
-The leaders' mechanisms of ``core.mechanism.algorithms`` (quota, subsidy,
-penalty, social influence) act on the fishers' actions and rewards through the
-``MultiAgentEnv`` step, which runs the leaders before the fishers. A fisher's
-reward is its harvest fraction after the leaders' mechanisms have acted on it
-(a quota lowers it), plus whatever those mechanisms add to the reward. It is
-computed before the transition, so it ignores the pro-rata rationing described
-below: when the stock cannot cover every request, a fisher is still paid the
-fraction the quota let it request.
+The environment applies no quota and no fine. The leaders' mechanisms of
+``core.mechanism.algorithms`` (quota, subsidy, penalty, social influence) act
+on the fishers' actions and rewards through the ``MultiAgentEnv`` step, which
+runs the leaders before the fishers. A fisher's reward is its harvest fraction
+after the leaders' mechanisms have acted on it (a quota lowers it), minus its
+restoration cost, plus whatever those mechanisms add to the reward, minus a
+collapse penalty that the transition charges to every fisher. The harvest
+fraction is read before the transition, so it ignores the pro-rata rationing
+described below: when the biomass available cannot cover every request, a
+fisher is still paid the fraction the quota let it request.
 
 Within one step all the fishers act at the same time on the stock ``B(t)``
-that the step starts with. A fisher's ``Fishing`` mechanism records the catch
-it requests, computed from ``B(t)``, and its ``Restore`` mechanism records the
-biomass it restores; neither touches the stock, so the order of the fishers
-does not matter. The ``pella_tomlinson`` transition then adds up the requests.
-If their total exceeds ``B(t)``, every fisher receives the same fraction of its
-request (a pro-rata share), so that the catch never exceeds the stock; the
-delivered total is ``C(t)``. The transition computes ``B(t + 1)`` from the
-equation above, with the production and the noise evaluated on ``B(t)``. Every
-step pushes the series of ``FisheryMetricSchema`` (stock, growth, requested and
-delivered catches, reference points) into the environment's metric logger, when
-it was built with a schema. The observation of each fisher is the vector
-``[stock / K, 0, usage / K, 0, 0]``, where the usage is the catch ``C`` of the
-previous step; the entries left at zero are filled by the leaders' mechanisms,
-for example social influence.
+that the step starts with. A fisher's ``Fishing`` mechanism computes the catch
+it requests from ``B(t)`` and writes it to ``state["harvest"]``, taking it out
+of ``state["fish"]`` in place, and its ``Restore`` mechanism writes the biomass
+it restores to ``state["restore"]`` and puts it into ``state["fish"]``. The
+mechanisms of all the fishers read the same ``B(t)`` and their residuals are
+summed afterwards, so the order of the fishers does not matter. The
+``pella_tomlinson`` transition recovers ``B(t)`` from these sums, evaluates the
+production and the noise on it and caps the total request at the biomass
+available. When the total request exceeds it, every fisher receives the same
+fraction of its request (a pro-rata share); the delivered total is ``C(t)``.
+The catch is capped by the stock plus the growth of the step, restoration
+included, whereas version 2 capped it by the stock alone. This is a modelling
+choice of the reworked equations (commits 82fd437 and 553679a) that Nadine
+should confirm: it lets a fisher catch biomass that is restored or produced
+during the very step in which it is caught. Every step pushes the series of
+``FisheryMetricSchema`` (stock, growth, requested and delivered catches,
+reference points) into the environment's metric logger, when it was built with
+a schema.
+
+The observation of each fisher is a difference written into slot 0 (the stock
+over ``K`` at the current step) and slot 2 (the harvest of the previous step
+over ``K``), measured against what the current step already holds. The other
+slots belong to the leaders' mechanisms, for example social influence, which
+fill them through their own reset hooks. This module does not fix the number of
+slots.
 
 References
 ----------
@@ -110,9 +127,17 @@ class Fisherman(Agent):
 
     Examples
     --------
+    >>> import numpy as np
+    >>> from gymnasium import spaces
     >>> from core.mechanism.base import MDPState
-    >>> fisher = Fisherman(id="fisherman:0", policy_id="fisher_policy", mechanisms={})
-    >>> mdp = MDPState(state={"fish": 800.0, "usage": 0.0}, params={"K": 1000.0})
+    >>> box = spaces.Box(-np.inf, np.inf, shape=(5,), dtype=np.float32)
+    >>> fisher = Fisherman(
+    ...     id="fisherman:0",
+    ...     policy_id="fisher_policy",
+    ...     mechanisms={},
+    ...     observation_space=box,
+    ... )
+    >>> mdp = MDPState(state={"fish": 800.0, "harvest": 0.0}, params={"K": 1000.0})
     >>> fisher.observation(mdp).obs["fisherman:0"][0].tolist()
     [0.800000011920929, 0.0, 0.0, 0.0, 0.0]
     """
@@ -123,15 +148,21 @@ class Fisherman(Agent):
         Parameters
         ----------
         mdp : MDPState
-            Shared state with the ``fish`` and ``usage`` trajectories (biomass
-            units) and the carrying capacity ``K`` in ``params``.
+            Shared state with the ``fish`` and ``harvest`` trajectories (biomass
+            units), the carrying capacity ``K`` in ``params`` and the
+            observations already written for the current step.
 
         Returns
         -------
         MDPState
-            An MDP whose ``obs`` holds, for this agent, the ``float32`` vector
-            ``[fish / K, 0, usage / K, 0, 0]`` of shape ``(5,)``, with the
-            stock and the usage read at ``mdp.t``.
+            An MDP whose ``obs`` holds, for this agent, a ``float32`` residual
+            with the shape of the observation space. Slot 0 receives
+            ``fish[t] / K`` and slot 2 receives ``harvest[t - 1] / K`` (zero at
+            the first step), each written as the difference from the value the
+            current step already holds, so that adding the residual sets the
+            slot. The other slots are left at zero: they belong to the leaders'
+            mechanisms, for example social influence. The size of the
+            observation is set by the observation space, not here.
         """
 
         K = max(mdp.params["K"], EPS)
@@ -202,8 +233,8 @@ class FishermanConfig(AgentConfig):
     shared_policy : bool
         Whether the fishers share one policy (default ``True``).
     observation_space : gymnasium.Space or None
-        Observation space of a fisher, a ``Box`` of shape ``(5,)`` in the
-        fishery.
+        Observation space of a fisher, a ``Box``. The fisher fills slots 0 and
+        2; the other slots belong to the leaders' mechanisms.
 
     When to use: in the ``agents`` of the inner optimizer configuration, once
     for the whole society of fishers.
@@ -237,9 +268,11 @@ class Fishing(Mechanism):
     ``mdp.aids``, ``F_msy`` the harvest rate at maximum sustainable yield (per
     step) and ``m`` the ``unregulated_f_multiplier`` (dimensionless; a value
     above 1 lets the fishers harvest above the sustainable rate). The request
-    is recorded in the state under the fisher's identifier and does not change
-    the stock, so every fisher reads the same ``B`` whatever the order in which
-    the fishers act; the ``pella_tomlinson`` transition delivers the catches.
+    is written to ``state["harvest"]`` and taken out of ``state["fish"]`` in
+    place. Every fisher computes its request from the same ``B`` and the
+    residuals are summed afterwards, so the order of the fishers does not
+    matter; the ``pella_tomlinson`` transition caps the total request at the
+    biomass available and delivers the catches.
 
     When to use: as the ``harvest`` mechanism of ``FishermanConfig``, through
     ``FishingConfig``; the ``Quota`` mechanism of the regulator targets it with
@@ -321,15 +354,17 @@ class Restore(Mechanism):
     """Restoration mechanism of a fisher: restores biomass to the stock.
 
     The mechanism turns the raw policy output ``z`` into an effort
-    ``sigmoid(z / 4)`` in ``(0, 1)`` and restores ``effort * e * K / N`` biomass,
-    which the transition adds to the stock, where ``e`` is
-    ``restoration_effectiveness`` (dimensionless), ``K`` the carrying capacity
-    and ``N`` the number of agents in ``mdp.aids``. With the default
-    effectiveness of 0.05 and ``N`` fishers at full effort the stock gains
-    ``0.05 * K`` per step. The effort has no cost in the
-    environment: a cost and a reward for it come from the regulator's
-    ``Subsidy`` mechanism, which targets this one with
-    ``acts_on=("fisherman", "restore")``.
+    ``sigmoid(z / 4)`` in ``(0, 1)`` and restores ``effort * power * K / N``
+    biomass, where ``power`` is ``restoration_power`` (dimensionless), ``K`` the
+    carrying capacity and ``N`` the number of agents in ``mdp.aids``. The
+    biomass is written to ``state["restore"]`` and put into ``state["fish"]``;
+    the transition counts it in the growth of the step. With the default power
+    of 0.05 and ``N`` fishers at full effort the stock gains ``0.05 * K`` per
+    step. The effort also costs the fisher ``cost * effort^2`` in reward, where
+    ``cost`` is ``restoration_cost``. Both parameters are set by
+    ``RestoreConfig``; the ecology no longer carries a restoration parameter.
+    The regulator's ``Subsidy`` mechanism can reward the effort on top of that,
+    and targets this mechanism with ``acts_on=("fisherman", "restore")``.
 
     When to use: as the ``restore`` mechanism of ``FishermanConfig``, through
     ``RestoreConfig``.
@@ -381,8 +416,8 @@ class Restore(Mechanism):
         Parameters
         ----------
         mdp : MDPState
-            Shared state with the agents in ``aids`` and, in ``params``,
-            ``restoration_effectiveness`` and ``K`` (biomass units).
+            Shared state with the agents in ``aids`` and, in ``params``, the
+            carrying capacity ``K`` (biomass units).
         restoration_frac : ActType
             Restoration effort in ``[0, 1]`` returned by :meth:`decode`.
 
@@ -467,6 +502,12 @@ class RestoreConfig(MechanismConfig):
         Unused here (default ``None``).
     default : numpy.ndarray or None
         Unused here (default ``None``).
+    restoration_cost : float
+        Reward cost of a full restoration effort; the cost of an effort ``f`` is
+        ``restoration_cost * f^2`` (reward units, default 0.25).
+    restoration_power : float
+        Fraction of ``K`` that full effort of all the fishers adds to the stock
+        per step (dimensionless, default 0.05).
 
     When to use: in the ``mechanisms`` of ``FishermanConfig``, with
     ``id="restore"``.
@@ -515,8 +556,10 @@ class FisheryRegulatedEnv(MultiAgentEnv):
           the stock per step (default 0.05).
         - ``unregulated_f_multiplier`` : multiplier ``m`` of ``F_msy`` that
           bounds a fisher's catch (default 2.0).
-        - ``restoration_effectiveness`` : fraction of ``K`` that full effort
-          of all fishers restores per step (default 0.05).
+
+        The restoration is not set here: ``restoration_power`` and
+        ``restoration_cost`` belong to ``RestoreConfig``, and a
+        ``restoration_effectiveness`` key is no longer read.
     **kwargs : Any
         Forwarded to :class:`core.envs.marl_regulated.MultiAgentEnv`: ``world``,
         ``mechanism_id``, ``horizon``, ``agents_cfg_dict``,
@@ -536,7 +579,8 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         Parameters handed to the mechanisms as ``mdp.params``: ``r`` (per
         step), ``p``, ``K`` (biomass), ``B_msy`` (biomass), ``MSY`` (biomass
         per step), ``F_msy`` (per step), ``sigma``,
-        ``unregulated_f_multiplier`` and ``restoration_effectiveness``.
+        and ``unregulated_f_multiplier``. The restoration parameters are set
+        by ``RestoreConfig``, not by the ecology.
 
     When to use: as the ``env`` of the inner (society) optimizer of a fishery
     experiment, with ``FisheryMetricSchema`` as its schema. The carrying
@@ -686,7 +730,10 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         requested harvest, limited to the biomass available, and the next stock
         is the available biomass minus the catch, clipped to ``[0, K]``. The
         fishers are not rationed one by one: the request of the whole society
-        is capped at once. Every follower also receives a collapse penalty, a
+        is capped at once. The cap is the stock plus the growth of the step,
+        restoration and noise included, whereas version 2 capped the catch by
+        the stock alone; this is a modelling choice of the reworked equations
+        for Nadine to confirm. Every follower also receives a collapse penalty, a
         smooth step from ``0.1`` towards ``0`` as the normalized next stock
         rises above ``0.2``.
 
