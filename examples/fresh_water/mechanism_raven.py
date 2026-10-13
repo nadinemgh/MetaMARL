@@ -1,11 +1,56 @@
+"""Raven variant of the fresh-water mechanism, in the pre-merge protocol style.
+
+This module was written against the ``Mechanism`` protocol and the
+``MechanismSpace`` protocol of ``core.mechanism.space``, which the merges
+removed from ``core`` (``core.mechanism.base.Mechanism`` is now an abstract
+class that acts through ``apply``, and a mechanism's geometry is a pair of
+``decode`` and ``encode`` functions). Rather than reach for modules that no longer
+exist, the two protocols are defined here, as they were at commit ``35dade7^``,
+so the module imports. It is not wired to the current optimizers. The runnable
+equivalent, with the same eight rules and ranges, is
+``examples.fresh_water.mechanism`` (``WaterPolicy``, ``decode_rules`` and
+``encode_rules``).
+"""
+
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 import numpy as np
-from core.mechanism.space import MechanismSpace
 from numpy.typing import NDArray
 
 from core.annotations import override
-from core.mechanism.base import Mechanism
+
+
+@runtime_checkable
+class Mechanism(Protocol):
+    """Semantic representation of a mechanism (the pre-merge protocol)."""
+
+    def to_vector(self) -> list[float]:
+        """Convert the mechanism to a normalized vector."""
+
+        ...
+
+    def param_names(self) -> list[str]:
+        """Names of the entries of :meth:`to_vector`."""
+
+        ...
+
+
+class MechanismSpace(Protocol):
+    """Geometry and constraints over a mechanism manifold (pre-merge protocol)."""
+
+    dimension: int
+
+    def _validate(self, x: np.ndarray) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float32)
+
+        if x.shape != (self.dimension,):
+            raise ValueError(f"Expected shape ({self.dimension},), got {x.shape}")
+
+        if not np.isfinite(x).all():
+            raise ValueError(f"Non-finite values in vector: {x}")
+
+        return x
 
 
 @dataclass(frozen=True)

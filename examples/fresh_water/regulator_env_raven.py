@@ -51,7 +51,9 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
     def observation(self, obs: ObsType) -> ObsType:
         return 0.0
 
-    @override(RegulatorEnv)
+    # ``RegulatorEnv`` no longer defines ``aggregate_rewards`` (its ``step`` calls
+    # ``reward`` with the inner metrics), so the method is not marked with
+    # ``@override`` and nothing calls it until it is ported to ``reward``.
     def aggregate_rewards(self, ctxs: list[Context]) -> list[float]:
         """
         Compute per-mechanism fitness from step-level EnvStepContexts.
