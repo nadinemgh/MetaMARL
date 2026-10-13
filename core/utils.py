@@ -581,8 +581,8 @@ def logical_or_dict(
 
     When to use: to merge termination and truncation flags contributed by
     several mechanisms, so that an agent ends as soon as any of them says so.
-    ``MDPState.add`` does not call it at present: it keeps the flags of the
-    base state unchanged.
+    ``MDPState.add`` calls it to combine the flags of a state with those of
+    its residuals.
 
     Examples
     --------

@@ -23,7 +23,7 @@ import numpy as np
 from gymnasium import spaces
 
 from core.mechanism.types import FlowTrajectory, Trajectory
-from core.utils import intersect
+from core.utils import intersect, logical_or_dict
 
 StateType = TypeVar("StateType")
 ActType = TypeVar("ActType")
@@ -168,8 +168,8 @@ class MDPState:
             state_space=intersect(self.state_space, [d.state_space for d in ds]),
             obs_space=intersect(self.obs_space, [d.obs_space for d in ds]),
             action_spaces=intersect(self.action_spaces, [d.action_spaces for d in ds]),
-            terminateds=self.terminateds,
-            truncateds=self.truncateds,
+            terminateds=logical_or_dict(self.terminateds, [d.terminateds for d in ds]),
+            truncateds=logical_or_dict(self.truncateds, [d.truncateds for d in ds]),
         )
 
     def advance(
