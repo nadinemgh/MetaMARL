@@ -12,7 +12,7 @@ the stock read before each step, not from the mechanisms:
 
 - delivered harvest fraction: the quota cuts the request ``f = sigmoid(z / 4)``
   to ``f - softplus0(f - allowed)`` (see ``tests/mechanism/algorithms/test_quota.py``);
-- subsidy residual: ``rate * MAX_SUBSIDY * e - cost * e**2`` with the restoration
+- subsidy residual: ``rate * MAX * e - cost * e**2`` with the restoration
   effort ``e = sigmoid(z_restore / 4)``;
 - penalty residual: ``-amount / (1 + exp((b - threshold) / width))`` at the
   normalised stock ``b`` of the step.
@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 from gymnasium import spaces
 
-from core.mechanism.algorithms.incentive import MAX_SUBSIDY, Subsidy
+from core.mechanism.algorithms.incentive import MAX, Incentive
 from core.mechanism.algorithms.penalty import ThresholdPenalty
 from core.mechanism.algorithms.quota import Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
@@ -85,7 +85,7 @@ def delivered_fraction(z: float, level: float, quota: float) -> float:
 def subsidy_residual(z_restore: float) -> float:
     effort = requested_fraction(z_restore)
 
-    return SUBSIDY_RATE * MAX_SUBSIDY * effort - SUBSIDY_COST * effort**2
+    return SUBSIDY_RATE * MAX * effort - SUBSIDY_COST * effort**2
 
 
 def penalty_residual(level: float) -> float:
@@ -104,11 +104,10 @@ def quota_config():
 
 
 def subsidy_config():
-    return Subsidy(
+    return Incentive(
         id="subsidy",
         action_space=UNIT_BOX,
         acts_on=("fisherman", "restore"),
-        cost=SUBSIDY_COST,
     )
 
 
@@ -224,7 +223,7 @@ class TestRewardComposition:
             effort = r["stored_restore"]
             expected = (
                 r["stored_harvest"]
-                + (SUBSIDY_RATE * MAX_SUBSIDY * effort - SUBSIDY_COST * effort**2)
+                + (SUBSIDY_RATE * MAX * effort - SUBSIDY_COST * effort**2)
                 + penalty_residual(r["level"])
             )
 

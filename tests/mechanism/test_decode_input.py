@@ -20,7 +20,7 @@ import pytest
 from gymnasium import spaces
 
 from core.agents.base import Agent
-from core.mechanism.algorithms.incentive import Subsidy
+from core.mechanism.algorithms.incentive import Incentive
 from core.mechanism.algorithms.penalty import ThresholdPenalty
 from core.mechanism.algorithms.quota import Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
@@ -179,8 +179,8 @@ def regulator_with_the_four_mechanisms() -> Agent:
             acts_on=("fisherman", "harvest"),
             obs_map={"resource_level": "fish"},
         ).build(REGULATOR),
-        "subsidy": Subsidy(
-            id="subsidy", action_space=UNIT, acts_on=("fisherman", "restore"), cost=0.1
+        "subsidy": Incentive(
+            id="subsidy", action_space=UNIT, acts_on=("fisherman", "restore")
         ).build(REGULATOR),
         "penalty": ThresholdPenalty(
             id="penalty",
