@@ -38,7 +38,6 @@ from examples.fresh_water.mechanism_raven import WaterMechanismSpace
 from examples.fresh_water.regulated_env_ed_hs_v4 import WaterRegulatedEdHsEnv
 from examples.fresh_water.regulator_env_raven import WaterRegulatorRavenEnv
 
-
 RAVEN_CWD_VARIABLE = "METAMARL_RAVEN_CWD"
 """Environment variable that holds the Raven model directory."""
 

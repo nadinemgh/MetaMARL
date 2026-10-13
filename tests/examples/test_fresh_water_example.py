@@ -52,24 +52,6 @@ from typing import Any
 
 import numpy as np
 import pytest
-from examples.fresh_water.hydrology import (
-    RavenLake,
-    RavenOutputError,
-    SurrogateLake,
-    estimate_temp_c,
-    write_stand_in_raven,
-)
-from examples.fresh_water.metric_schema import WaterMetricSchema
-from examples.fresh_water.regulated_env import (
-    IRRIGATE_SPACE,
-    IrrigateConfig,
-    UtilizerConfig,
-    WaterRegulatedEnv,
-    crop_demand,
-    crop_stage,
-    residence_time_days,
-)
-from examples.fresh_water.regulator_env import WaterRegulatorEnv, level_deviation
 from gymnasium import spaces
 
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
@@ -78,6 +60,13 @@ from core.envs import marl_regulated
 from core.reporting.csv import CSVConfig
 from core.world.context import MechanismContext, MechanismStatus
 from examples.fresh_water.contexts import FitnessContext
+from examples.fresh_water.hydrology import (
+    RavenLake,
+    RavenOutputError,
+    SurrogateLake,
+    estimate_temp_c,
+    write_stand_in_raven,
+)
 from examples.fresh_water.mechanism import (
     DEFAULT_RULES,
     IRRIGATE_ID,
@@ -93,6 +82,17 @@ from examples.fresh_water.mechanism import (
     quota_stress,
     violation_signal,
 )
+from examples.fresh_water.metric_schema import WaterMetricSchema
+from examples.fresh_water.regulated_env import (
+    IRRIGATE_SPACE,
+    IrrigateConfig,
+    UtilizerConfig,
+    WaterRegulatedEnv,
+    crop_demand,
+    crop_stage,
+    residence_time_days,
+)
+from examples.fresh_water.regulator_env import WaterRegulatorEnv, level_deviation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REGULATOR = "water_regulator"

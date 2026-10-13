@@ -34,7 +34,6 @@ from typing import Any
 
 import numpy as np
 import pytest
-from examples.cartpole.metric_schema import CartpoleMetricSchema
 from gymnasium import spaces
 
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
@@ -43,6 +42,7 @@ from core.envs import marl_regulated
 from core.mechanism.base import MDPState
 from core.reporting.csv import CSVConfig
 from core.world.context import MechanismContext, MechanismStatus
+from examples.cartpole.metric_schema import CartpoleMetricSchema
 from examples.cartpole.regulated_env import (
     DIAL_SPACE,
     PUSH_SPACE,
@@ -439,6 +439,7 @@ def test_episodes_after_a_reset_are_independent_in_the_logger(build_env):
 @pytest.mark.unit
 def test_regulator_reward_averages_seeds_and_scores_missing_mechanisms(monkeypatch):
     import ray
+
     from examples.cartpole.regulator_env import CartpoleRegulatorEnv
 
     published = []
@@ -476,6 +477,7 @@ def test_regulator_reward_averages_seeds_and_scores_missing_mechanisms(monkeypat
 @pytest.mark.unit
 def test_regulator_reward_weighs_every_logged_episode_equally(monkeypatch):
     import ray
+
     from examples.cartpole.regulator_env import CartpoleRegulatorEnv
 
     world = SimpleNamespace(append_context=SimpleNamespace(remote=lambda ctx: None))

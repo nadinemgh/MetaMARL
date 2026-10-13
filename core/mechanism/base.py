@@ -16,22 +16,19 @@ mechanisms in :mod:`core.mechanism.config`.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional, SupportsFloat, TypeVar
 
 import numpy as np
 from gymnasium import spaces
 
 from core.mechanism.types import FlowTrajectory, Trajectory
+from core.types import AgentID, MechanismID
 from core.utils import intersect, logical_or_dict
 
 StateType = TypeVar("StateType")
 ActType = TypeVar("ActType")
 ObsType = TypeVar("ObsType")
-
-from dataclasses import field
-
-from core.types import AgentID, MechanismID
 
 
 # TODO fix type annotations
