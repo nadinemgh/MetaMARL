@@ -334,6 +334,27 @@ def test_one_step_of_the_pella_tomlinson_equation_by_hand():
 
 
 @pytest.mark.unit
+def test_the_transition_reads_the_stock_the_step_started_with():
+    # With these numbers, taking the request out of the stock and the restoration
+    # into it and then undoing both, ``((B - H) + R) - R + H``, does not give
+    # ``B`` back in float64 (it is off by about 1e-13), so a transition that
+    # rebuilt the stock that way would log a different ``fish_stock``.
+    start, harvest, restoration = 832.014, 150.546, 15.865
+    assert ((start - harvest) + restoration) - restoration + harvest != start
+
+    env = make_env(n=1, fish_init=start)
+    mdp = env.reset(MDPState(aids=set(fisher_ids(1))))
+    requests = [
+        MDPState(state={"fish": -harvest, "harvest": harvest}),
+        MDPState(state={"fish": restoration, "restore": restoration}),
+    ]
+
+    env.pella_tomlinson(mdp.add(requests))
+
+    assert env.logger.peek().fish_stock == [start]
+
+
+@pytest.mark.unit
 def test_the_first_step_already_delivers_its_catch():
     env = make_env(n=2)
     mdp = env.reset(MDPState(aids=set(fisher_ids(2))))

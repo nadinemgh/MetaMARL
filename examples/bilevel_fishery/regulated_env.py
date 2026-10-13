@@ -51,8 +51,11 @@ of ``state["fish"]`` in place, and its ``Restore`` mechanism writes the biomass
 it restores to ``state["restore"]`` and puts it into ``state["fish"]``. The
 mechanisms of all the fishers read the same ``B(t)`` and their residuals are
 summed afterwards, so the order of the fishers does not matter. The
-``pella_tomlinson`` transition recovers ``B(t)`` from these sums, evaluates the
-production and the noise on it and caps the total request at the biomass
+environment also keeps ``B(t)`` in ``state["fish_start"]``, which no mechanism
+writes to, and the ``pella_tomlinson`` transition reads it from there, rather
+than rebuilding it from the sums, which in floating point would not return
+exactly the stock the fishers read. The transition evaluates the production and
+the noise on that stock and caps the total request at the biomass
 available. When the total request exceeds it, every fisher receives the same
 fraction of its request (a pro-rata share); the delivered total is ``C(t)``.
 The catch is capped by the stock plus the growth of the step, restoration
@@ -636,7 +639,11 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         Otherwise it is drawn from a lognormal distribution with median
         ``fish_init`` and log-scale spread ``initial_stock_log_sigma``, using
         the environment's seeded generator, and clipped to ``[1e-8, K]``. The
-        harvest recorded for the step starts at 0.
+        harvest recorded for the step starts at 0. The stock is stored twice,
+        in ``state["fish"]``, which the fishers' mechanisms modify in place
+        during the step, and in ``state["fish_start"]``, which they leave
+        untouched so that the transition can read the stock the step started
+        with.
 
         Parameters
         ----------
@@ -646,8 +653,9 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         Returns
         -------
         MDPState
-            A residual with ``state["fish"]`` (biomass units),
-            ``state["harvest"]`` (biomass units per step) and ``params`` set to
+            A residual with ``state["fish"]`` and ``state["fish_start"]``
+            (biomass units, both the initial stock), ``state["harvest"]``
+            (biomass units per step) and ``params`` set to
             the ``ecology`` dictionary itself, not a copy.
 
         Examples
@@ -664,8 +672,10 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         ...                  "initial_stock_log_sigma": 0.0},
         ... )
         >>> residual = env.reset_fishery(MDPState())
-        >>> residual.state["fish"], residual.state["harvest"]
-        ([800.0], [0.0])
+        >>> residual.state["fish"], residual.state["fish_start"]
+        ([800.0], [800.0])
+        >>> residual.state["harvest"]
+        [0.0]
         """
 
         if self.initial_stock_log_sigma == 0.0:
@@ -681,7 +691,10 @@ class FisheryRegulatedEnv(MultiAgentEnv):
                 self.K,
             )
 
-        return MDPState(state={"fish": fish_init, "harvest": 0.0}, params=self.ecology)
+        return MDPState(
+            state={"fish": fish_init, "fish_start": fish_init, "harvest": 0.0},
+            params=self.ecology,
+        )
 
     def step(self, mdp: MDPState) -> MDPState:
         """Play one step and log the step's reward in ``reward_series``.
@@ -721,9 +734,12 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         The fishers' mechanisms have already acted at step ``t = mdp.t``: each
         removed its request from ``state["fish"]`` and added it to
         ``state["harvest"]``, and each restoration added its biomass to
-        ``state["fish"]`` and to ``state["restore"]``. The transition recovers
-        the stock at the beginning of the step, ``B = fish - restore +
-        harvest``, and computes the production ``g = (r / p) * B * (1 - (B /
+        ``state["fish"]`` and to ``state["restore"]``. The transition reads
+        the stock at the beginning of the step, ``B``, from
+        ``state["fish_start"]``, which the mechanisms never modify, instead of
+        undoing their changes with ``fish - restore + harvest``: that sum
+        differs from the stock the fishers read by rounding errors of the
+        order of ``1e-12``. It computes the production ``g = (r / p) * B * (1 - (B /
         K)^p)`` and the process noise ``sigma * N(0, 1) * B``, both on ``B``.
         The growth is the production plus the noise plus the restoration, and
         the biomass available is ``max(B + growth, 0)``. The catch is the
@@ -752,17 +768,18 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         Parameters
         ----------
         mdp : MDPState
-            Shared state with the ``fish``, ``harvest`` and ``restore``
-            trajectories (biomass units), written by the fishers' mechanisms,
-            and the ``ecology`` parameters in ``params``.
+            Shared state with the ``fish``, ``fish_start``, ``harvest`` and
+            ``restore`` trajectories (biomass units), the first, third and
+            fourth written by the fishers' mechanisms, and the ``ecology``
+            parameters in ``params``.
 
         Returns
         -------
         MDPState
             The state advanced by one time index, with the next stock appended
-            to ``state["fish"]`` (biomass units); the harvest and the
-            restoration restart from zero at the new index. The collapse
-            penalty is added to the rewards of the followers.
+            to ``state["fish"]`` and ``state["fish_start"]`` (biomass units);
+            the harvest and the restoration restart from zero at the new index.
+            The collapse penalty is added to the rewards of the followers.
 
         Examples
         --------
@@ -799,7 +816,9 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         p = mdp.params["p"]
         H = float(mdp.state["harvest"][mdp.t])
         R = float(mdp.state["restore"][mdp.t])
-        B = float(mdp.state["fish"][mdp.t] - R + H)
+        # The stock at the start of the step, which the fishers' mechanisms
+        # read before they changed state["fish"] in place.
+        B = float(mdp.state["fish_start"][mdp.t])
 
         # Forward Euler discretization (dt = 1):
         # Biological growth is evaluated at the biomass B_t at the beginning
@@ -856,7 +875,7 @@ class FisheryRegulatedEnv(MultiAgentEnv):
             # The shared state only holds the sum of the requests, so each
             # fisher's own request is rebuilt from the fraction it played,
             # which already carries the leaders' regulation, with the same
-            # capacity ``Fishing.apply`` used on the stock B of this step.
+            # capacity ``Fishing.apply`` used on the stock B the step started with.
             catch_capacity = (
                 mdp.params["unregulated_f_multiplier"]
                 * mdp.params["F_msy"]
@@ -884,4 +903,11 @@ class FisheryRegulatedEnv(MultiAgentEnv):
                 )
 
         # TODO (nadine) add observation
-        return mdp.advance(state={"fish": fish_next, "harvest": 0.0, "restore": 0.0})
+        return mdp.advance(
+            state={
+                "fish": fish_next,
+                "fish_start": fish_next,
+                "harvest": 0.0,
+                "restore": 0.0,
+            }
+        )
