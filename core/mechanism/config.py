@@ -8,14 +8,15 @@ module also holds :func:`empty_action_space`, the action space of a mechanism
 that has no parameter for the regulator to search.
 """
 
-from dataclasses import dataclass, field, fields
-from typing import Any, ClassVar, Optional
+from dataclasses import dataclass, fields
+from typing import ClassVar, Optional
 
-from gymnasium import Space
 import numpy as np
+from gymnasium import Space
 
 from core.mechanism.base import Mechanism
-from core.types import MechanismID, AgentID
+from core.types import AgentID, MechanismID
+
 
 @dataclass(frozen=True)
 class MechanismConfig:
@@ -79,7 +80,6 @@ class MechanismConfig:
     acts_on: tuple[AgentID, MechanismID] | None = None
     obs_map: Optional[dict[str, str]] = None
     default: np.ndarray | None = None
-
     mechanism_cls: ClassVar[type[Mechanism]] = Mechanism
 
     def build(self, aid: AgentID) -> Mechanism:
@@ -97,8 +97,7 @@ class MechanismConfig:
             Instance of ``mechanism_cls`` built with ``aid`` and every field of
             this configuration as keyword arguments.
         """
-        params = {
-            f.name: getattr(self, f.name)
-            for f in fields(self)
-        }
+
+        params = {f.name: getattr(self, f.name) for f in fields(self)}
+
         return self.mechanism_cls(aid=aid, **params)

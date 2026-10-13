@@ -30,6 +30,7 @@ def make_env(**ecology) -> FisheryRegulatorEnv:
     world = SimpleNamespace(
         append_context=SimpleNamespace(remote=lambda context: context)
     )
+
     return FisheryRegulatorEnv(
         world=world,
         optimizer=None,
@@ -46,6 +47,7 @@ def make_env(**ecology) -> FisheryRegulatorEnv:
 
 def episode(fish, harvest, reward=None):
     """One logged episode: each leaf holds one list of steps per logged episode."""
+
     return SimpleNamespace(
         reward_series=[reward if reward is not None else [0.0] * len(fish)],
         fish_norm_next_series=[fish],
@@ -56,6 +58,7 @@ def episode(fish, harvest, reward=None):
 
 def metrics_of(mechanisms, split="eval"):
     """``mechanisms`` maps a mechanism id to ``{seed id: [episode, ...]}``."""
+
     rollout = SimpleNamespace(
         by_mechanism={
             str(mechanism): SimpleNamespace(
@@ -69,17 +72,18 @@ def metrics_of(mechanisms, split="eval"):
             for mechanism, seeds in mechanisms.items()
         }
     )
+
     return SimpleNamespace(**{split: SimpleNamespace(rollout=rollout)})
 
 
 @pytest.mark.unit
 def test_the_objective_uses_only_the_last_steps_of_the_episode():
     env = make_env(fitness_tail_steps=3)
+
     # The first three steps are a healthy stock with no catch; the tail is a
     # depleted stock (0.3) with a catch of 50 = MSY / 2 at every step.
     fish = [0.9, 0.9, 0.9, 0.3, 0.3, 0.3]
     harvest = [0.0, 0.0, 0.0, 50.0, 50.0, 50.0]
-
     fitness = env.reward(metrics_of({0: {0: [episode(fish, harvest)]}}))
 
     assert fitness == pytest.approx([0.5 + WEIGHT * 0.3])
@@ -92,7 +96,6 @@ def test_an_episode_shorter_than_the_tail_contributes_all_its_steps():
     env = make_env(fitness_tail_steps=50)
     fish = [0.2, 0.4]
     harvest = [100.0, 0.0]
-
     fitness = env.reward(metrics_of({0: {0: [episode(fish, harvest)]}}))
 
     assert fitness == pytest.approx([0.5 + WEIGHT * 0.3])
@@ -109,7 +112,6 @@ def test_the_tail_statistics_are_averaged_over_episodes_and_seeds():
         H_realized_series=[[0.0] * 3, [0.0, 100.0, 100.0]],
         MSY=[MSY, MSY],
     )
-
     by_seed = env.reward(metrics_of({0: {0: [low], 1: [high]}}))
     by_leaf = env.reward(metrics_of({0: {0: [two_in_one_leaf]}}))
 
@@ -121,6 +123,7 @@ def test_the_tail_statistics_are_averaged_over_episodes_and_seeds():
 @pytest.mark.unit
 def test_the_gaps_of_the_metric_logger_are_skipped():
     env = make_env(fitness_tail_steps=2)
+
     # The key logged an episode in the second inner iteration only; the first
     # entry of every leaf is the logger's gap.
     gapped = SimpleNamespace(
@@ -129,7 +132,6 @@ def test_the_gaps_of_the_metric_logger_are_skipped():
         H_realized_series=[None, [0.0] * 3],
         MSY=[None, MSY],
     )
-
     fitness = env.reward(metrics_of({0: {0: [gapped]}}))
 
     assert fitness == pytest.approx([0.0 + WEIGHT * 0.2])
@@ -157,7 +159,6 @@ def test_the_split_named_by_aggregation_status_is_read():
 @pytest.mark.unit
 def test_an_index_with_no_rollout_holds_minus_infinity():
     env = make_env(fitness_tail_steps=2)
-
     fitness = env.reward(metrics_of({1: {0: [episode([0.5, 0.5], [0.0, 0.0])]}}))
 
     assert fitness[0] == float("-inf")
@@ -167,10 +168,11 @@ def test_an_index_with_no_rollout_holds_minus_infinity():
 @pytest.mark.unit
 def test_no_fines_are_reported_because_no_fine_is_computed():
     env = make_env(fitness_tail_steps=2)
-    env.reward(metrics_of({0: {0: [episode([0.5, 0.5], [0.0, 0.0])]}}))
 
+    env.reward(metrics_of({0: {0: [episode([0.5, 0.5], [0.0, 0.0])]}}))
     assert "total_fines" not in env.last_metrics[0]
     assert "total_fines" not in FitnessContext.model_fields
+
     with pytest.raises(TypeError):
         FitnessContext.from_metrics(
             mean_reward=0.0,

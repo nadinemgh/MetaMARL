@@ -35,11 +35,13 @@ def sigmoid(x):
 
 def logit(p):
     p = np.clip(np.asarray(p, dtype=np.float64), LOGIT_CLIP, 1.0 - LOGIT_CLIP)
+
     return np.log(p / (1.0 - p))
 
 
 def candidates(mean_logit, sigma, eps):
     """Float32 population ``sigmoid(mean_logit + sigma * eps)``."""
+
     return sigmoid(np.asarray(mean_logit) + sigma * np.asarray(eps)).astype(np.float32)
 
 
@@ -63,8 +65,8 @@ class TestLogitSpace:
 
     def test_logit_is_finite_on_the_closed_interval(self, es_factory):
         out = es_factory()._logit(np.array([0.0, 1.0]))
-
         expected = math.log(LOGIT_CLIP / (1 - LOGIT_CLIP))
+
         np.testing.assert_allclose(out, [expected, -expected])
 
 
@@ -72,11 +74,10 @@ class TestLogitSpace:
 class TestSampling:
     def test_population_replays_the_seeded_antithetic_noise(self, es_factory):
         opt = es_factory({"quota": unit_box(2)}, population=4, seed=123, sigma=0.3)
-
         population = opt._sample_population()
-
         z = np.random.default_rng(123).standard_normal((2, 2), dtype=np.float32)
         eps = np.vstack([z, -z])
+
         np.testing.assert_allclose(population, candidates(0.0, 0.3, eps), atol=1e-6)
         assert population.dtype == np.float32
 
@@ -94,10 +95,9 @@ class TestSampling:
         opt = es_factory(
             {"quota": unit_box(2)}, population=4, initial_mean=[0.2, 0.9], sigma=0.4
         )
-
         population = opt._sample_population()
-
         centre = logit(np.array([0.2, 0.9]))
+
         np.testing.assert_allclose(
             logit(population[:2]) - centre, -(logit(population[2:]) - centre), atol=1e-4
         )
@@ -110,11 +110,10 @@ class TestSampling:
             initial_mean=[0.2, 0.9],
             sigma=0.4,
         )
-
         population = opt._sample_population()
-
         z = np.random.default_rng(5).standard_normal((2, 2), dtype=np.float32)
         expected = candidates(logit([0.2, 0.9]), 0.4, np.vstack([z, -z]))
+
         np.testing.assert_allclose(population, expected, atol=1e-6)
 
     def test_break_symmetry_draws_an_independent_last_candidate(self, es_factory):
@@ -125,30 +124,27 @@ class TestSampling:
             sigma=0.3,
             break_symmetry=True,
         )
-
         population = opt._sample_population()
-
         rng = np.random.default_rng(11)
         z = rng.standard_normal((2, 2), dtype=np.float32)
         eps = np.vstack([z, -z])
         eps[-1] = rng.standard_normal(2, dtype=np.float32)
+
         np.testing.assert_allclose(population, candidates(0.0, 0.3, eps), atol=1e-6)
         assert not np.allclose(population[-1] + population[1], 1.0)
 
     def test_odd_population_appends_one_independent_candidate(self, es_factory):
         opt = es_factory(population=3, seed=2, sigma=0.3, break_symmetry=True)
-
         population = opt._sample_population()
-
         rng = np.random.default_rng(2)
         z = rng.standard_normal((1, 1), dtype=np.float32)
         extra = rng.standard_normal((1, 1), dtype=np.float32)
         eps = np.vstack([z, -z, extra])
+
         np.testing.assert_allclose(population, candidates(0.0, 0.3, eps), atol=1e-6)
 
     def test_single_candidate_mode_evaluates_the_mean_first(self, es_factory):
         opt = es_factory({"quota": unit_box(2)}, population=1, initial_mean=[0.3, 0.6])
-
         first = opt._sample_population()
 
         np.testing.assert_array_equal(first, [[np.float32(0.3), np.float32(0.6)]])
@@ -156,16 +152,16 @@ class TestSampling:
 
     def test_single_candidate_mode_then_perturbs_the_parent(self, es_factory):
         opt = es_factory(population=1, seed=4, sigma=0.3)
+
         opt._update_parameters(opt._sample_population(), [1.0])
 
         offspring = opt._sample_population()
-
         z = np.random.default_rng(4).standard_normal((1, 1), dtype=np.float32)
+
         np.testing.assert_allclose(offspring, candidates(0.0, 0.3, z), atol=1e-6)
 
     def test_fixed_mode_samples_empty_candidates(self, es_factory):
         opt = es_factory({"penalty": unit_box(0)}, population=3)
-
         population = opt._sample_population()
 
         assert population.shape == (3, 0)
@@ -181,6 +177,7 @@ class TestSampling:
 
         assert np.all(np.isfinite(population))
         assert np.all((population >= 0.0) & (population <= 1.0))
+
         # A sigma that large pushes nearly every coordinate to a face of the cube.
         assert np.mean((population < 1e-3) | (population > 1 - 1e-3)) > 0.5
 
@@ -194,7 +191,6 @@ class TestMeanUpdate:
         population = candidates(0.0, 0.5, [[1.0], [-1.0]])
 
         opt._update_parameters(population, [2.0, 1.0])
-
         np.testing.assert_allclose(opt.mean, sigmoid(0.2), rtol=1e-5)
         assert opt.mean.dtype == np.float32
 
@@ -203,7 +199,6 @@ class TestMeanUpdate:
         population = candidates(0.0, 0.5, [[1.0], [-1.0]])
 
         opt._update_parameters(population, [1.0, 2.0])
-
         np.testing.assert_allclose(opt.mean, sigmoid(-0.2), rtol=1e-5)
 
     def test_four_candidates_two_dimensions(self, es_factory):
@@ -223,6 +218,7 @@ class TestMeanUpdate:
         opt._update_parameters(population, [4.0, 1.0, 2.0, 3.0])
 
         g = math.sqrt(1 / 1.25)
+
         np.testing.assert_allclose(opt.mean, sigmoid([0.5 * g, -0.5 * g]), rtol=1e-4)
 
     def test_break_symmetry_uses_the_plain_weighted_average(self, es_factory):
@@ -237,6 +233,7 @@ class TestMeanUpdate:
         opt._update_parameters(population, [3.0, 1.0, 2.0])
 
         g = (2 * math.sqrt(1.5) / 3) / 0.5
+
         np.testing.assert_allclose(opt.mean, sigmoid(0.1 * g), rtol=1e-4)
 
     def test_the_step_is_taken_in_logit_space_around_the_current_mean(self, es_factory):
@@ -246,7 +243,6 @@ class TestMeanUpdate:
         population = candidates(logit(0.2), 0.5, [[1.0], [-1.0]])
 
         opt._update_parameters(population, [2.0, 1.0])
-
         np.testing.assert_allclose(opt.mean, sigmoid(logit(0.2) + 0.2), rtol=1e-4)
 
     def test_a_gradient_longer_than_five_is_rescaled_to_norm_five(self, es_factory):
@@ -255,7 +251,6 @@ class TestMeanUpdate:
         population = candidates(0.0, 0.1, [[1.0], [-1.0]])
 
         opt._update_parameters(population, [2.0, 1.0])
-
         np.testing.assert_allclose(opt.mean, sigmoid(0.2 * 5.0), rtol=1e-5)
 
     def test_a_gradient_of_norm_below_five_is_not_rescaled(self, es_factory):
@@ -263,7 +258,6 @@ class TestMeanUpdate:
         population = candidates(0.0, 0.5, [[1.0], [-1.0]])
 
         opt._update_parameters(population, [2.0, 1.0])
-
         np.testing.assert_allclose(opt.mean, sigmoid(0.2 * 2.0), rtol=1e-5)
 
     @pytest.mark.parametrize(
@@ -280,7 +274,6 @@ class TestMeanUpdate:
 
         reference._update_parameters(population, fitness)
         rescaled._update_parameters(population, fitness * scale + shift)
-
         np.testing.assert_allclose(rescaled.mean, reference.mean, rtol=1e-4)
 
     def test_a_negative_scale_reverses_the_direction(self, es_factory):
@@ -292,7 +285,6 @@ class TestMeanUpdate:
 
         up._update_parameters(population, fitness)
         down._update_parameters(population, -fitness)
-
         np.testing.assert_allclose(logit(down.mean), -logit(up.mean), atol=1e-5)
 
     def test_a_flat_population_carries_no_direction(self, es_factory):
@@ -300,7 +292,6 @@ class TestMeanUpdate:
         population = opt._sample_population()
 
         opt._update_parameters(population, [5.0, 5.0, 5.0, 5.0])
-
         np.testing.assert_allclose(opt.mean, [0.3, 0.7], atol=1e-6)
 
     def test_a_spread_below_the_absolute_epsilon_counts_as_flat(self, es_factory):
@@ -309,7 +300,6 @@ class TestMeanUpdate:
         population = candidates(0.0, 0.5, [[1.0], [-1.0]])
 
         opt._update_parameters(population, [0.0, 1e-9])
-
         np.testing.assert_allclose(opt.mean, 0.5, atol=1e-6)
 
     def test_the_mean_stays_inside_the_unit_interval_whatever_the_step(
@@ -335,7 +325,6 @@ class TestBestTracking:
         )
 
         opt._update_parameters(population, [1.0, 4.0, 2.0, 3.0])
-
         assert opt.best_fitness == 4.0
         assert opt.best_mechanism_idx == 1
         np.testing.assert_array_equal(opt.best_candidate, population[1])
@@ -347,7 +336,6 @@ class TestBestTracking:
 
         opt._update_parameters(first, [1.0, 5.0])
         opt._update_parameters(second, [4.0, 2.0])
-
         assert opt.best_fitness == 5.0
         np.testing.assert_array_equal(opt.best_candidate, first[1])
         assert opt.best_mechanism_idx == 1
@@ -359,7 +347,6 @@ class TestBestTracking:
 
         opt._update_parameters(first, [1.0, 5.0])
         opt._update_parameters(second, [6.0, 2.0])
-
         assert opt.best_fitness == 6.0
         np.testing.assert_array_equal(opt.best_candidate, second[0])
         assert opt.best_mechanism_idx == 0
@@ -369,6 +356,7 @@ class TestBestTracking:
         population = np.array([[0.2], [0.8]], dtype=np.float32)
 
         opt._update_parameters(population, [1.0, 2.0])
+
         population[1, 0] = 0.0
 
         assert opt.best_candidate[0] == pytest.approx(0.8)
@@ -449,7 +437,6 @@ class TestSigmaAdaptation:
 
         opt._update_sigma(10.0)
         assert opt.sigma == pytest.approx(0.2 * 0.9)
-
         opt._update_sigma(0.0)
         assert opt.sigma == pytest.approx(0.2)
 
@@ -467,7 +454,6 @@ class TestSigmaAdaptation:
 
         opt._update_sigma(10.0)
         opt._update_sigma(-10.0)
-
         assert opt.sigma == pytest.approx(0.2)
 
     @pytest.mark.parametrize(
@@ -495,7 +481,6 @@ class TestSigmaAdaptation:
 
         opt._update_sigma(10.0)
         assert opt.sigma == pytest.approx(0.15)  # 0.1 clipped up
-
         opt._update_sigma(0.0)
         opt._update_sigma(-10.0)
         assert opt.sigma == pytest.approx(0.25)  # 0.3 clipped down
@@ -508,7 +493,6 @@ class TestSigmaAdaptation:
 
         opt._update_sigma(10.0)
         assert opt.sigma == pytest.approx(0.01)  # factor 0: contracts to the floor
-
         opt._update_sigma(0.0)
         assert opt.sigma == pytest.approx(0.5)  # expansion by 1 / 0 goes to the cap
 
@@ -520,7 +504,6 @@ class TestSigmaAdaptation:
         opt._update_parameters(better, [1.0, 2.0, 1.0, 2.0])  # mean 1.5: initialises
         assert opt.sigma == pytest.approx(0.2)
         opt._update_parameters(better, [3.0, 4.0, 3.0, 4.0])  # mean 3.5: contracts
-
         assert opt.sigma == pytest.approx(0.1)
         assert opt.previous_population_mean_fitness == pytest.approx(3.5)
 
@@ -553,7 +536,6 @@ class TestSingleCandidateUpdate:
         opt = self.make(es_factory)
 
         opt._update_parameters(self.candidate(0.3)[None, :], [1.5])
-
         np.testing.assert_allclose(opt.mean, [0.3, 0.3])
         assert opt.fitness_baseline == 1.5
         assert opt.best_fitness == 1.5
@@ -564,10 +546,9 @@ class TestSingleCandidateUpdate:
     def test_a_worse_offspring_is_rejected_and_sigma_contracts(self, es_factory):
         # factor = 0.25 ** 0.5 = 0.5
         opt = self.make(es_factory)
+
         opt._update_parameters(self.candidate(0.3)[None, :], [1.0])
-
         opt._update_parameters(self.candidate(0.9)[None, :], [0.5])
-
         np.testing.assert_allclose(opt.mean, [0.3, 0.3])
         assert opt.fitness_baseline == 1.0
         assert opt.best_fitness == 1.0
@@ -575,19 +556,17 @@ class TestSingleCandidateUpdate:
 
     def test_an_equal_offspring_is_rejected(self, es_factory):
         opt = self.make(es_factory)
+
         opt._update_parameters(self.candidate(0.3)[None, :], [1.0])
-
         opt._update_parameters(self.candidate(0.9)[None, :], [1.0])
-
         np.testing.assert_allclose(opt.mean, [0.3, 0.3])
         assert opt.sigma == pytest.approx(0.1)
 
     def test_a_better_offspring_is_accepted_and_sigma_expands(self, es_factory):
         opt = self.make(es_factory)
+
         opt._update_parameters(self.candidate(0.3)[None, :], [1.0])
-
         opt._update_parameters(self.candidate(0.9)[None, :], [2.0])
-
         np.testing.assert_allclose(opt.mean, [0.9, 0.9])
         assert opt.fitness_baseline == 2.0
         assert opt.best_fitness == 2.0
@@ -596,27 +575,24 @@ class TestSingleCandidateUpdate:
 
     def test_sigma_expansion_is_capped(self, es_factory):
         opt = self.make(es_factory, sigma=0.4, max_sigma=0.5)
+
         opt._update_parameters(self.candidate(0.3)[None, :], [1.0])
-
         opt._update_parameters(self.candidate(0.9)[None, :], [2.0])
-
         assert opt.sigma == pytest.approx(0.5)
 
     def test_sigma_contraction_is_floored(self, es_factory):
         opt = self.make(es_factory, sigma=0.012, min_sigma=0.01)
+
         opt._update_parameters(self.candidate(0.3)[None, :], [1.0])
-
         opt._update_parameters(self.candidate(0.9)[None, :], [0.0])
-
         assert opt.sigma == pytest.approx(0.01)
 
     def test_a_zero_learning_rate_keeps_sigma_fixed(self, es_factory):
         opt = self.make(es_factory, sigma_lr=0.0)
-        opt._update_parameters(self.candidate(0.3)[None, :], [1.0])
 
+        opt._update_parameters(self.candidate(0.3)[None, :], [1.0])
         opt._update_parameters(self.candidate(0.9)[None, :], [0.0])
         opt._update_parameters(self.candidate(0.6)[None, :], [3.0])
-
         assert opt.sigma == pytest.approx(0.2)
         assert opt.previous_population_mean_fitness == 3.0
 
@@ -624,11 +600,10 @@ class TestSingleCandidateUpdate:
         self, es_factory
     ):
         opt = self.make(es_factory)
+
         opt._update_parameters(self.candidate(0.3)[None, :], [1.0])
         opt._update_parameters(self.candidate(0.9)[None, :], [2.0])
-
         opt._update_parameters(self.candidate(0.5)[None, :], [1.5])
-
         np.testing.assert_allclose(opt.mean, [0.9, 0.9])
         np.testing.assert_allclose(opt.best_candidate, [0.9, 0.9])
 
@@ -646,6 +621,7 @@ class TestSingleCandidateUpdate:
             opt._update_parameters(self.candidate(0.9)[None, :], [2.0])
 
         assert "SINGLE INITIALIZED" in caplog.text
+
         assert "SINGLE UPDATE | accepted=True" in caplog.text
 
 
@@ -658,7 +634,6 @@ class TestFixedModeUpdate:
         opt = self.make(es_factory)
 
         opt._update_parameters(np.empty((3, 0)), [1.0, 3.0, 2.0])
-
         assert opt.best_fitness == 3.0
         assert opt.best_mechanism_idx == 1
         assert opt.best_candidate.shape == (0,)
@@ -667,10 +642,9 @@ class TestFixedModeUpdate:
 
     def test_a_worse_batch_keeps_the_best_but_updates_the_mean(self, es_factory):
         opt = self.make(es_factory, population=2)
+
         opt._update_parameters(np.empty((2, 0)), [1.0, 5.0])
-
         opt._update_parameters(np.empty((2, 0)), [3.0, 2.0])
-
         assert opt.best_fitness == 5.0
         assert opt.best_mechanism_idx == 1
         assert opt.fitness_baseline == pytest.approx(2.5)
@@ -689,7 +663,6 @@ class TestFixedModeUpdate:
 
         opt._update_parameters(np.empty((3, 0)), [1.0, 3.0, 2.0])
         opt._update_parameters(np.empty((3, 0)), [9.0, 3.0, 2.0])
-
         assert opt.sigma == sigma
         assert opt.mean.shape == (0,)
 
@@ -703,6 +676,7 @@ class TestSearchDynamics:
         for _ in range(generations):
             population = opt._sample_population()
             fitness = -np.sum((population - target) ** 2, axis=1)
+
             opt._update_parameters(population, fitness)
 
     @pytest.mark.parametrize("break_symmetry", [False, True])
@@ -722,7 +696,6 @@ class TestSearchDynamics:
         start = np.linalg.norm(opt.mean - target)
 
         self.search(opt, target, 200)
-
         assert np.linalg.norm(opt.mean - target) < 0.2 * start
 
     def test_the_mean_converges_next_to_the_boundary_without_leaving_the_cube(
@@ -739,7 +712,6 @@ class TestSearchDynamics:
         )
 
         self.search(opt, target, 300)
-
         assert np.all((opt.mean > 0.0) & (opt.mean < 1.0))
         assert opt.mean[0] < 0.2 and opt.mean[1] > 0.8
 
@@ -771,6 +743,5 @@ class TestSearchDynamics:
         start = np.linalg.norm(opt.mean - target)
 
         self.search(opt, target, 300)
-
         assert np.linalg.norm(opt.mean - target) < 0.1 * start
         assert opt.best_fitness > -0.01

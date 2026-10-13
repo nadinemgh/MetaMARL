@@ -66,6 +66,7 @@ def test_build_episode_aggregate_reads_env_runner_stats():
         12.0,
     )
     assert (agg.num_episodes, agg.num_episodes_lifetime) == (3, 30)
+
     # RLlib provides no aggregate-level totals or terminal statistics.
     assert agg.reward_total is None and agg.reward_terminal is None
     assert agg.value_terminal is None and agg.value_penultimate is None
@@ -75,6 +76,7 @@ def test_build_episode_aggregate_reads_env_runner_stats():
 @pytest.mark.parametrize("result", [{}, {"env_runners": None}, {"env_runners": {}}])
 def test_build_episode_aggregate_missing_block_gives_none_fields(result):
     agg = build_episode_aggregate(result)
+
     assert agg.reward_mean is None and agg.num_episodes is None
 
 
@@ -84,6 +86,7 @@ def test_build_episode_aggregate_rejects_non_finite_values():
         "env_runners": {"episode_return_mean": float("nan"), "episode_len_mean": "x"}
     }
     agg = build_episode_aggregate(result)
+
     assert agg.reward_mean is None and agg.episode_len_mean is None
 
 
@@ -119,6 +122,7 @@ def test_build_performance_sums_agent_steps_and_reads_timers():
     assert perf.env_steps_this_iter == 100.0
     assert perf.env_steps_lifetime == 700.0
     assert perf.agent_steps_this_iter_sum == 100.0
+
     # Unconvertible per-agent entries count as zero.
     assert perf.agent_steps_lifetime_sum == 400.0
     assert perf.env_steps_throughput == 55.5
@@ -137,6 +141,7 @@ def test_build_performance_throughput_falls_back_to_since_restore():
             "throughput_since_last_restore": 11.0,
         }
     }
+
     assert build_performance({"env_runners": env}).env_steps_throughput == 11.0
 
 
@@ -150,6 +155,7 @@ def test_build_performance_throughput_keeps_a_zero_since_last_reduce():
             "throughput_since_last_restore": 11.0,
         }
     }
+
     assert build_performance({"env_runners": env}).env_steps_throughput == 0.0
 
 
@@ -167,6 +173,7 @@ def test_build_performance_throughput_keeps_a_zero_since_last_reduce():
 )
 def test_build_performance_non_dict_blocks_give_none(env):
     perf = build_performance({"env_runners": env, "timers": None})
+
     assert perf.env_steps_throughput is None
     assert perf.agent_steps_this_iter_sum is None
     assert perf.agent_steps_lifetime_sum is None
@@ -205,8 +212,11 @@ def test_build_rollout_groups_episodes_by_mechanism_then_seed():
     assert isinstance(rollout, RolloutSchema)
     assert rollout.aggregate.reward_mean == 2.5
     assert set(rollout.by_mechanism) == {"0", "1"}
+
     mech0 = rollout.by_mechanism["0"]
+
     assert set(mech0.by_seed) == {"11", "22"}
+
     # Every episode of a sub-environment is kept, numbered in logging order.
     assert mech0.by_seed["11"].by_episode == {
         "env=0|m=0|ps=11|ss=11|n=0": e00,
@@ -216,6 +226,7 @@ def test_build_rollout_groups_episodes_by_mechanism_then_seed():
     assert rollout.by_mechanism["1"].by_seed["11"].by_episode == {
         "env=2|m=1|ps=11|ss=11|n=0": e10
     }
+
     # The episode objects are filed as-is, not copied.
     assert mech0.by_seed["11"].by_episode["env=0|m=0|ps=11|ss=11|n=0"] is e00
 
@@ -225,7 +236,6 @@ def test_build_rollout_reads_a_lone_episode_as_a_list_of_one():
     # RLlib's MetricsLogger.compile unwraps a list holding a single item.
     episode = _episode(0, 11, 1.0)
     result = {"env_runners": {"by_episode": {"env=0|m=0|ps=11|ss=11": episode}}}
-
     by_episode = build_rollout(result).by_mechanism["0"].by_seed["11"].by_episode
 
     assert by_episode == {"env=0|m=0|ps=11|ss=11|n=0": episode}
@@ -241,7 +251,6 @@ def test_build_rollout_skips_a_prefix_that_ended_no_episode():
             }
         }
     }
-
     by_episode = build_rollout(result).by_mechanism["0"].by_seed["11"].by_episode
 
     assert list(by_episode) == ["env=1|m=0|ps=11|ss=11|n=0"]
@@ -265,6 +274,7 @@ def test_build_rollout_keeps_every_episode_logged_through_rllib():
     episode under its own prefix. The root logger aggregates and compiles them
     as ``Algorithm.train`` does, which unwraps the single episode.
     """
+
     from types import SimpleNamespace
 
     from ray.rllib.utils.metrics.metrics_logger import MetricsLogger
@@ -280,6 +290,7 @@ def test_build_rollout_keeps_every_episode_logged_through_rllib():
             env=SimpleNamespace(envs=[SimpleNamespace(unwrapped=sub_env)])
         )
         runner_logger = MetricsLogger()
+
         for index, reward in enumerate(rewards):
             sub_env.logger.push_data(_episode(0, 11, reward))
             log_and_report_episode_metrics(
@@ -289,10 +300,12 @@ def test_build_rollout_keeps_every_episode_logged_through_rllib():
                 env_index=0,
                 metrics_logger=runner_logger,
             )
+
         return runner_logger.reduce()
 
     shared, lone = "env=0|m=0|ps=11|ss=11", "env=1|m=0|ps=11|ss=11"
     root = MetricsLogger(root=True)
+
     root.aggregate(
         [
             run_episodes(shared, [1.0, 2.0]),
@@ -321,6 +334,7 @@ def test_build_rollout_keeps_every_episode_logged_through_rllib():
 )
 def test_build_rollout_without_episodes_is_empty(result):
     rollout = build_rollout(result)
+
     assert rollout.by_mechanism == {}
     assert rollout.aggregate.reward_mean is None
 
@@ -331,6 +345,7 @@ def test_build_rollout_stringifies_missing_identity_as_none_key():
     # under the literal "None" keys.
     result = {"env_runners": {"by_episode": {"ep": [_episode(None, None)]}}}
     rollout = build_rollout(result)
+
     assert list(rollout.by_mechanism) == ["None"]
     assert list(rollout.by_mechanism["None"].by_seed) == ["None"]
 
@@ -365,7 +380,9 @@ def _learner_result(**overrides):
         "ignored_nan": float("nan"),
         "ignored_text": "n/a",
     }
+
     stats.update(overrides)
+
     return {
         "learners": {
             LEARNER_ID: stats,
@@ -385,7 +402,9 @@ def test_build_learner_copies_stats_and_derives_quantities():
     learner = build_learner(_learner_result())
 
     assert isinstance(learner, LearnerSchema)
+
     policy = _only_policy(learner)
+
     assert isinstance(policy, PolicyLearnerSchema)
     assert policy.batch_size == 128
     assert policy.total_loss == 0.9
@@ -399,6 +418,7 @@ def test_build_learner_copies_stats_and_derives_quantities():
     assert policy.value_mean == 1.1 and policy.value_target == 1.2
     assert policy.gradient_norm == 3.0
     assert policy.gradient_noise == 0.05
+
     # lag1 + training calls since sync + outstanding reqs + queue wait.
     assert policy.sample_staleness == pytest.approx(1.0 + 3 + 2 + 0.5)
     assert policy.residual_variance is None
@@ -428,12 +448,14 @@ def test_build_learner_files_modules_by_mechanism_seed_and_policy():
 
     assert set(learner.by_mechanism) == {"0", "1"}
     assert set(learner.by_mechanism["0"].by_seed) == {"11", "22"}
+
     losses = {
         (mechanism_id, seed, policy_id): policy.policy_loss
         for mechanism_id, mechanism in learner.by_mechanism.items()
         for seed, seed_learner in mechanism.by_seed.items()
         for policy_id, policy in seed_learner.by_policy.items()
     }
+
     assert losses == {
         ("0", "11", "fisher"): 1.0,
         ("0", "22", "fisher"): 2.0,
@@ -465,9 +487,11 @@ def test_build_learner_gradient_norm_falls_back_to_grad_gnorm():
     learner = build_learner(
         _learner_result(gradients_default_optimizer_global_norm=None)
     )
+
     assert _only_policy(learner).gradient_norm == 2.0
 
     learner = build_learner(_learner_result(grad_gnorm=None))
+
     assert _only_policy(learner).gradient_norm == 3.0
 
 
@@ -484,10 +508,12 @@ def test_build_learner_gradient_norm_keeps_a_zero_norm():
 @pytest.mark.unit
 def test_build_learner_staleness_uses_only_the_available_indicators():
     result = _learner_result(diff_num_grad_updates_vs_sampler_policy=None)
+
     del result["learner_group"]
     del result["learners"]["__all_modules__"]
 
     policy = _only_policy(build_learner(result))
+
     # Only the training calls since the last weight sync remain.
     assert policy.sample_staleness == pytest.approx(3.0)
 
@@ -498,6 +524,7 @@ def test_build_learner_without_entropy_or_lags_leaves_derived_none():
         "learners": {"p_m0_s11": {"policy_loss": 0.1, "curr_entropy_coeff": 0.01}}
     }
     policy = _only_policy(build_learner(result), "p")
+
     assert policy.policy_relative_entropy is None
     assert policy.entropy_pressure is None
     assert policy.sample_staleness is None
@@ -506,6 +533,7 @@ def test_build_learner_without_entropy_or_lags_leaves_derived_none():
     # Zero entropy coefficient: the ratio is undefined, the product still defined.
     result = {"learners": {"p_m0_s11": {"entropy": 0.5, "curr_entropy_coeff": 0.0}}}
     policy = _only_policy(build_learner(result), "p")
+
     assert policy.policy_relative_entropy is None
     assert policy.entropy_pressure == 0.0
 
@@ -527,12 +555,12 @@ def test_build_learner_logs_nan_for_a_declared_module_without_statistics(learner
     # on the iterations between two reductions.
     learner = build_learner({"learners": learners}, module_ids=[LEARNER_ID])
     policy = _only_policy(learner)
-
     floats = [
         name
         for name, field in PolicyLearnerSchema.model_fields.items()
         if field.annotation == float | None
     ]
+
     assert "batch_size" in floats and "iter" not in floats
     assert all(np.isnan(getattr(policy, name)) for name in floats)
     assert policy.iter is None
@@ -552,11 +580,10 @@ def test_build_learner_keeps_measured_statistics_of_a_declared_module():
 @pytest.mark.unit
 def test_build_learner_leaves_undeclared_modules_unpadded():
     result = {"learners": {"fisher_m1_s11": {"policy_loss": 0.5}}}
-
     learner = build_learner(result, module_ids=[LEARNER_ID])
-
     padded = _only_policy(learner)
     undeclared = learner.by_mechanism["1"].by_seed["11"].by_policy["fisher"]
+
     assert np.isnan(padded.policy_loss)
     assert undeclared.policy_loss == 0.5 and undeclared.value_loss is None
 

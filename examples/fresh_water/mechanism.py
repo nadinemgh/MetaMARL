@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 
 import numpy as np
+from core.mechanism.space import MechanismSpace
 from numpy.typing import NDArray
 
 from core.annotations import override
 from core.mechanism.base import Mechanism
-from core.mechanism.space import MechanismSpace
 
 
 @dataclass(frozen=True)
@@ -180,8 +180,7 @@ class WaterMechanismSpace(MechanismSpace):
         # Keep the quota curve monotonic.
         if "min_demand_frac" in result and "max_demand_frac" in result:
             result["max_demand_frac"] = max(
-                result["max_demand_frac"],
-                result["min_demand_frac"],
+                result["max_demand_frac"], result["min_demand_frac"]
             )
 
         return result
@@ -249,8 +248,7 @@ class WaterMechanismSpace(MechanismSpace):
         # CHANGED:
         # Make sure min <= max even when only one of the two params is optimized.
         params["max_demand_frac"] = max(
-            params["max_demand_frac"],
-            params["min_demand_frac"],
+            params["max_demand_frac"], params["min_demand_frac"]
         )
         mech = WaterMechanism(
             fixed_quota=params["fixed_quota"],

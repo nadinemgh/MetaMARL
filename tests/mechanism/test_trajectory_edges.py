@@ -37,7 +37,6 @@ class TestTreeMismatch:
 class TestLaggingLeaf:
     def test_stock_leaf_behind_the_tree_is_filled_with_its_last_value(self):
         trajectory = Trajectory({"a": [1.0, 2.0, 3.0], "b": [7.0]})
-
         updated = trajectory.update(2, {"b": 9.0})
 
         assert updated["b"] == [7.0, 7.0, 9.0]
@@ -45,14 +44,12 @@ class TestLaggingLeaf:
 
     def test_flow_leaf_behind_the_tree_is_filled_with_zero(self):
         trajectory = FlowTrajectory({"a": [1.0, 2.0, 3.0], "b": [7.0]})
-
         updated = trajectory.update(2, {"b": 9.0})
 
         assert updated["b"] == [7.0, 0, 9.0]
 
     def test_leaf_one_step_behind_is_appended_to(self):
         trajectory = Trajectory({"a": [1.0, 2.0], "b": [7.0]})
-
         updated = trajectory.update(1, {"b": 9.0})
 
         assert updated["b"] == [7.0, 9.0]
@@ -65,7 +62,6 @@ class TestLaggingLeaf:
 
     def test_add_creates_a_missing_branch(self):
         base = Trajectory({"a": {"x": [1.0]}})
-
         added = base.add(0, [Trajectory({"b": {"y": 2.0}})])
 
         assert added["a"]["x"] == [1.0]
@@ -73,7 +69,6 @@ class TestLaggingLeaf:
 
     def test_add_to_a_lagging_leaf_fills_then_sums(self):
         base = Trajectory({"a": [1.0, 2.0, 3.0], "b": [7.0]})
-
         added = base.add(2, [Trajectory({"b": 1.0})])
 
         assert added["b"] == [7.0, 7.0, 8.0]
@@ -111,6 +106,7 @@ class TestTime:
 
         with pytest.raises(ValueError) as from_update:
             trajectory.update(5, {"a": 1.0})
+
         with pytest.raises(ValueError) as from_add:
             trajectory.add(5, [Trajectory({"a": 1.0})])
 
@@ -148,7 +144,6 @@ class TestTime:
 
         original.update(1, {"a": 5.0})
         original.append({"a": 9.0})
-
         assert original["a"] == [1.0, 2.0]
 
     def test_append_adds_one_step_to_every_leaf(self):
@@ -178,7 +173,6 @@ class TestContainer:
 
         copy.data["a"].append(5.0)
         copy.data["b"]["c"].append(5.0)
-
         assert original["a"] == [1.0]
         assert original["b"]["c"] == [2.0]
 
@@ -194,7 +188,6 @@ class TestContainer:
     def test_add_does_not_mutate_array_leaves_shared_with_the_original(self):
         shared = np.array([1.0, 2.0])
         base = Trajectory({"a": [shared]})
-
         added = base.add(0, [Trajectory({"a": np.array([10.0, 10.0])})])
 
         np.testing.assert_array_equal(added["a"][0], [11.0, 12.0])
@@ -210,7 +203,6 @@ class TestMDPStateUpdate:
             actions={"a": {"harvest": 0.1}},
             rewards={"a": 2.0},
         )
-
         returned = mdp.update(
             state={"fish": 3.0},
             obs={"a": 0.7},
@@ -228,7 +220,6 @@ class TestMDPStateUpdate:
         mdp = MDPState(state={"fish": 1.0}, rewards={"a": 2.0})
 
         mdp.update(rewards={"a": 5.0})
-
         assert mdp.state["fish"] == [1.0]
         assert mdp.rewards["a"] == [5.0]
 
@@ -236,12 +227,10 @@ class TestMDPStateUpdate:
         mdp = MDPState(state={"fish": [1.0, 2.0]})
 
         mdp.update(0, state={"fish": 9.0})
-
         assert mdp.state["fish"] == [9.0, 2.0]
 
     def test_advance_opens_the_next_step_and_keeps_the_original(self):
         mdp = MDPState(state={"fish": 1.0}, rewards={"a": 2.0})
-
         advanced = mdp.advance(state={"fish": 0.5}, rewards={"a": 3.0})
 
         assert advanced.t == 1
@@ -260,7 +249,6 @@ class TestMDPStateAdd:
 
     def test_params_and_aids_are_merged(self):
         mdp = MDPState(params={"K": 1.0, "r": 0.3}, aids={"a"})
-
         merged = mdp.add(
             [MDPState(params={"r": 0.5, "p": 1.0}, aids={"b"}), MDPState(aids={"c"})]
         )
@@ -271,12 +259,10 @@ class TestMDPStateAdd:
 
     def test_time_is_kept(self):
         mdp = MDPState(t=2, state={"fish": [1.0, 1.0, 1.0]})
-
         assert mdp.add(MDPState(state={"fish": 1.0})).t == 2
 
     def test_termination_flags_are_or_ed(self):
         mdp = MDPState(terminateds={"a": False, "b": False})
-
         merged = mdp.add(MDPState(terminateds={"b": True, "c": False}))
 
         assert merged.terminateds == {"a": False, "b": True, "c": False}
@@ -293,7 +279,6 @@ class TestSharing:
 
     def test_add_shares_the_branches_and_lists_no_delta_writes(self):
         base = Trajectory({"a": [1.0], "b": {"c": [2.0]}, "d": {"e": [3.0]}})
-
         added = base.add(0, [Trajectory({"d": {"e": 1.0}})])
 
         assert added["a"] is base["a"]
@@ -304,7 +289,6 @@ class TestSharing:
 
     def test_a_chain_of_adds_leaves_every_earlier_trajectory_unchanged(self):
         first = Trajectory({"a": [1.0, 2.0], "b": {"c": [5.0, 6.0]}})
-
         second = first.add(1, [Trajectory({"a": 10.0})])
         third = second.add(1, [Trajectory({"a": 100.0, "b": {"c": 1.0}})])
         fourth = third.append({"a": 0.0})
@@ -316,7 +300,6 @@ class TestSharing:
 
     def test_two_deltas_on_one_leaf_copy_it_once_and_sum_both(self):
         base = Trajectory({"a": [1.0]})
-
         added = base.add(0, [Trajectory({"a": 2.0}), Trajectory({"a": 3.0})])
 
         assert added["a"] == [6.0]
@@ -324,7 +307,6 @@ class TestSharing:
 
     def test_a_new_branch_is_owned_by_the_result(self):
         base = Trajectory({"a": [1.0]})
-
         added = base.add(
             0, [Trajectory({"b": {"c": 2.0}}), Trajectory({"b": {"c": 3.0}})]
         )
@@ -348,7 +330,6 @@ class TestSharing:
         added = base.add(1, [])
 
         added.write(("f0", "harvest"), 1, 0.25)
-
         assert added["f0"]["harvest"] == [0.5, 0.25]
         assert base["f0"]["harvest"] == [0.5, 0.5]
         assert added["f1"] is base["f1"]
@@ -364,7 +345,6 @@ class TestSharing:
 
     def test_copy_does_not_normalise_the_tree_twice_and_keeps_the_type(self):
         flow = FlowTrajectory({"a": [1.0], "b": {"c": [2.0]}})
-
         copy = flow.copy()
 
         assert type(copy) is FlowTrajectory

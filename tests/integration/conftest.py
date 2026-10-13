@@ -32,6 +32,7 @@ from examples.bilevel_fishery.regulated_env import (
 )
 
 CAPACITY = 5_000.0
+
 """Carrying capacity ``K`` of the shrunk fishery, in biomass units."""
 
 ECOLOGY = {
@@ -44,6 +45,7 @@ ECOLOGY = {
     "initial_stock_log_sigma": 0.05,
     "unregulated_f_multiplier": 2.0,
 }
+
 """Ecology of ``examples/bilevel_fishery/debug.py``, unchanged."""
 
 OBSERVATION_SIZE = 5
@@ -65,6 +67,7 @@ class ScriptedWorld:
 
     def _fetch(self, **kwargs: Any) -> MechanismContext | None:
         self.calls += 1
+
         return self.answers.pop(0) if self.answers else None
 
 
@@ -94,6 +97,7 @@ def build_fishery(tmp_path, monkeypatch):
     ``num_agents`` (default 2), ``horizon`` (default 20) and ``seed``.
     It returns a namespace with the ``adapter``, the ``env`` and the ``world``.
     """
+
     monkeypatch.setattr(marl_regulated.ray, "get", lambda ref, *a, **k: ref)
 
     def build(
@@ -139,6 +143,7 @@ def build_fishery(tmp_path, monkeypatch):
             schema=FisheryMetricSchema,
             ecology_cfg=ECOLOGY,
         )
+
         return SimpleNamespace(
             adapter=RLlibMultiAgentEnvAdapter(env), env=env, world=world
         )

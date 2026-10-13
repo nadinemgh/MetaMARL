@@ -29,7 +29,6 @@ SERIES = ReduceProtocol.SERIES
 MEAN = ReduceProtocol.MEAN
 M0 = (("by_mech", "m0"),)
 M1 = (("by_mech", "m1"),)
-
 pytestmark = pytest.mark.unit
 
 
@@ -62,6 +61,7 @@ def fake_wandb(monkeypatch) -> SimpleNamespace:
             return None
 
         run = FakeRun()
+
         state.runs.append(run)
 
         return run
@@ -122,7 +122,6 @@ class TestConfig:
         config = WandbConfig(project="proj")
         config.world = "w"
         config.outer_iters = 5
-
         reporter = config.build(label="env0")
 
         assert isinstance(reporter, WandbReporter)
@@ -141,7 +140,6 @@ class TestConfig:
     def test_every_build_gets_a_fresh_run_id(self):
         config = WandbConfig(project="proj")
         config.world = "w"
-
         first, second = config.build(), config.build()
 
         assert first._run_id != second._run_id
@@ -153,10 +151,10 @@ class TestRunLifecycle:
         self, fake_wandb, wandb_reporter
     ):
         assert fake_wandb.init_calls == []
-
         wandb_reporter._init_run()
 
         (call,) = fake_wandb.init_calls
+
         assert call == {
             "project": "proj",
             "id": "abc",
@@ -170,14 +168,12 @@ class TestRunLifecycle:
     def test_init_happens_once(self, fake_wandb, wandb_reporter):
         wandb_reporter._init_run()
         wandb_reporter._init_run()
-
         assert len(fake_wandb.init_calls) == 1
 
     def test_missing_config_and_settings_become_empty_dicts(self, fake_wandb):
         reporter = WandbReporter(project="p", name="n", run_id="i", group="g")
 
         reporter._init_run()
-
         assert fake_wandb.init_calls[0]["config"] == {}
         assert fake_wandb.settings_calls == [{}]
 
@@ -186,25 +182,20 @@ class TestRunLifecycle:
     ):
         wandb_reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
         wandb_reporter.report(reporting_metrics)
-
         wandb_reporter.close()
         wandb_reporter.report(reporting_metrics)
-
         assert fake_wandb.runs[0].finished == 1
         assert len(fake_wandb.init_calls) == 2
         assert len(fake_wandb.runs[1].logged) == 1
 
     def test_close_without_a_run_is_a_no_op(self, fake_wandb, wandb_reporter):
         wandb_reporter.close()
-
         assert fake_wandb.init_calls == [] and wandb_reporter._run is None
 
     def test_close_twice_finishes_once(self, fake_wandb, wandb_reporter):
         wandb_reporter._init_run()
-
         wandb_reporter.close()
         wandb_reporter.close()
-
         assert fake_wandb.runs[0].finished == 1
 
     def test_failed_initialisation_is_reported(self, fake_wandb, wandb_reporter):
@@ -222,11 +213,11 @@ class TestLoggedFigure:
         wandb_reporter.add_query(
             Query(title="Loss (train)", x=("iter",), y=("loss",), y_label="loss")
         )
-
         wandb_reporter.report(reporting_metrics)
 
         fig = logged_figure(fake_wandb, "plots/Loss_train_")
         (trace,) = fig.data
+
         assert trace.name == "loss" and trace.mode == "lines+markers"
         assert list(trace.x) == [0, 1, 2] and list(trace.y) == [3.0, 2.0, 1.0]
         assert fig.layout.title.text == "Loss (train)"
@@ -243,10 +234,10 @@ class TestLoggedFigure:
             Query(title="d", x=("iter",), y=("loss",)),
             Query(title="o", x=("iter",), y=("loss",), x_label="step", y_label="J"),
         )
-
         wandb_reporter.report(reporting_metrics)
 
         default, override = (p for p in fake_wandb.runs[0].logged)
+
         assert default["plots/d"].layout.xaxis.title.text == "iter"
         assert default["plots/d"].layout.yaxis.title.text == "value"
         assert override["plots/o"].layout.xaxis.title.text == "step"
@@ -259,10 +250,10 @@ class TestLoggedFigure:
             Query(title="m", x=("iter",), y=("loss",), plot_modes=("markers",)),
             Query(title="l", x=("iter",), y=("loss",), plot_modes=("lines",)),
         )
-
         wandb_reporter.report(reporting_metrics)
 
         markers, lines = fake_wandb.runs[0].logged
+
         assert markers["plots/m"].layout.hovermode == "closest"
         assert markers["plots/m"].data[0].mode == "markers"
         assert lines["plots/l"].layout.hovermode == "x unified"
@@ -274,7 +265,6 @@ class TestLoggedFigure:
         query = Query(title="t", x=("x",), y=("y",))
 
         wandb_reporter._report(query, {(): [0]}, [{}], [{}], None)
-
         assert fake_wandb.init_calls == [] and fake_wandb.runs == []
         assert wandb_reporter._run is None
 
@@ -286,9 +276,7 @@ class TestLoggedFigure:
         wandb_reporter.add_query(
             Query(title="e", x=("iter",), y=("by_mech", SERIES, "fitness"))
         )
-
         wandb_reporter.report(reporting_metrics)
-
         assert fake_wandb.init_calls == []
 
     def test_color_query_widens_legend_margin_and_adds_a_color_bar(
@@ -304,10 +292,10 @@ class TestLoggedFigure:
                 colorscale="Viridis",
             )
         )
-
         wandb_reporter.report(reporting_metrics)
 
         fig = logged_figure(fake_wandb, "plots/c")
+
         assert fig.layout.legend.x == 1.15 and fig.layout.margin.r == 300
         assert fig.layout.coloraxis.colorbar.title.text == "step"
         assert (fig.layout.coloraxis.cmin, fig.layout.coloraxis.cmax) == (0.0, 2.0)
@@ -316,10 +304,10 @@ class TestLoggedFigure:
         self, fake_wandb, wandb_reporter, reporting_metrics
     ):
         wandb_reporter.add_query(Query(title="p", x=("iter",), y=("loss",)))
-
         wandb_reporter.report(reporting_metrics)
 
         fig = logged_figure(fake_wandb, "plots/p")
+
         assert fig.layout.legend.x == 1.02 and fig.layout.margin.r == 220
 
 
@@ -340,7 +328,6 @@ class TestSeriesFigure:
     def test_dash_patterns_cycle_through_four_styles(self):
         query = Query(title="t", x=("x",), y=("y",))
         groups = {(("d", str(i)),): [1.0] for i in range(5)}
-
         fig = self.build(query, {(): [0]}, [groups])
 
         assert [t.line.dash for t in fig.data] == [
@@ -366,7 +353,6 @@ class TestSeriesFigure:
             legend_labels=("A", "B"),
             plot_modes=("lines", "markers"),
         )
-
         fig = self.build(query, {(): [0]}, [{(): [1.0]}, {(): [2.0]}])
 
         assert [t.name for t in fig.data] == ["A", "B"]
@@ -392,8 +378,8 @@ class TestSeriesFigure:
         fig = self.build(
             query, {(): [1, 2, 3]}, [{(): [2.0, 3.0, 4.0]}], [{(): [1.0, 1.0, 1.0]}]
         )
-
         band, line = fig.data
+
         assert band.name == "y ±1 std" and band.fill == "toself"
         assert band.showlegend is False and band.legendgroup == line.legendgroup == "y"
         assert list(band.x) == [1, 2, 3, 3, 2, 1]
@@ -418,7 +404,9 @@ class TestSeriesFigure:
 
         assert all(t.marker.coloraxis == "coloraxis" for t in fig.data)
         assert all(list(t.marker.color) == [10.0, 30.0] for t in fig.data)
+
         axis = fig.layout.coloraxis
+
         assert (axis.cmin, axis.cmax) == (10.0, 30.0)
         assert axis.colorbar.title.text == "c"
         assert (

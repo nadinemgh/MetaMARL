@@ -22,6 +22,7 @@ def fake_execv(monkeypatch):
         raise ExecCalled
 
     monkeypatch.setattr(hash_seed.os, "execv", execv)
+
     return calls
 
 
@@ -43,9 +44,7 @@ def test_unset_seed_restarts_with_the_same_command(monkeypatch, fake_execv):
 @pytest.mark.parametrize("value", ["0", "123", "random"])
 def test_a_set_seed_is_respected(monkeypatch, fake_execv, value):
     monkeypatch.setenv("PYTHONHASHSEED", value)
-
     hash_seed.ensure_hash_seed()
-
     assert os.environ["PYTHONHASHSEED"] == value
     assert fake_execv == []
 
@@ -55,14 +54,15 @@ def test_the_restarted_process_has_a_fixed_hash_order(tmp_path):
     # Two fresh interpreters without PYTHONHASHSEED must agree on the order of
     # a set of strings once ensure_hash_seed has restarted them.
     script = tmp_path / "order.py"
+
     script.write_text(
         "from core.config.hash_seed import ensure_hash_seed\n"
         + "ensure_hash_seed()\n"
         + "print(list({f'fisherman:{i}' for i in range(10)}))\n"
     )
+
     env = {k: v for k, v in os.environ.items() if k != "PYTHONHASHSEED"}
     env["PYTHONPATH"] = os.getcwd()
-
     orders = [
         subprocess.run(
             [sys.executable, str(script)],

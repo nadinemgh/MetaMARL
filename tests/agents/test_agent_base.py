@@ -45,14 +45,18 @@ def make_agent(*mechanism_ids: str) -> Agent:
         mid: Adder(aid="a0", id=mid, action_space=BOX, acts_on=None)
         for mid in mechanism_ids
     }
+
     return Agent(id="a0", policy_id="p", mechanisms=mechanisms)
 
 
 def mdp_holding(actions: dict, *, t: int = 0) -> MDPState:
     """MDP at step ``t`` whose ``total`` entry exists and starts at zero."""
+
     mdp = MDPState(state={"total": 0.0}, actions={"a0": actions})
+
     for _ in range(t):
         mdp = mdp.advance(state={"total": 0.0})
+
     return mdp
 
 
@@ -100,7 +104,6 @@ def test_action_with_an_empty_entry_returns_the_same_mdp():
 def test_action_applies_every_mechanism_it_holds_an_action_for():
     agent = make_agent("m1", "m2")
     mdp = mdp_holding({"m1": [0.1], "m2": [0.2]})
-
     result = agent.action(mdp)
 
     # Both decoded actions (x10) are summed into the state.
@@ -111,7 +114,6 @@ def test_action_applies_every_mechanism_it_holds_an_action_for():
 def test_action_ignores_actions_for_mechanisms_the_agent_does_not_own():
     agent = make_agent("m1")
     mdp = mdp_holding({"m1": [0.1], "stranger": [5.0]})
-
     result = agent.action(mdp)
 
     assert result.state["total"] == pytest.approx([1.0])
@@ -121,7 +123,6 @@ def test_action_ignores_actions_for_mechanisms_the_agent_does_not_own():
 def test_action_uses_the_entry_of_the_current_timestep():
     agent = make_agent("m")
     mdp = mdp_holding({"m": [0.1, 0.3]}, t=1)
-
     result = agent.action(mdp)
 
     assert result.state["total"] == pytest.approx([0.0, 3.0])
@@ -131,7 +132,6 @@ def test_action_uses_the_entry_of_the_current_timestep():
 def test_action_records_the_decoded_action_in_the_mdp():
     agent = make_agent("m")
     mdp = mdp_holding({"m": [0.1]})
-
     result = agent.action(mdp)
 
     assert result.actions["a0"]["m"] == pytest.approx([1.0])
@@ -140,7 +140,6 @@ def test_action_records_the_decoded_action_in_the_mdp():
 @pytest.mark.unit
 def test_config_wraps_a_single_mechanism_config_in_a_tuple():
     mechanism = AdderConfig(action_space=BOX, id="m")
-
     config = AgentConfig(policy_id="p", mechanisms=mechanism)
 
     assert config.mechanisms == (mechanism,)
@@ -149,7 +148,6 @@ def test_config_wraps_a_single_mechanism_config_in_a_tuple():
 @pytest.mark.unit
 def test_config_keeps_a_tuple_of_mechanism_configs():
     mechanisms = (AdderConfig(action_space=BOX, id="m1"), AdderConfig(BOX, id="m2"))
-
     assert AgentConfig(policy_id="p", mechanisms=mechanisms).mechanisms == mechanisms
 
 
@@ -162,7 +160,6 @@ def test_config_id_defaults_to_the_agent_class_name():
         agent_cls: ClassVar[type[Agent]] = Fisherman
 
     mechanism = AdderConfig(action_space=BOX, id="m")
-
     assert AgentConfig(policy_id="p", mechanisms=mechanism).id == "Agent"
     assert FishermanConfig(policy_id="p", mechanisms=mechanism).id == "Fisherman"
     assert FishermanConfig(policy_id="p", mechanisms=mechanism, id="x").id == "x"
@@ -208,7 +205,6 @@ def test_build_returns_an_agent_holding_mechanisms_keyed_by_their_id():
             AdderConfig(action_space=BOX, id="m2", acts_on=("fisherman", "harvest")),
         ),
     )
-
     agent = config.build()
 
     assert type(agent) is Fisherman
@@ -225,7 +221,6 @@ def test_build_returns_an_agent_holding_mechanisms_keyed_by_their_id():
 @pytest.mark.unit
 def test_every_build_creates_independent_agents():
     config = AgentConfig(id="a", policy_id="p", mechanisms=AdderConfig(BOX, id="m"))
-
     first, second = config.build(), config.build()
 
     assert first is not second
@@ -240,7 +235,6 @@ def test_a_mechanism_can_be_built_with_a_default_of_several_entries():
         policy_id="p",
         mechanisms=AdderConfig(action_space=BOX, id="m", default=default),
     )
-
     agent = config.build()
 
     assert isinstance(agent.mechanisms["m"], Adder)
@@ -253,7 +247,6 @@ def test_importing_the_agents_does_not_import_the_unmaintained_gym_package():
     # uses ``gymnasium``. A fresh interpreter is needed: this process may have
     # imported ``gym`` through another module.
     code = "import sys, core.agents.base; print('gym' in sys.modules)"
-
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )

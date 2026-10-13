@@ -26,10 +26,14 @@ def test_agents_are_built_from_their_configurations_leaders_first(toy):
     assert env.lids == {"regulator"}
     assert list(env.agents) == ["regulator", "f0", "f1"]
     assert all(isinstance(a, toy.Fisher) for a in env.followers.values())
+
     # Each agent owns the mechanisms of its configuration, stamped with its id.
     harvest = env.followers["f1"].mechanisms["harvest"]
+
     assert isinstance(harvest, toy.Harvest) and harvest.aid == "f1"
+
     fee = env.leaders["regulator"].mechanisms["fee"]
+
     assert isinstance(fee, toy.Fee) and fee.aid == "regulator"
 
 
@@ -123,9 +127,7 @@ def test_mechanism_is_unset_until_a_candidate_is_fetched(toy, identity_ray_get):
 
     assert env.mechanism is None
     assert not env.published_mechanism_assigned
-
     env.reset(MDPState(aids={"f0", "f1"}))
-
     assert env.published_mechanism_assigned
     assert env.mechanism is env.m is env.m_ctx.mechanism
     np.testing.assert_allclose(env.mechanism["fee"], [0.25])
@@ -134,7 +136,6 @@ def test_mechanism_is_unset_until_a_candidate_is_fetched(toy, identity_ray_get):
 @pytest.mark.unit
 def test_opt_id_setter_stores_the_optimizer_identifier(toy):
     env = toy.make_env(toy.ScriptedWorld())
-
     env.opt_id = "opt_3"
 
     assert env._opt_id == "opt_3"

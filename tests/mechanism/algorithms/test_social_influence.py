@@ -23,6 +23,7 @@ NO_ACTION = np.empty(0, dtype=np.float32)
 
 def make(obs_offset: int = 2, **kwargs) -> SocialInfluenceMechanism:
     kwargs.setdefault("acts_on", ("fisherman", "harvest"))
+
     return SocialInfluence(id="social", obs_offset=obs_offset, **kwargs).build(
         REGULATOR
     )
@@ -30,6 +31,7 @@ def make(obs_offset: int = 2, **kwargs) -> SocialInfluenceMechanism:
 
 def mdp_after_a_step(delivered: dict[str, list[float]], obs_size: int = 6) -> MDPState:
     """State at ``t = 1`` whose step 0 delivered the given harvest actions."""
+
     mdp = MDPState(
         aids=set(delivered),
         actions={
@@ -38,6 +40,7 @@ def mdp_after_a_step(delivered: dict[str, list[float]], obs_size: int = 6) -> MD
         },
         obs={aid: np.zeros(obs_size, dtype=np.float32) for aid in delivered},
     )
+
     return dataclasses.replace(mdp, t=1)
 
 
@@ -53,6 +56,7 @@ class TestValidation:
     def test_parameter_ranges(self):
         with pytest.raises(ValueError, match="obs_offset"):
             make(obs_offset=-1)
+
         with pytest.raises(ValueError, match="influence_weight"):
             make(influence_weight=-0.5)
 
@@ -76,7 +80,6 @@ class TestFixedRule:
 
     def test_apply_contributes_nothing(self):
         mdp = dataclasses.replace(mdp_after_a_step(THREE), t=0)
-
         delta = make()(mdp, NO_ACTION)
 
         assert delta.obs.data == {}
@@ -98,7 +101,6 @@ class TestObservationResidual:
 
     def test_peer_order_does_not_depend_on_the_order_of_the_actions(self):
         shuffled = {aid: THREE[aid] for aid in reversed(THREE)}
-
         delta = make(obs_offset=2).observe(mdp_after_a_step(shuffled))
 
         np.testing.assert_allclose(delta.obs["fisherman:1"][0], [0, 0, 1, 10, 3, 30])
@@ -106,7 +108,6 @@ class TestObservationResidual:
     def test_peers_follow_the_numeric_order_of_their_index(self):
         # String order would put "fisherman:10" before "fisherman:2".
         delivered = {"fisherman:2": [2.0], "fisherman:10": [10.0], "fisherman:1": [1.0]}
-
         delta = make(obs_offset=0).observe(mdp_after_a_step(delivered, obs_size=2))
 
         np.testing.assert_allclose(delta.obs["fisherman:1"][0], [2, 10])
@@ -119,7 +120,6 @@ class TestObservationResidual:
             "fisherman:a": [-1.0],
             "fisherman:9": [9.0],
         }
-
         delta = make(obs_offset=0).observe(mdp_after_a_step(delivered, obs_size=3))
 
         np.testing.assert_allclose(delta.obs["fisherman:b"][0], [9, 10, -1])
@@ -127,7 +127,6 @@ class TestObservationResidual:
     def test_scalar_actions_are_accepted(self):
         # A mechanism such as ``Fishing`` decodes its action to a plain float.
         mdp = mdp_after_a_step({"fisherman:0": 0.25, "fisherman:1": 0.75}, obs_size=3)
-
         delta = make(obs_offset=2).observe(mdp)
 
         np.testing.assert_allclose(delta.obs["fisherman:0"][0], [0, 0, 0.75])
@@ -135,7 +134,6 @@ class TestObservationResidual:
 
     def test_other_agents_are_neither_peers_nor_recipients(self):
         mdp = mdp_after_a_step({**THREE, "farmer:0": [9.0, 90.0]})
-
         delta = make(obs_offset=2).observe(mdp)
 
         assert set(delta.obs.data) == set(THREE)
@@ -153,12 +151,13 @@ class TestObservationResidual:
 
     def test_only_the_last_step_is_exposed(self):
         mdp = mdp_after_a_step({"fisherman:0": 0.25, "fisherman:1": 0.75}, obs_size=3)
+
         mdp.update(
             actions={"fisherman:0": {"harvest": 0.5}, "fisherman:1": {"harvest": 0.9}}
         )
         mdp.update(obs={aid: np.zeros(3, dtype=np.float32) for aid in mdp.aids})
-        mdp = dataclasses.replace(mdp, t=2)
 
+        mdp = dataclasses.replace(mdp, t=2)
         delta = make(obs_offset=2).observe(mdp)
 
         np.testing.assert_allclose(delta.obs["fisherman:0"][0], [0, 0, 0.9])
@@ -174,7 +173,6 @@ class TestComposition:
         own = MDPState(
             obs={aid: np.asarray([0.8, 0.1, 0.0], dtype=np.float32) for aid in mdp.aids}
         )
-
         mdp = mdp.add([own, *regulator.mechanism_observations(mdp)])
 
         np.testing.assert_allclose(mdp.obs["fisherman:0"][1], [0.8, 0.1, 0.75])

@@ -64,6 +64,7 @@ def isolated_runtime(monkeypatch):
     monkeypatch.setattr(ray_constants, "RAY_ENABLE_UV_RUN_RUNTIME_ENV", True)
 
     levels = {name: logging.getLogger(name).level for name in _SILENCED_LOGGERS}
+
     yield events
 
     for name, level in levels.items():
@@ -72,7 +73,9 @@ def isolated_runtime(monkeypatch):
 
 def _init_kwargs(events: list) -> dict:
     inits = [payload for kind, payload in events if kind == "init"]
+
     assert len(inits) == 1
+
     return inits[0]
 
 
@@ -90,6 +93,7 @@ def test_initialize_forwards_resources_runtime_env_and_extra_kwargs(isolated_run
     cfg.initialize()
 
     kwargs = _init_kwargs(isolated_runtime)
+
     assert kwargs["num_cpus"] == 3
     assert kwargs["num_gpus"] == 1
     assert kwargs["logging_level"] == "WARNING"
@@ -102,6 +106,7 @@ def test_initialize_without_resources_leaves_them_to_ray(isolated_runtime):
     RayRuntimeConfig(device="cpu").initialize()
 
     kwargs = _init_kwargs(isolated_runtime)
+
     assert kwargs["num_cpus"] is None
     assert kwargs["num_gpus"] is None
     assert kwargs["runtime_env"] is None
@@ -113,6 +118,7 @@ def test_initialize_fixes_the_local_mode_settings(isolated_runtime):
     RayRuntimeConfig(device="cpu").initialize()
 
     kwargs = _init_kwargs(isolated_runtime)
+
     assert kwargs["local_mode"] is True
     assert kwargs["ignore_reinit_error"] is True
     assert kwargs["log_to_driver"] is False
@@ -128,10 +134,8 @@ def test_initialize_exports_the_environment_before_ray_starts(isolated_runtime):
     # Child processes inherit the environment at fork time, so the device
     # must be set before ``ray.init`` is reached.
     RayRuntimeConfig(device="cpu", num_gpus=2, omp_threads=4).initialize()
-
     assert [kind for kind, _ in isolated_runtime] == ["device", "init"]
     assert isolated_runtime[0] == ("device", "cpu")
-
     assert os.environ["RLLIB_NUM_GPUS"] == "2"
     assert os.environ["OMP_NUM_THREADS"] == "4"
 
@@ -142,7 +146,6 @@ def test_initialize_silences_the_library_loggers(isolated_runtime):
         logging.getLogger(name).setLevel(logging.DEBUG)
 
     RayRuntimeConfig(device="cpu").initialize()
-
     assert logging.getLogger("ray").level == logging.WARNING
     assert logging.getLogger("ray.rllib").level == logging.WARNING
     assert logging.getLogger("ray.tune").level == logging.WARNING
@@ -155,7 +158,6 @@ def test_ensure_initialized_starts_ray_once_with_the_given_config(isolated_runti
     cfg = RayRuntimeConfig(device="cpu", num_cpus=5)
 
     RayRuntime.ensure_initialized(cfg)
-
     assert _init_kwargs(isolated_runtime)["num_cpus"] == 5
 
 
@@ -164,7 +166,5 @@ def test_ensure_initialized_ignores_a_new_config_while_ray_runs(
     isolated_runtime, monkeypatch
 ):
     monkeypatch.setattr(ray, "is_initialized", lambda: True)
-
     RayRuntime.ensure_initialized(RayRuntimeConfig(device="cpu", num_cpus=9))
-
     assert isolated_runtime == []

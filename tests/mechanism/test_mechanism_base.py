@@ -23,6 +23,7 @@ class Recorder(Mechanism):
         kwargs.setdefault("action_space", SPACE)
         kwargs.setdefault("acts_on", ("fisherman", "harvest"))
         super().__init__(**kwargs)
+
         self.received = []
 
     def decode(self, mdp, action):
@@ -30,6 +31,7 @@ class Recorder(Mechanism):
 
     def apply(self, mdp, action):
         self.received.append(action)
+
         return MDPState(rewards={"fisherman:0": action})
 
 
@@ -52,6 +54,7 @@ class TestInterface:
 
     def test_the_default_decode_is_the_identity(self):
         mechanism = Recorder()
+
         assert Mechanism.decode(mechanism, MDPState(), 0.25) == 0.25
 
     def test_the_default_observation_is_empty(self):
@@ -80,7 +83,6 @@ class TestCall:
     def test_call_applies_the_decoded_action(self):
         mechanism = Recorder(aid="regulator", id="quota")
         mdp = MDPState(actions={"regulator": {"quota": np.array([0.5])}})
-
         residual = mechanism(mdp, 0.25)
 
         assert mechanism.received == [0.5]
@@ -91,7 +93,6 @@ class TestCall:
         mdp = MDPState(actions={"regulator": {"quota": [0.0, 0.0]}}, t=1)
 
         mechanism(mdp, 0.25)
-
         assert mdp.actions["regulator"]["quota"] == [0.0, 0.5]
 
     def test_call_does_not_reach_a_state_that_shares_the_action_list(self):
@@ -101,12 +102,12 @@ class TestCall:
             actions={"regulator": {"quota": [0.0, 0.25]}},
             t=1,
         )
+
         # ``add`` shares the action lists that no residual writes to.
         after = before.add(MDPState(state={"fish": -0.5}))
+
         assert after.actions["regulator"] is before.actions["regulator"]
-
         mechanism(after, 0.25)
-
         assert after.actions["regulator"]["quota"] == [0.0, 0.5]
         assert before.actions["regulator"]["quota"] == [0.0, 0.25]
 
@@ -118,6 +119,7 @@ class TestAnnotationsMatchTheBehaviour:
         hint = typing.get_type_hints(Mechanism.__init__)["acts_on"]
 
         assert type(None) in typing.get_args(hint)
+
         assert Recorder(acts_on=None).acts_on is None
 
     def test_add_accepts_a_single_state_as_well_as_a_list(self):
@@ -144,14 +146,12 @@ class TestDefault:
 
     def test_a_vector_default_is_kept(self):
         default = np.array([0.2, 0.3], dtype=np.float32)
-
         mechanism = Recorder(default=default)
 
         np.testing.assert_array_equal(mechanism._u, default)
 
     def test_a_default_equal_to_zero_is_kept(self):
         default = np.array([0.0], dtype=np.float32)
-
         mechanism = Recorder(default=default)
 
         np.testing.assert_array_equal(mechanism._u, default)

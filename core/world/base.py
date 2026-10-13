@@ -234,10 +234,7 @@ class World:
 
         required_status = {
             MechanismStatus.train: {MechanismStatus.published},
-            MechanismStatus.eval: {
-                MechanismStatus.train,
-                MechanismStatus.eval,
-            },
+            MechanismStatus.eval: {MechanismStatus.train, MechanismStatus.eval},
         }
         target_prev_status = required_status.get(mode)
 

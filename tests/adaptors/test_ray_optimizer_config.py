@@ -30,7 +30,9 @@ def test_build_without_agents_is_a_clear_error():
 
 def fisher_society(num_mechanisms: int, num_train_seeds: int) -> APPOptimizerConfig:
     """Fishery society config with the layout knobs of ``debug.py``."""
+
     box = spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32)
+
     return (
         APPOptimizerConfig()
         .environment(env=FisheryRegulatedEnv, env_config={}, horizon=5)
@@ -74,6 +76,7 @@ def test_evaluation_runners_host_one_environment_per_mechanism():
 @pytest.mark.parametrize("disable", [True, False])
 def test_disable_env_checking_reaches_rllib(disable):
     cfg = fisher_society(num_mechanisms=1, num_train_seeds=1)
+
     cfg.environment(
         env=FisheryRegulatedEnv, env_config={}, horizon=5, disable_env_checking=disable
     )

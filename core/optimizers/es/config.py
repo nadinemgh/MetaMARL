@@ -145,6 +145,7 @@ class ESConfig(OptimizerConfig):
         ESConfig
             ``self``, for chaining.
         """
+
         super().training(episodes=episodes)
 
         if sigma is not None:

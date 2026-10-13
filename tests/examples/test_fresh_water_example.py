@@ -52,6 +52,24 @@ from typing import Any
 
 import numpy as np
 import pytest
+from examples.fresh_water.hydrology import (
+    RavenLake,
+    RavenOutputError,
+    SurrogateLake,
+    estimate_temp_c,
+    write_stand_in_raven,
+)
+from examples.fresh_water.metric_schema import WaterMetricSchema
+from examples.fresh_water.regulated_env import (
+    IRRIGATE_SPACE,
+    IrrigateConfig,
+    UtilizerConfig,
+    WaterRegulatedEnv,
+    crop_demand,
+    crop_stage,
+    residence_time_days,
+)
+from examples.fresh_water.regulator_env import WaterRegulatorEnv, level_deviation
 from gymnasium import spaces
 
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
@@ -60,13 +78,6 @@ from core.envs import marl_regulated
 from core.reporting.csv import CSVConfig
 from core.world.context import MechanismContext, MechanismStatus
 from examples.fresh_water.contexts import FitnessContext
-from examples.fresh_water.hydrology import (
-    RavenLake,
-    RavenOutputError,
-    SurrogateLake,
-    estimate_temp_c,
-    write_stand_in_raven,
-)
 from examples.fresh_water.mechanism import (
     DEFAULT_RULES,
     IRRIGATE_ID,
@@ -82,17 +93,6 @@ from examples.fresh_water.mechanism import (
     quota_stress,
     violation_signal,
 )
-from examples.fresh_water.metric_schema import WaterMetricSchema
-from examples.fresh_water.regulated_env import (
-    IRRIGATE_SPACE,
-    IrrigateConfig,
-    UtilizerConfig,
-    WaterRegulatedEnv,
-    crop_demand,
-    crop_stage,
-    residence_time_days,
-)
-from examples.fresh_water.regulator_env import WaterRegulatorEnv, level_deviation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REGULATOR = "water_regulator"
@@ -103,6 +103,7 @@ SECONDS_PER_DAY = 86400.0
 # 0.035, maximum demand 0.48, a fine of 0.06, a risk scale of 0.7 and a risk
 # power of 1 + 4 * 0.4 = 2.6.
 TIGHT = np.asarray([0.2, 0.1, 0.2, 0.6, 0.7, 0.4, 0.5, 0.5], dtype=np.float32)
+
 # Every request is allowed whatever the level.
 LOOSE = np.asarray([0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.5, 0.5], dtype=np.float32)
 
@@ -124,6 +125,7 @@ class ScriptedWorld:
 
 def candidate(rules: np.ndarray) -> MechanismContext:
     """Candidate the regulator publishes: the normalized rules."""
+
     return MechanismContext(
         index=0,
         env_id=None,
@@ -137,6 +139,7 @@ def candidate(rules: np.ndarray) -> MechanismContext:
 @pytest.fixture
 def build_env(tmp_path, monkeypatch):
     """Factory of a fresh-water environment, with or without a regulator."""
+
     monkeypatch.setattr(marl_regulated.ray, "get", lambda ref, *a, **k: ref)
 
     def build(
@@ -161,6 +164,7 @@ def build_env(tmp_path, monkeypatch):
             for aid in farm_ids(farms)
         }
         leaders = {}
+
         if rules is not None:
             leaders[REGULATOR] = AgentConfig(
                 id=REGULATOR,
@@ -173,6 +177,7 @@ def build_env(tmp_path, monkeypatch):
                     ),
                 ),
             )
+
         return WaterRegulatedEnv(
             world=ScriptedWorld([candidate(rules)] if rules is not None else []),
             opt_id="inner",
@@ -226,6 +231,7 @@ def test_monthly_temperature_of_july_is_23_degrees():
 @pytest.mark.unit
 def test_crop_demand_matches_the_hand_computed_water_balance():
     demand = crop_demand(datetime(1980, 7, 15), 40, 1.0, 1_000_000.0)
+
     assert demand.stage == "development"
     assert demand.kc == 0.80
     assert demand.eto_mm_day == pytest.approx(0.34 * (0.46 * 23 + 8))
@@ -239,6 +245,7 @@ def test_crop_demand_matches_the_hand_computed_water_balance():
 @pytest.mark.unit
 def test_rain_above_the_crop_use_leaves_no_deficit():
     demand = crop_demand(datetime(1980, 7, 15), 40, 20.0, 1_000_000.0)
+
     assert demand.deficit_mm_day == 0.0
     assert demand.full_required_m3_day == 0.0
     assert demand.precip_water_m3_day == pytest.approx(20_000.0)
@@ -248,6 +255,7 @@ def test_rain_above_the_crop_use_leaves_no_deficit():
 def test_a_crop_that_is_not_growing_needs_no_water():
     before = crop_demand(datetime(1980, 5, 1), -5, 0.0, 1_000_000.0)
     after = crop_demand(datetime(1980, 10, 20), 200, 0.0, 1_000_000.0)
+
     for demand in (before, after):
         assert demand.stage == "offseason"
         assert demand.crop_water_need_m3_day == 0.0
@@ -265,6 +273,7 @@ def test_decode_rules_maps_the_unit_cube_to_the_documented_ranges():
     assert decode_rules(np.ones(8)).tolist() == pytest.approx(
         [0.95, 0.35, 1.0, 0.1, 1.0, 5.0, 1.0, 20_000_000.0]
     )
+
     # Out-of-range outputs are clipped instead of leaving the ranges.
     np.testing.assert_allclose(decode_rules(np.full(8, 7.0)), decode_rules(np.ones(8)))
 
@@ -272,6 +281,7 @@ def test_decode_rules_maps_the_unit_cube_to_the_documented_ranges():
 @pytest.mark.unit
 def test_the_maximum_demand_is_never_below_the_minimum_demand():
     rules = decode_rules([0.5, 1.0, 0.0, 0.5, 0.5, 0.5, 0.5, 0.5])
+
     assert rules[1] == pytest.approx(0.35)
     assert rules[2] == pytest.approx(0.35)
 
@@ -279,8 +289,11 @@ def test_the_maximum_demand_is_never_below_the_minimum_demand():
 @pytest.mark.unit
 def test_encode_rules_inverts_decode_rules_and_the_default_is_inside_the_cube():
     u = np.asarray([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+
     np.testing.assert_allclose(encode_rules(decode_rules(u)), u, atol=1e-6)
+
     encoded_default = encode_rules(DEFAULT_RULES)
+
     assert np.all((0.0 <= encoded_default) & (encoded_default <= 1.0))
     assert len(RULE_NAMES) == 8
 
@@ -306,6 +319,7 @@ def test_quota_stress_and_allowed_fraction_at_a_known_level():
 def test_irrigation_fraction_clips_the_policy_output():
     assert irrigation_fraction(np.asarray([-0.3], dtype=np.float32)) == 0.0
     assert irrigation_fraction(np.asarray([1.7], dtype=np.float32)) == 1.0
+
     assert irrigation_fraction(0.25) == 0.25
 
 
@@ -318,6 +332,7 @@ def test_violation_signal_matches_the_hand_computed_penalties():
         release_pressure=0.5,
         rules=DEFAULT_RULES,
     )
+
     assert v.requested_m3_day == pytest.approx(800.0)
     assert v.allowed_m3_day == pytest.approx(1100 / 3)
     assert v.delivered_m3_day == pytest.approx(1100 / 3)
@@ -336,6 +351,7 @@ def test_a_request_inside_the_quota_pays_only_the_flow_penalty():
         release_pressure=1.0,
         rules=DEFAULT_RULES,
     )
+
     assert v.quota_violation_m3_day == 0.0
     assert v.quota_penalty == 0.0
     assert v.delivered_m3_day == pytest.approx(200.0)
@@ -352,7 +368,9 @@ def test_the_penalty_is_capped_at_one_and_a_dry_day_has_none():
         release_pressure=1.0,
         rules=rules,
     )
+
     assert capped.total_penalty == 1.0
+
     dry = violation_signal(
         1.0,
         full_required_m3_day=0.0,
@@ -360,6 +378,7 @@ def test_the_penalty_is_capped_at_one_and_a_dry_day_has_none():
         release_pressure=1.0,
         rules=DEFAULT_RULES,
     )
+
     assert dry.requested_m3_day == 0.0
     assert dry.total_penalty == 0.0
 
@@ -377,7 +396,9 @@ def quiet_lake(**overrides: Any) -> SurrogateLake:
         rain_probability=0.0,
         initial_level_range=(0.5, 0.5),
     )
+
     parameters.update(overrides)
+
     return SurrogateLake(**parameters)
 
 
@@ -386,10 +407,12 @@ def test_surrogate_lake_mass_balance_and_baseline_match_the_hand_values():
     lake = quiet_lake()
     rng = np.random.default_rng(0)
     first = lake.start(datetime(1980, 5, 10), rng)
+
     assert first.stage_m == 415.0
     assert lake.level_norm(first.stage_m) == pytest.approx(0.5)
 
     day = lake.advance(datetime(1980, 5, 11), withdrawal_m3s=2.0, rng=rng)
+
     assert day.stage_m == pytest.approx(415.1728)
     assert day.baseline_stage_m == pytest.approx(415.3456)
     assert day.inflow_m3s == pytest.approx(10.0)
@@ -400,13 +423,19 @@ def test_surrogate_lake_mass_balance_and_baseline_match_the_hand_values():
 def test_surrogate_lake_spills_when_full_and_never_goes_below_empty():
     full = quiet_lake(initial_level_range=(1.0, 1.0), release_fraction=0.0)
     rng = np.random.default_rng(0)
+
     full.start(datetime(1980, 5, 10), rng)
+
     day = full.advance(datetime(1980, 5, 11), withdrawal_m3s=0.0, rng=rng)
+
     assert day.stage_m == pytest.approx(420.0)
 
     empty = quiet_lake(initial_level_range=(0.0, 0.0), release_fraction=0.0)
+
     empty.start(datetime(1980, 5, 10), rng)
+
     day = empty.advance(datetime(1980, 5, 11), withdrawal_m3s=500.0, rng=rng)
+
     assert day.stage_m == pytest.approx(410.0)
 
 
@@ -415,7 +444,9 @@ def test_surrogate_lake_with_the_same_seed_repeats_its_weather():
     def run(seed: int) -> list[float]:
         lake = SurrogateLake(full_stage_m=420.0, max_depth_m=10.0, lake_area_m2=1e6)
         rng = np.random.default_rng(seed)
+
         lake.start(datetime(1980, 6, 1), rng)
+
         return [
             lake.advance(
                 datetime(1980, 6, 2 + day), withdrawal_m3s=1.0, rng=rng
@@ -440,6 +471,7 @@ def test_raven_lake_reads_the_stand_in_outputs(tmp_path):
     )
     rng = np.random.default_rng(0)
     start = lake.start(datetime(1980, 5, 1), rng, datetime(1980, 5, 3))
+
     assert (start.stage_m, start.baseline_stage_m) == (420.0, 420.0)
 
     first = lake.advance(datetime(1980, 5, 2), withdrawal_m3s=2.0, rng=rng)
@@ -449,8 +481,10 @@ def test_raven_lake_reads_the_stand_in_outputs(tmp_path):
     assert first.stage_m == 418.0
     assert second.stage_m == 417.5
     assert second.baseline_stage_m == 420.0
+
     # Its inflow and release grow by 0.01 a day from the first day of 1980.
     day = (datetime(1980, 5, 3) - datetime(1980, 1, 1)).days
+
     assert second.inflow_m3s == pytest.approx(5.0 + 0.01 * day)
     assert second.outflow_m3s == pytest.approx(3.0 + 0.01 * day)
     assert second.precip_mm_day == 2.0
@@ -462,8 +496,10 @@ def test_raven_lake_reads_the_stand_in_outputs(tmp_path):
 def test_raven_lake_names_the_missing_executable_output(tmp_path):
     model, _ = write_stand_in_raven(tmp_path)
     script = tmp_path / "does_nothing.sh"
+
     script.write_text("#!/bin/sh\nexit 0\n")
     script.chmod(0o755)
+
     lake = RavenLake(
         full_stage_m=420.0,
         max_depth_m=10.0,
@@ -472,6 +508,7 @@ def test_raven_lake_names_the_missing_executable_output(tmp_path):
         key="silent",
         work_dir=tmp_path / "runs",
     )
+
     with pytest.raises(RavenOutputError):
         lake.start(datetime(1980, 5, 1), np.random.default_rng(0), datetime(1980, 5, 2))
 
@@ -486,24 +523,31 @@ class PerDayBaselineLake(RavenLake):
     def start(self, date, rng, end_date=None):
         self._withdrawals = []
         self._end_date = date
+
         self._main.prepare()
         self._baseline.prepare()
         self._main.run(date, self._withdrawals)
         self._baseline.run(date, [])
+
         return self._read(date)
 
     def advance(self, date, withdrawal_m3s, rng):
         self._end_date = date
+
         self._withdrawals.append((date, withdrawal_m3s))
         self._main.run(date, self._withdrawals)
         self._baseline.run(date, [])
+
         return self._read(date)
 
 
 def stand_in_lake(tmp_path: Path, lake_class: type, key: str) -> tuple[Any, Path]:
     """Lake on its own stand-in executable, and the log of its executions."""
+
     directory = tmp_path / key
+
     directory.mkdir()
+
     model, command = write_stand_in_raven(directory)
     lake = lake_class(
         full_stage_m=420.0,
@@ -513,11 +557,13 @@ def stand_in_lake(tmp_path: Path, lake_class: type, key: str) -> tuple[Any, Path
         key="episode",
         work_dir=directory / "runs",
     )
+
     return lake, directory / "calls.log"
 
 
 def executions(log: Path, run: str) -> int:
     """Number of times the stand-in ran in the run directory named ``run``."""
+
     return log.read_text().splitlines().count(run)
 
 
@@ -527,15 +573,17 @@ def test_raven_baseline_is_run_once_per_episode_and_reads_the_per_day_values(tmp
     first_day = datetime(1980, 5, 1)
     last_day = datetime(1980, 5, 6)
     rng = np.random.default_rng(0)
-
     once, once_log = stand_in_lake(tmp_path, RavenLake, "once")
     per_day, per_day_log = stand_in_lake(tmp_path, PerDayBaselineLake, "per_day")
 
     def episode(lake) -> list:
         readings = [lake.start(first_day, rng, last_day)]
+
         for index, withdrawal in enumerate(withdrawals):
             date = first_day + timedelta(days=index + 1)
+
             readings.append(lake.advance(date, withdrawal, rng))
+
         return readings
 
     new_readings = episode(once)
@@ -543,14 +591,17 @@ def test_raven_baseline_is_run_once_per_episode_and_reads_the_per_day_values(tmp
 
     # Same readings, baseline included, whichever way the baseline is obtained.
     assert new_readings == old_readings
+
     # The baseline of the stand-in differs from day to day, so a reading taken
     # from the wrong row would have shown above.
     baselines = [reading.baseline_inflow_m3s for reading in new_readings]
+
     assert len(set(baselines)) == len(baselines)
 
     # One baseline execution for the episode, against one per day before; the
     # main model is run every day in both cases.
     days = len(withdrawals) + 1
+
     assert executions(once_log, "baseline_episode") == 1
     assert executions(per_day_log, "baseline_episode") == days
     assert executions(once_log, "episode") == days
@@ -565,13 +616,16 @@ def test_raven_baseline_is_run_once_per_episode_and_reads_the_per_day_values(tmp
 def test_raven_baseline_run_stops_at_the_end_of_the_episode(tmp_path):
     lake, _ = stand_in_lake(tmp_path, RavenLake, "short")
     rng = np.random.default_rng(0)
+
     with pytest.raises(ValueError, match="end_date"):
         lake.start(datetime(1980, 5, 1), rng)
+
     with pytest.raises(ValueError, match="end_date"):
         lake.start(datetime(1980, 5, 2), rng, datetime(1980, 5, 1))
 
     lake.start(datetime(1980, 5, 1), rng, datetime(1980, 5, 2))
     lake.advance(datetime(1980, 5, 2), 1.0, rng)
+
     with pytest.raises(ValueError, match="after the end of the episode"):
         lake.advance(datetime(1980, 5, 3), 1.0, rng)
 
@@ -594,6 +648,7 @@ def test_raven_lake_needs_the_model_directory_and_the_executable(build_env):
 @pytest.mark.unit
 def test_raven_lake_needs_a_horizon_for_its_baseline_run(build_env, tmp_path):
     model, command = write_stand_in_raven(tmp_path)
+
     with pytest.raises(ValueError, match="horizon"):
         build_env(horizon=None, hydrology="raven", raven_cwd=model, raven_cmd=command)
 
@@ -603,6 +658,7 @@ def test_ecology_options_reach_the_lake_and_the_farm_area(build_env):
     env = build_env(
         ecology_cfg={"max_farm_area_m2": 250_000.0, "rain_probability": 0.0}
     )
+
     assert env.max_farm_area_m2 == 250_000.0
     assert env.lake.rain_probability == 0.0
 
@@ -612,8 +668,10 @@ def test_ecology_options_reach_the_lake_and_the_farm_area(build_env):
 
 def level_state(adapter: RLlibMultiAgentEnvAdapter) -> dict[str, float]:
     """State of the step about to be played, read from the shared MDP."""
+
     mdp = adapter._mdp
     t = mdp.t
+
     return {
         name: float(mdp.state[name][t])
         for name in (
@@ -634,6 +692,7 @@ def expected_reward(
     ``u`` is the normalized rules, ``None`` for the default rules without a
     regulator (so with no penalty).
     """
+
     if u is None:
         quota, low, high = 0.85, 0.05, 1.0
         fine, scale, power = 0.05, 0.5, 2.0
@@ -643,6 +702,7 @@ def expected_reward(
         low = 0.35 * u[1]
         high = max(0.35 + 0.65 * u[2], low)
         fine, scale, power = 0.1 * u[3], u[4], 1.0 + 4.0 * u[5]
+
     level = day["reservoir_level_norm"]
     stress = min(1.0, max(0.0, (level - quota) / (1.0 - quota)))
     full = day["full_required_m3_day"]
@@ -656,18 +716,22 @@ def expected_reward(
         else min(1.0, (delivered + day["precip_water_m3_day"]) / need)
     )
     penalty = 0.0
+
     if u is not None:
         quota_penalty = min(1.0, fine * max(0.0, requested - allowed) / max(1e-8, full))
         flow_penalty = (
             scale * day["release_pressure"] * (requested / max(1e-8, full)) ** power
         )
         penalty = min(1.0, quota_penalty + flow_penalty)
+
     return satisfaction - penalty, delivered
 
 
 def requests_for(step: int, farms: int) -> dict[str, dict[str, np.ndarray]]:
     """Scripted policy outputs: a different request per farm and per day."""
+
     values = [0.9, 0.5, 0.15]
+
     return {
         aid: {
             IRRIGATE_ID: np.asarray(
@@ -683,16 +747,20 @@ def requests_for(step: int, farms: int) -> dict[str, dict[str, np.ndarray]]:
 def test_rewards_follow_crop_satisfaction_minus_the_policy_penalty(build_env, rules):
     env = build_env(rules=rules)
     adapter = RLlibMultiAgentEnvAdapter(env)
+
     adapter.reset()
 
     for step in range(HORIZON):
         day = level_state(adapter)
         actions = requests_for(step, 3)
         _, rewards, _, truncateds, _ = adapter.step(actions)
+
         for aid in farm_ids(3):
             request = float(actions[aid][IRRIGATE_ID][0])
             expected, _ = expected_reward(request, day, rules)
+
             assert rewards[aid] == pytest.approx(expected, abs=1e-6), (step, aid)
+
     assert truncateds["__all__"] is True
 
 
@@ -700,14 +768,18 @@ def test_rewards_follow_crop_satisfaction_minus_the_policy_penalty(build_env, ru
 def test_the_leader_action_is_the_decoded_candidate_and_stays_in_force(build_env):
     env = build_env(rules=TIGHT)
     adapter = RLlibMultiAgentEnvAdapter(env)
+
     adapter.reset()
     adapter.step(requests_for(0, 3))
     adapter.step(requests_for(1, 3))
 
     stored = adapter._mdp.actions[REGULATOR][WATER_POLICY_ID]
+
     assert len(stored) >= 2
+
     for rules in stored:
         np.testing.assert_allclose(rules, decode_rules(TIGHT), atol=1e-6)
+
     assert env.published_mechanism_assigned
 
 
@@ -716,6 +788,7 @@ def test_observation_carries_the_level_the_allowed_fraction_and_the_rules(build_
     env = build_env(rules=TIGHT)
     adapter = RLlibMultiAgentEnvAdapter(env)
     first, _ = adapter.reset()
+
     assert first[farm_ids(3)[0]].shape == (OBSERVATION_SIZE,)
 
     obs, _, *_ = adapter.step(requests_for(0, 3))
@@ -728,6 +801,7 @@ def test_observation_carries_the_level_the_allowed_fraction_and_the_rules(build_
 
     for aid in farm_ids(3):
         vector = obs[aid]
+
         assert vector[0] == pytest.approx(day["reservoir_level_norm"], abs=1e-5)
         assert vector[1] == pytest.approx(day["release_pressure"], abs=1e-5)
         assert vector[2] == pytest.approx(allowed, abs=1e-5)
@@ -744,11 +818,14 @@ def test_the_daily_need_normalizer_is_the_peak_crop_need_of_all_the_farms(build_
     # 7.26478 mm/day, that is 7.26478e-3 m3/day.
     peak_m3_day_per_m2 = 1.15 * 0.34 * (0.46 * 23.0 + 8.0) / 1000.0
     env = build_env(farms=3, ecology_cfg={"max_farm_area_m2": 250_000.0})
+
     assert env.max_daily_need_m3_day == pytest.approx(
         3 * 250_000.0 * peak_m3_day_per_m2
     )
+
     # The 500 farms of one million square metres of the full run.
     full = build_env(farms=500)
+
     assert full.max_daily_need_m3_day == pytest.approx(3.63239e6, rel=1e-5)
 
 
@@ -758,15 +835,19 @@ def test_the_usage_entry_of_the_observation_stays_within_zero_and_one(build_env)
     adapter = RLlibMultiAgentEnvAdapter(env)
     obs, _ = adapter.reset()
     usage = [obs[farm_ids(4)[0]][3]]
+
     for _ in range(40):
         every_request = {
             aid: {IRRIGATE_ID: np.asarray([1.0], dtype=np.float32)}
             for aid in farm_ids(4)
         }
         obs, *_ = adapter.step(every_request)
+
         usage.append(obs[farm_ids(4)[0]][3])
+
     assert usage[0] == 0.0
     assert all(0.0 <= value <= 1.0 for value in usage)
+
     # Every farm asks for everything, so water is delivered on some days.
     assert max(usage) > 0.0
 
@@ -776,6 +857,7 @@ def test_without_a_regulator_the_observation_has_no_rules(build_env):
     adapter = RLlibMultiAgentEnvAdapter(build_env())
     obs, _ = adapter.reset()
     vector = obs[farm_ids(3)[0]]
+
     assert vector[2] == 0.0
     assert not vector[4:].any()
 
@@ -787,22 +869,27 @@ def test_delivered_water_is_withdrawn_from_the_lake_and_leaves_the_baseline(buil
         ecology_cfg={"rain_probability": 0.0, "initial_level_range": (0.5, 0.5)},
     )
     adapter = RLlibMultiAgentEnvAdapter(env)
+
     adapter.reset()
+
     day = level_state(adapter)
-
     actions = requests_for(0, 3)
-    adapter.step(actions)
-    usage = float(adapter._mdp.state["usage_m3_day"][adapter._mdp.t])
 
+    adapter.step(actions)
+
+    usage = float(adapter._mdp.state["usage_m3_day"][adapter._mdp.t])
     expected_usage = sum(
         expected_reward(float(actions[aid][IRRIGATE_ID][0]), day, LOOSE)[1]
         for aid in farm_ids(3)
     )
+
     assert usage == pytest.approx(expected_usage, rel=1e-6)
+
     # Away from the spill and from the empty level, a volume V lowers the stage
     # by V / lake area against the world with no withdrawal.
     reading = env._reading
     lowered = reading.baseline_stage_m - reading.stage_m
+
     assert lowered == pytest.approx(usage / env.lake.lake_area_m2, rel=1e-6)
 
 
@@ -814,11 +901,16 @@ def test_a_tight_policy_withdraws_less_and_keeps_the_lake_higher(build_env):
             ecology_cfg={"rain_probability": 0.0, "initial_level_range": (0.6, 0.6)},
         )
         adapter = RLlibMultiAgentEnvAdapter(env)
+
         adapter.reset()
+
         usage = 0.0
+
         for step in range(HORIZON):
             adapter.step(requests_for(step, 3))
+
             usage += float(adapter._mdp.state["usage_m3_day"][adapter._mdp.t])
+
         return usage, env._reading
 
     loose_usage, loose = run(LOOSE)
@@ -826,6 +918,7 @@ def test_a_tight_policy_withdraws_less_and_keeps_the_lake_higher(build_env):
 
     assert tight_usage < loose_usage
     assert tight.stage_m > loose.stage_m
+
     # The no-withdrawal world sees the same weather whatever the policy does.
     assert tight.baseline_stage_m == pytest.approx(loose.baseline_stage_m)
     assert tight.baseline_inflow_m3s == pytest.approx(loose.baseline_inflow_m3s)
@@ -836,22 +929,28 @@ def test_a_tight_policy_withdraws_less_and_keeps_the_lake_higher(build_env):
 def test_the_logger_reduces_the_crop_and_lake_series_of_an_episode(build_env):
     env = build_env(rules=TIGHT, farms=2)
     adapter = RLlibMultiAgentEnvAdapter(env)
+
     adapter.reset()
+
     levels = []
     rewards = []
+
     for step in range(HORIZON):
         _, step_rewards, *_ = adapter.step(requests_for(step, 2))
         mdp = adapter._mdp
+
         levels.append(float(mdp.state["reservoir_level_norm"][mdp.t]))
         rewards.append(float(np.mean(list(step_rewards.values()))))
 
     reduced = env.logger.reduce()
+
     assert reduced.reward_total == pytest.approx(sum(rewards), abs=1e-5)
     assert reduced.reward_mean == pytest.approx(np.mean(rewards), abs=1e-5)
     assert reduced.reservoir_level_norm_min == pytest.approx(min(levels))
     assert reduced.reservoir_level_norm == pytest.approx(np.mean(levels))
     assert reduced.reservoir_level_norm_series == pytest.approx(levels)
     assert len(reduced.streamflow_m3s_series) == HORIZON
+
     # The inflow of the surrogate does not depend on the withdrawals.
     assert reduced.streamflow_m3s_series == pytest.approx(
         reduced.baseline_streamflow_m3s_series
@@ -868,19 +967,25 @@ def test_the_logged_level_leaves_its_baseline_once_the_farms_withdraw(build_env)
             ecology_cfg={"rain_probability": 0.0, "initial_level_range": (0.6, 0.6)},
         )
         adapter = RLlibMultiAgentEnvAdapter(env)
+
         adapter.reset()
+
         for _ in range(HORIZON):
             adapter.step(
                 {aid: {IRRIGATE_ID: np.asarray([request])} for aid in farm_ids(2)}
             )
+
         reduced = env.logger.reduce()
         level = reduced.reservoir_level_norm_series
         baseline = reduced.baseline_reservoir_level_norm_series
+
         assert len(level) == len(baseline) == HORIZON
+
         # The flows cannot tell the two worlds apart, the level can.
         assert reduced.streamflow_m3s_series == pytest.approx(
             reduced.baseline_streamflow_m3s_series
         )
+
         return level_deviation(level, baseline)
 
     assert deviation(LOOSE, 0.0) == 0.0
@@ -892,6 +997,7 @@ def test_residence_time_is_the_stored_volume_over_the_outflow_in_days():
     # 1e7 m3 released at 10 m3/s empty in 1e6 s, which is 11.574 days.
     assert residence_time_days(1e7, 10.0) == pytest.approx(1e6 / 86400.0)
     assert residence_time_days(-5.0, 10.0) == 0.0
+
     # A dry release is guarded and gives a huge time, not an error.
     assert np.isfinite(residence_time_days(1e7, 0.0))
     assert residence_time_days(1e7, 0.0) > 1e6
@@ -912,16 +1018,21 @@ def test_the_logged_residence_time_is_in_days(build_env):
             "initial_level_range": (0.5, 0.5),
         },
     )
+
     assert env.capacity_m3 == pytest.approx(1e7)
+
     adapter = RLlibMultiAgentEnvAdapter(env)
+
     adapter.reset()
     adapter.step(requests_for(0, 2))
+
     reading = env._reading
 
     # The stored volume is the water above the empty stage (410 m) over the area.
     stored_m3 = (reading.stage_m - 410.0) * 1e6
     expected_days = stored_m3 / reading.outflow_m3s / 86400.0
     logged = env.logger.reduce().residence_time_days
+
     assert logged == pytest.approx(expected_days)
     assert 5.0 < logged < 15.0
 
@@ -933,6 +1044,7 @@ def test_the_residence_time_of_the_belwood_setup_is_months_not_microdays(build_e
         ecology_cfg={"rain_probability": 0.0, "initial_level_range": (0.9, 0.9)},
     )
     adapter = RLlibMultiAgentEnvAdapter(env)
+
     adapter.reset()
     adapter.step(requests_for(0, 2))
     assert 10.0 < env.logger.reduce().residence_time_days < 1000.0
@@ -943,12 +1055,16 @@ def test_episodes_after_a_reset_start_on_a_new_planting_day(build_env):
     env = build_env(horizon=3)
     adapter = RLlibMultiAgentEnvAdapter(env)
     starts = []
+
     for _ in range(4):
         adapter.reset()
         starts.append(env._planting_date)
+
         for step in range(3):
             adapter.step(requests_for(step, 3))
+
     day_of_year = [(d - datetime(1980, 1, 1)).days for d in starts]
+
     assert all(121 <= day < 274 for day in day_of_year)
     assert len(set(day_of_year)) > 1
 
@@ -967,25 +1083,35 @@ def test_the_raven_lake_runs_inside_the_environment(build_env, tmp_path):
         raven_work_dir=tmp_path / "runs",
     )
     adapter = RLlibMultiAgentEnvAdapter(env)
+
     adapter.reset()
+
     day = level_state(adapter)
     actions = requests_for(0, 1)
+
     adapter.step(actions)
 
     _, delivered = expected_reward(
         float(actions[farm_ids(1)[0]][IRRIGATE_ID][0]), day, LOOSE
     )
+
     assert delivered > 0.0
+
     # The stand-in stage is 420 minus the withdrawal in m3/s.
     assert env._reading.stage_m == pytest.approx(420.0 - delivered / SECONDS_PER_DAY)
+
     reduced = env.logger.reduce()
+
     assert reduced.gauge_west_montrose_m3s == 9.0
+
     # The episode (reset and one step of its two) ran the baseline once, up to
     # the last day, and the main model on the first day and on the day played.
     log = (tmp_path / "calls.log").read_text().splitlines()
     key = "m_0_seed_0"
+
     assert log.count(f"baseline_{key}") == 1
     assert log.count(key) == 2
+
     # The stand-in baseline never loses water, so its level is that of 420 m.
     assert reduced.baseline_reservoir_level_norm_series == [
         pytest.approx(env.lake.level_norm(420.0))
@@ -1000,6 +1126,7 @@ def test_level_deviation_is_the_relative_absolute_change():
     assert level_deviation([0.9, 1.2], [1.0, 1.0]) == pytest.approx(0.15)
     assert level_deviation([0.5, 0.5], [0.5, 0.5]) == 0.0
     assert level_deviation([1.0], [0.0]) == pytest.approx(1.0 / 1e-8)
+
     with pytest.raises(ValueError, match="shape"):
         level_deviation([1.0, 2.0], [1.0])
 
@@ -1012,6 +1139,7 @@ def test_fitness_context_combines_the_scores_with_the_weights():
         economic_weight=2.0,
         sustainability_weight=3.0,
     )
+
     assert context.sustainability_score == pytest.approx(0.8)
     assert context.objective_score == pytest.approx(2.0 * 0.6 + 3.0 * 0.8)
 
@@ -1022,7 +1150,9 @@ def regulator(published: list, monkeypatch, **ecology: Any) -> WaterRegulatorEnv
     world = SimpleNamespace(
         append_context=SimpleNamespace(remote=lambda ctx: published.append(ctx))
     )
+
     monkeypatch.setattr(ray, "get", lambda ref, *a, **k: ref)
+
     return WaterRegulatorEnv(
         world=world,
         optimizer=None,
@@ -1035,6 +1165,7 @@ def regulator(published: list, monkeypatch, **ecology: Any) -> WaterRegulatorEnv
 
 def episode(reward: float, level: list[float], baseline: list[float]) -> Any:
     """Logged leaf of one episode: its reward and its level with the baseline."""
+
     return SimpleNamespace(
         reward_mean=[reward],
         reservoir_level_norm_series=[level],
@@ -1045,6 +1176,7 @@ def episode(reward: float, level: list[float], baseline: list[float]) -> Any:
 @pytest.mark.unit
 def test_regulator_reward_averages_episodes_and_seeds(monkeypatch):
     published: list = []
+
     env = regulator(published, monkeypatch, sustainability_weight=2.0)
     by_seed = {
         # Deviations 0.2 and 0.0 and rewards 0.5 and 0.7.
@@ -1059,16 +1191,17 @@ def test_regulator_reward_averages_episodes_and_seeds(monkeypatch):
     }
     rollout = SimpleNamespace(by_mechanism={"2": SimpleNamespace(by_seed=by_seed)})
     metrics = SimpleNamespace(train=SimpleNamespace(rollout=rollout))
-
     fitness = env.reward(metrics)
-
     mean_reward = (0.5 + 0.7 + 0.9) / 3
     mean_deviation = (0.2 + 0.0 + 0.4) / 3
     expected = mean_reward + 2.0 / (1.0 + mean_deviation)
+
     # Mechanisms 0 and 1 have no rollout and are scored minus infinity.
     assert fitness[:2] == [-np.inf, -np.inf]
     assert fitness[2] == pytest.approx(expected, rel=1e-6)
+
     (context,) = published
+
     assert context.payload.status is MechanismStatus.done
     assert context.payload.index == 2
     assert context.payload.metrics.level_deviation == pytest.approx(mean_deviation)
@@ -1085,7 +1218,6 @@ def test_regulator_reward_skips_the_gaps_of_the_metric_logger(monkeypatch):
     by_seed = {"0": SimpleNamespace(by_episode={"0": gapped})}
     rollout = SimpleNamespace(by_mechanism={"0": SimpleNamespace(by_seed=by_seed)})
     metrics = SimpleNamespace(train=SimpleNamespace(rollout=rollout))
-
     reference = regulator([], monkeypatch)
     single = episode(0.5, [12.0], [10.0])
     by_seed = {"0": SimpleNamespace(by_episode={"0": single})}
@@ -1099,6 +1231,7 @@ def test_regulator_reward_skips_the_gaps_of_the_metric_logger(monkeypatch):
 @pytest.mark.unit
 def test_regulator_scores_the_lake_level_and_ignores_the_flows(monkeypatch):
     env = regulator([], monkeypatch)
+
     # The flows are identical to their baselines, as the inflow always is: only
     # the level, 15 % below its baseline, can move the score.
     branch = episode(0.5, [0.85, 0.85], [1.0, 1.0])
@@ -1109,6 +1242,7 @@ def test_regulator_scores_the_lake_level_and_ignores_the_flows(monkeypatch):
     by_seed = {"0": SimpleNamespace(by_episode={"0": branch})}
     rollout = SimpleNamespace(by_mechanism={"0": SimpleNamespace(by_seed=by_seed)})
     metrics = SimpleNamespace(train=SimpleNamespace(rollout=rollout))
+
     assert env.reward(metrics) == [pytest.approx(0.5 + 1.0 / 1.15)]
 
 
@@ -1116,10 +1250,12 @@ def test_regulator_scores_the_lake_level_and_ignores_the_flows(monkeypatch):
 def test_regulator_refuses_bad_options_and_empty_metrics(monkeypatch):
     with pytest.raises(ValueError, match="aggregation_status"):
         regulator([], monkeypatch, aggregation_status="done")
+
     env = regulator([], monkeypatch)
     empty = SimpleNamespace(
         train=SimpleNamespace(rollout=SimpleNamespace(by_mechanism={}))
     )
+
     with pytest.raises(ValueError, match="No rollout"):
         env.reward(empty)
 
@@ -1132,6 +1268,7 @@ def test_importing_the_script_runs_nothing_and_defaults_are_the_full_run():
     from examples.fresh_water import debug
 
     args = debug.parse_args([])
+
     assert (args.hydrology, args.outer_iters, args.train_iters) == (
         "surrogate",
         100,
@@ -1146,10 +1283,12 @@ def test_raven_options_are_required_together_and_reach_the_environment(tmp_path)
 
     with pytest.raises(SystemExit):
         debug.parse_args(["--hydrology", "raven"])
+
     args = debug.parse_args(
         ["--hydrology", "raven", "--raven-cwd", "model", "--raven-cmd", "run"]
     )
     config = debug.inner_env_config(args)
+
     assert (config["hydrology"], config["raven_cwd"], config["raven_cmd"]) == (
         "raven",
         "model",
@@ -1184,9 +1323,12 @@ SMOKE_ARGS = (
 
 def run_child(args: tuple[str, ...], workdir: Path) -> dict:
     """Run ``python -m examples.fresh_water.debug args`` with a time limit."""
+
     env = dict(os.environ, WANDB_MODE="offline", PYTHONPATH=str(REPO_ROOT))
+
     # A fixed hash seed would make the child's world identifiers repeat across runs.
     env.pop("PYTHONHASHSEED", None)
+
     try:
         done = subprocess.run(
             [sys.executable, "-m", "examples.fresh_water.debug", *args],
@@ -1200,6 +1342,7 @@ def run_child(args: tuple[str, ...], workdir: Path) -> dict:
         pytest.fail(
             f"debug.py exceeded {CHILD_TIMEOUT_S} s; stdout: {exc.stdout!r}"[-800:]
         )
+
     return {
         "returncode": done.returncode,
         "output": done.stdout + "\n" + done.stderr,
@@ -1216,6 +1359,7 @@ def surrogate_run(tmp_path_factory):
 def raven_run(tmp_path_factory):
     workdir = tmp_path_factory.mktemp("fresh_water_raven")
     model, command = write_stand_in_raven(workdir / "stand_in")
+
     return run_child(
         (
             "--hydrology",
@@ -1239,12 +1383,14 @@ def raven_run(tmp_path_factory):
 @pytest.mark.integration
 def test_debug_script_runs_to_completion_with_the_surrogate_lake(surrogate_run):
     assert surrogate_run["returncode"] == 0, surrogate_run["output"][-2000:]
+
     assert "Run finished | iters=2" in surrogate_run["output"]
 
 
 @pytest.mark.integration
 def test_surrogate_run_writes_csv_files_and_every_query_renders(surrogate_run):
     csv_files = sorted((surrogate_run["workdir"] / "results").rglob("*.csv"))
+
     assert len(csv_files) == 7, [path.name for path in csv_files]
     assert "could not render query" not in surrogate_run["output"]
 
@@ -1254,12 +1400,15 @@ def test_surrogate_run_reports_a_finite_fitness_per_generation(surrogate_run):
     fitness_files = list(
         (surrogate_run["workdir"] / "results").rglob("Fitness_over*.csv")
     )
+
     assert fitness_files
+
     values = [
         float(line.split(",")[3])
         for line in fitness_files[0].read_text().splitlines()[1:]
         if "Candidates" in line
     ]
+
     # The reward of a farm is at most 1 and the sustainability score is at most 1.
     assert len(values) == 2
     assert all(np.isfinite(value) and value <= 2.0 for value in values)
@@ -1268,4 +1417,5 @@ def test_surrogate_run_reports_a_finite_fitness_per_generation(surrogate_run):
 @pytest.mark.integration
 def test_debug_script_runs_to_completion_with_the_raven_stand_in(raven_run):
     assert raven_run["returncode"] == 0, raven_run["output"][-2000:]
+
     assert "Run finished | iters=2" in raven_run["output"]

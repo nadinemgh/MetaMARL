@@ -43,6 +43,7 @@ def make_other() -> Callable[..., OtherSchema]:
 @pytest.fixture
 def world():
     """A fresh, empty ``World`` instance (the plain class, not an actor)."""
+
     return WORLD_CLASS()
 
 

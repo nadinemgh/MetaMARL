@@ -15,14 +15,13 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
 from core.adaptors.ray.learner_drain import stop_learner_thread, wait_for_learner_thread
+
 from core.adaptors.ray.policy_actor import PolicyActor
 from core.adaptors.ray.utils import hash_weights
 
 # The plain Python class behind the ``@ray.remote`` decorator.
 PolicyActorClass = PolicyActor.__ray_metadata__.modified_class
-
 INIT_WEIGHTS = {"fisher_m0_s1": {"layer": np.arange(3, dtype=np.float32)}}
 
 
@@ -32,6 +31,7 @@ def make_actor(*algos: MagicMock):
     Returns ``(actor, algo_config, algos)``. With no ``algos`` given, a single
     mocked algorithm that reports ``INIT_WEIGHTS`` is used.
     """
+
     if not algos:
         algo = MagicMock(name="algo")
         algo.get_weights.return_value = INIT_WEIGHTS
@@ -67,8 +67,10 @@ def test_evaluate_waits_for_every_learner_before_evaluating():
     actor, _, (algo,) = make_actor()
     order = MagicMock()
     ok_results = [SimpleNamespace(ok=True), SimpleNamespace(ok=True)]
+
     order.attach_mock(algo.learner_group.foreach_learner, "foreach_learner")
     order.attach_mock(algo.evaluate, "evaluate")
+
     algo.learner_group.foreach_learner.return_value = ok_results
     algo.evaluate.return_value = {"evaluation": "done"}
 
@@ -103,7 +105,6 @@ def test_compute_actions_samples_from_the_rl_module_distribution():
     dist_cls = module.get_inference_action_dist_cls.return_value
     sampled = dist_cls.from_logits.return_value.sample.return_value
     sampled.cpu.return_value.numpy.return_value = expected
-
     actions = actor.compute_actions("fisher_m0_s1", obs_batch)
 
     np.testing.assert_array_equal(actions, expected)
@@ -123,8 +124,8 @@ def test_compute_actions_falls_back_to_the_policy_api_without_exploration(failin
     actor, _, (algo,) = make_actor()
     module = algo.get_module.return_value
     dist = module.get_inference_action_dist_cls.return_value.from_logits.return_value
-
     failure = AttributeError("not on this API stack")
+
     if failing_step == "get_module":
         algo.get_module.side_effect = failure
     elif failing_step == "forward_inference":
@@ -138,12 +139,12 @@ def test_compute_actions_falls_back_to_the_policy_api_without_exploration(failin
         (np.array([2.0]), None, {}),
     ]
     obs_batch = np.zeros((2, 3), dtype=np.float32)
-
     actions = actor.compute_actions("fisher_m0_s1", obs_batch)
 
     np.testing.assert_array_equal(actions, np.array([[1.0], [2.0]]))
     algo.get_policy.assert_called_once_with("fisher_m0_s1")
     assert policy.compute_single_action.call_count == 2
+
     for call in policy.compute_single_action.call_args_list:
         assert call.kwargs == {"explore": False}
 
@@ -155,6 +156,7 @@ def test_reset_stops_the_previous_algorithm_then_replaces_it(caplog):
     second.get_weights.return_value = INIT_WEIGHTS
     actor, algo_config, _ = make_actor(first, second)
     order = MagicMock()
+
     order.attach_mock(first.stop, "stop_first")
     order.attach_mock(algo_config.build_algo, "build_algo")
 
@@ -168,6 +170,7 @@ def test_reset_stops_the_previous_algorithm_then_replaces_it(caplog):
     assert (
         f"[Ray] Initial policy weight hash: {hash_weights(INIT_WEIGHTS)}" in caplog.text
     )
+
     # The previous algorithm releases its workers before the new one asks for
     # the same resources.
     assert [call[0] for call in order.mock_calls] == ["stop_first", "build_algo"]
@@ -183,7 +186,6 @@ def test_reset_ends_the_learner_threads_of_the_previous_algorithm():
     actor, _, _ = make_actor(first, second)
 
     actor.reset()
-
     first.learner_group.foreach_learner.assert_called_once_with(stop_learner_thread)
     second.learner_group.foreach_learner.assert_not_called()
 
@@ -193,11 +195,10 @@ def test_stop_ends_the_learner_threads_then_stops_the_algorithm():
     actor, _, (algo,) = make_actor()
     order = MagicMock()
     algo.learner_group.foreach_learner.return_value = [SimpleNamespace(ok=True)]
+
     order.attach_mock(algo.learner_group.foreach_learner, "foreach_learner")
     order.attach_mock(algo.stop, "stop")
-
     actor.stop()
-
     assert [call[0] for call in order.mock_calls] == ["foreach_learner", "stop"]
     algo.learner_group.foreach_learner.assert_called_once_with(stop_learner_thread)
     algo.stop.assert_called_once_with()

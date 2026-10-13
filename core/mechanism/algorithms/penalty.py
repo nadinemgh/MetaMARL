@@ -21,8 +21,8 @@ from core.mechanism.base import ActType, MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
 
 EPS = 1e-8
-
 MAX_EXPONENT = 60.0
+
 """Bound on the logistic exponent; ``exp(60)`` is finite in double precision."""
 
 
@@ -94,14 +94,17 @@ class ThresholdPenaltyMechanism(Mechanism):
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+
         self.threshold = threshold
         self.penalty_amount = penalty_amount
         self.transition_width = transition_width
 
         if not 0.0 <= self.threshold <= 1.0:
             raise ValueError("threshold must be in [0, 1].")
+
         if self.penalty_amount < 0.0:
             raise ValueError("penalty_amount must be non-negative.")
+
         if self.transition_width <= 0.0:
             raise ValueError("transition_width must be positive.")
 
@@ -122,11 +125,13 @@ class ThresholdPenaltyMechanism(Mechanism):
             Deduction in ``[0, penalty_amount]``, in reward units; half of
             ``penalty_amount`` at the threshold.
         """
+
         z = np.clip(
             (float(resource_level) - self.threshold) / self.transition_width,
             -MAX_EXPONENT,
             MAX_EXPONENT,
         )
+
         return float(self.penalty_amount / (1.0 + np.exp(z)))
 
     @override(Mechanism)
@@ -152,6 +157,7 @@ class ThresholdPenaltyMechanism(Mechanism):
             If ``acts_on`` is missing, or if ``obs_map`` does not map
             ``"resource_level"``.
         """
+
         if self.acts_on is None:
             raise ValueError("ThresholdPenaltyMechanism requires `acts_on`.")
 
@@ -165,7 +171,6 @@ class ThresholdPenaltyMechanism(Mechanism):
             mdp.params["K"], EPS
         )
         penalty = self.penalty(resource_level)
-
         dr = {}
 
         for aid in mdp.actions.data or {}:

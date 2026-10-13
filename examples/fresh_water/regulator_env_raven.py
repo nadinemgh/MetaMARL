@@ -29,12 +29,7 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
     (visualization, loader) can remain unchanged.
     """
 
-    def __init__(
-        self,
-        *,
-        ecology_cfg: dict[str, Any] | None = None,
-        **kwargs,
-    ):
+    def __init__(self, *, ecology_cfg: dict[str, Any] | None = None, **kwargs):
         super().__init__(**kwargs)
 
         env_cfg = ecology_cfg or {}
@@ -146,10 +141,7 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
         return fitness.tolist()
 
 
-def read_hydrograph_series(
-    output_dir: str,
-    column_name: str,
-) -> dict[str, float]:
+def read_hydrograph_series(output_dir: str, column_name: str) -> dict[str, float]:
     csv_path = Path(output_dir) / "ohms_canshield_Hydrographs.csv"
 
     if not csv_path.exists():
@@ -170,10 +162,7 @@ def read_hydrograph_series(
                 date = next(iter(row.values()))
 
             if column_name not in row:
-                match = next(
-                    (k for k in row if k.strip() == column_name.strip()),
-                    None,
-                )
+                match = next((k for k in row if k.strip() == column_name.strip()), None)
 
                 if match is None:
                     raise KeyError(
@@ -192,18 +181,13 @@ def read_hydrograph_series(
 
 
 def compute_streamflow_deviation(
-    *,
-    mechanism_output_dir: str,
-    baseline_output_dir: str,
-    streamflow_col: str,
+    *, mechanism_output_dir: str, baseline_output_dir: str, streamflow_col: str
 ) -> float:
     q_m = read_hydrograph_series(
-        output_dir=mechanism_output_dir,
-        column_name=streamflow_col,
+        output_dir=mechanism_output_dir, column_name=streamflow_col
     )
     q_0 = read_hydrograph_series(
-        output_dir=baseline_output_dir,
-        column_name=streamflow_col,
+        output_dir=baseline_output_dir, column_name=streamflow_col
     )
     common_dates = sorted(set(q_m) & set(q_0))
 
@@ -217,9 +201,7 @@ def compute_streamflow_deviation(
 
 
 def compute_streamflow_deviation_from_step_ctx(
-    payload,
-    *,
-    streamflow_col: str = "West_Montrose [m3/s]",
+    payload, *, streamflow_col: str = "West_Montrose [m3/s]"
 ) -> dict[str, float]:
     first_agent_info = next(iter(payload.info.values()))
     baseline_output_dir = first_agent_info["baseline_ref"]

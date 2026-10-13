@@ -30,6 +30,7 @@ from core.reporting.query import Path, Query
 
 Group: TypeAlias = tuple[tuple[str, str], ...]
 Resolved: TypeAlias = dict[Group, list[PrimitiveType]]
+
 logger = logging.getLogger(__name__)
 
 
@@ -229,12 +230,7 @@ class Reporter(ABC):
                 for dynamic_id, child in sorted(
                     metrics.items(), key=lambda item: str(item[0])
                 ):
-                    child_group = group + (
-                        (
-                            junction or "dict",
-                            str(dynamic_id),
-                        ),
-                    )
+                    child_group = group + ((junction or "dict", str(dynamic_id)),)
                     child_result = self._resolve_path(
                         path=path,
                         metrics=child,
@@ -294,26 +290,14 @@ class Reporter(ABC):
                             f"{sorted(lengths)}."
                         )
 
-                    values = np.asarray(
-                        series,
-                        dtype=np.float64,
-                    )
-                    reduced[branch_group] = np.mean(
-                        values,
-                        axis=0,
-                    ).tolist()
+                    values = np.asarray(series, dtype=np.float64)
+                    reduced[branch_group] = np.mean(values, axis=0).tolist()
 
                     if capture_error:
                         if error == "std":
-                            errors[branch_group] = np.std(
-                                values,
-                                axis=0,
-                            ).tolist()
+                            errors[branch_group] = np.std(values, axis=0).tolist()
 
-                return PathResolution(
-                    values=reduced,
-                    errors=errors,
-                )
+                return PathResolution(values=reduced, errors=errors)
 
             if isinstance(token, ReduceProtocol):
                 raise NotImplementedError(
@@ -357,15 +341,8 @@ class Reporter(ABC):
         )
 
     def _resolve_query(
-        self,
-        metrics: MetricSchema,
-        query: Query,
-    ) -> tuple[
-        Resolved,
-        list[Resolved],
-        list[Resolved],
-        Resolved | None,
-    ]:
+        self, metrics: MetricSchema, query: Query
+    ) -> tuple[Resolved, list[Resolved], list[Resolved], Resolved | None]:
         """Resolve a query against a populated metric schema.
 
         Returns ``(x, ys, errors, colors)`` where ``ys`` and ``errors`` hold
@@ -373,10 +350,7 @@ class Reporter(ABC):
         the length of its x series. Raises ``ValueError`` when they do not.
         """
 
-        x_result = self._resolve_path(
-            path=query.x,
-            metrics=metrics,
-        )
+        x_result = self._resolve_path(path=query.x, metrics=metrics)
         xs = x_result.values
         y_results = [
             self._resolve_path(
@@ -393,16 +367,9 @@ class Reporter(ABC):
         colors: Resolved | None = None
 
         if query.color is not None:
-            colors = self._resolve_path(
-                path=query.color,
-                metrics=metrics,
-            ).values
+            colors = self._resolve_path(path=query.color, metrics=metrics).values
 
-        for path, ys, errors in zip(
-            query.y_paths,
-            yss,
-            error_yss,
-        ):
+        for path, ys, errors in zip(query.y_paths, yss, error_yss):
             if set(xs) == {()}:
                 x = xs[()]
 
@@ -455,12 +422,7 @@ class Reporter(ABC):
                             f"color={len(color_values)}, y={len(y)}."
                         )
 
-        return (
-            xs,
-            yss,
-            error_yss,
-            colors,
-        )
+        return (xs, yss, error_yss, colors)
 
     @abstractmethod
     def _report(

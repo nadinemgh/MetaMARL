@@ -29,9 +29,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from gymnasium.spaces import flatdim, flatten_space, unflatten
-from gymnasium import spaces
 import numpy as np
+from gymnasium import spaces
+from gymnasium.spaces import flatdim, flatten_space, unflatten
 
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
@@ -213,6 +213,7 @@ class ESOptimizer(Optimizer):
         # mechanisms. A mechanism id must therefore name one mechanism only.
         owners: dict[MechanismID, AgentID] = {}
         mechanism_spaces: dict[MechanismID, spaces.Space] = {}
+
         for agent_id, agent_cfg in config.agents_cfgs.items():
             for mechanism in agent_cfg.mechanisms:
                 if mechanism.id in owners:
@@ -222,21 +223,28 @@ class ESOptimizer(Optimizer):
                         + "searches one coordinate block per mechanism id, so "
                         + "ids must be unique across regulator agents."
                     )
+
                 owners[mechanism.id] = agent_id
                 mechanism_spaces[mechanism.id] = mechanism.action_space
+
         self.action_space = spaces.Dict(mechanism_spaces)
+
         for mechanism_id, action_space in self.action_space.spaces.items():
             if not isinstance(action_space, spaces.Box):
                 raise TypeError(
                     "ESOptimizer requires continuous Box action spaces; "
                     f"{mechanism_id!r} has {type(action_space).__name__}."
                 )
+
         self.search_space = flatten_space(self.action_space)
         self.dimension = flatdim(self.action_space)
 
         # TODO (nadine) built-in normalization not supported yet
-        if not np.allclose(self.search_space.low, 0.0) and np.allclose(self.search_space.high, 1.0):
-            raise ValueError("ESOptimizer currently requires action bounds in [0, 1]. "
+        if not np.allclose(self.search_space.low, 0.0) and np.allclose(
+            self.search_space.high, 1.0
+        ):
+            raise ValueError(
+                "ESOptimizer currently requires action bounds in [0, 1]. "
                 f"Got low={self.search_space.low}, high={self.search_space.high}."
             )
 
@@ -371,12 +379,20 @@ class ESOptimizer(Optimizer):
 
         if self.fixed_mode:
             self._batch_capacity = value
-            logger.info("[ES] Fixed-mechanism batch mode enabled | batch_capacity=%d", value)
+
+            logger.info(
+                "[ES] Fixed-mechanism batch mode enabled | batch_capacity=%d", value
+            )
+
             return
 
         if value == 1:
             self._batch_capacity = 1
-            logger.info("[ES] Single-candidate mode enabled. Using sequential (1+1)-ES.")
+
+            logger.info(
+                "[ES] Single-candidate mode enabled. Using sequential (1+1)-ES."
+            )
+
             return
 
         if not self.break_symmetry and value % 2 != 0:
@@ -418,13 +434,8 @@ class ESOptimizer(Optimizer):
         """
 
         if self.fixed_mode:
-            return np.empty(
-                (
-                    self._batch_capacity,
-                    0,
-                ),
-                dtype=np.float32,
-            )
+            return np.empty((self._batch_capacity, 0), dtype=np.float32)
+
         if self._batch_capacity == 1 and self.fitness_baseline is None:
             return self.mean[None, :].copy()
 
@@ -766,9 +777,7 @@ class ESOptimizer(Optimizer):
             parameter_names = mechanism.param_names()
             default_vector = np.asarray(mechanism.to_vector(), dtype=np.float32)
             logged_population = np.repeat(
-                default_vector[None, :],
-                repeats=population.shape[0],
-                axis=0,
+                default_vector[None, :], repeats=population.shape[0], axis=0
             )
             logged_mean = default_vector
             logged_best = default_vector
@@ -899,10 +908,13 @@ class ESOptimizer(Optimizer):
             fitness: np.ndarray | None = None
             info: dict[str, Any] = {}
 
-            actions = [{
-                key: float(value.item()) if value.size == 1 else value
-                for key, value in unflatten(self.action_space, candidate).items()}
-                for candidate in population]
+            actions = [
+                {
+                    key: float(value.item()) if value.size == 1 else value
+                    for key, value in unflatten(self.action_space, candidate).items()
+                }
+                for candidate in population
+            ]
 
             while not terminated and not truncated:
                 _, fitness, terminated, truncated, info = self.env.step(actions)

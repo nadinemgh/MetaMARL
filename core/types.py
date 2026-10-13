@@ -24,6 +24,7 @@ from ray.rllib.env.base_env import BaseEnv
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 ContextID: TypeAlias = str
+
 """
 Unique identifier of one context stored in a ``World``.
 
@@ -33,6 +34,7 @@ registry. It identifies one stored record, not a kind of record.
 """
 
 OptimizerID: TypeAlias = str
+
 """
 Unique identifier of an optimizer instance.
 
@@ -41,29 +43,33 @@ namespaces the contexts of one optimizer and is stamped on every context the
 optimizer's environment publishes. It is expected to stay stable for the
 lifetime of an experiment.
 """
+
 # TODO (nadine) create the WorldEnv with the added feature to have sub envs
 
 EnvType: TypeAlias = Union[BaseEnv, MultiAgentEnv, Env]
+
 """
 Type of an environment accepted by the optimizer configurations: an RLlib
 ``BaseEnv``, an RLlib ``MultiAgentEnv`` or a gymnasium ``Env``.
 """
 
-
 EnvConfigDict: TypeAlias = dict
+
 """
 The ``env_config`` dictionary of the algorithm config, passed to the
 environment constructor.
 """
 
 AgentID = Hashable
+
 """Identifier of an agent, any hashable value (for example ``"fisher_0"``)."""
 
 MultiAgentDict = dict[AgentID, Any]
+
 """A dict keyed by agent identifiers, for example ``{"fisher_0": value}``."""
 
-
 PolicyID: TypeAlias = str
+
 """
 Identifier of a base policy, such as the name given to an agent type.
 
@@ -71,8 +77,8 @@ It links an agent configuration to the policy that controls it. RLlib module
 names add the candidate and seed to it: ``<policy>_m<mechanism>_s<seed>``.
 """
 
-
 EpisodeID: TypeAlias = str
+
 """
 Identifier of an environment episode.
 
@@ -84,8 +90,8 @@ position of the episode among those its sub-environment ended in the
 iteration.
 """
 
-
 MechanismID: TypeAlias = str
+
 """
 Identifier of a mechanism.
 
@@ -96,8 +102,8 @@ the candidate index written as a string (for example ``"0"``) to key the
 results of one candidate.
 """
 
-
 SeedID: TypeAlias = str
+
 """
 Identifier of a training seed, the seed written as a string (for example
 ``"101"``).

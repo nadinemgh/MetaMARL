@@ -24,10 +24,10 @@ import numpy as np
 import pytest
 from gymnasium import spaces
 
+from core.mechanism.algorithms.incentive import MAX_SUBSIDY, Subsidy
 from core.mechanism.algorithms.penalty import ThresholdPenalty
 from core.mechanism.algorithms.quota import Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
-from core.mechanism.algorithms.incentive import MAX_SUBSIDY, Subsidy
 
 CAPACITY = 5_000.0
 HORIZON = 20
@@ -44,12 +44,11 @@ SUBSIDY_COST = 0.5
 PENALTY_THRESHOLD = 0.77
 PENALTY_AMOUNT = 0.1
 PENALTY_WIDTH = 0.03
-
 HARVEST_ENTRY = 3
 RESTORE_ENTRY = 4
-
 UNIT_BOX = spaces.Box(0.0, 1.0, (1,), np.float32)
 Z_SCALE = 2.0
+
 """Spread of the seeded policy outputs; large enough for requests on both sides
 of the quota."""
 
@@ -69,6 +68,7 @@ def softplus0(x: float, width: float = USAGE_WIDTH) -> float:
 def allowed_fraction(level: float, quota: float) -> float:
     lower = logistic(-quota / QUOTA_WIDTH)
     upper = logistic((1.0 - quota) / QUOTA_WIDTH)
+
     return (logistic((level - quota) / QUOTA_WIDTH) - lower) / (upper - lower)
 
 
@@ -78,11 +78,13 @@ def requested_fraction(z: float) -> float:
 
 def delivered_fraction(z: float, level: float, quota: float) -> float:
     requested = requested_fraction(z)
+
     return requested - softplus0(requested - allowed_fraction(level, quota))
 
 
 def subsidy_residual(z_restore: float) -> float:
     effort = requested_fraction(z_restore)
+
     return SUBSIDY_RATE * MAX_SUBSIDY * effort - SUBSIDY_COST * effort**2
 
 
@@ -138,14 +140,17 @@ def social_configs():
 
 def candidate(with_social: bool) -> dict[str, np.ndarray]:
     """The regulator's action: one array per mechanism it holds."""
+
     action = {
         "quota": np.array([QUOTA], dtype=np.float32),
         "subsidy": np.array([SUBSIDY_RATE], dtype=np.float32),
         "penalty": np.empty(0, dtype=np.float32),
     }
+
     if with_social:
         action["social_harvest"] = np.empty(0, dtype=np.float32)
         action["social_restore"] = np.empty(0, dtype=np.float32)
+
     return action
 
 
@@ -161,7 +166,9 @@ def policy_outputs(rng: np.random.Generator, aids: list[str]) -> dict[str, dict]
 
 def level_of(adapter) -> float:
     """Normalised stock of the step about to be played."""
+
     mdp = adapter._mdp
+
     return float(mdp.state["fish"][mdp.t]) / CAPACITY
 
 
@@ -179,7 +186,9 @@ class TestRewardComposition:
             candidates=[candidate_context(candidate(with_social=False))],
         )
         adapter = fishery.adapter
+
         adapter.reset()
+
         rng = np.random.default_rng(0)
         records = []
 
@@ -188,6 +197,7 @@ class TestRewardComposition:
             t = adapter._mdp.t
             actions = policy_outputs(rng, adapter.possible_agents)
             _, rewards, _, truncateds, _ = adapter.step(actions)
+
             for aid in adapter.possible_agents:
                 records.append(
                     {
@@ -200,6 +210,7 @@ class TestRewardComposition:
                         "stored_restore": adapter._mdp.actions[aid]["restore"][t],
                     }
                 )
+
         return records, truncateds
 
     def test_reward_is_harvest_plus_subsidy_plus_penalty(
@@ -208,6 +219,7 @@ class TestRewardComposition:
         records, _ = self.play(build_fishery, candidate_context)
 
         assert len(records) == HORIZON * 2
+
         for r in records:
             effort = r["stored_restore"]
             expected = (
@@ -215,6 +227,7 @@ class TestRewardComposition:
                 + (SUBSIDY_RATE * MAX_SUBSIDY * effort - SUBSIDY_COST * effort**2)
                 + penalty_residual(r["level"])
             )
+
             assert r["reward"] == pytest.approx(expected, abs=1e-12)
 
     def test_reward_matches_the_formulas_of_the_three_mechanisms(
@@ -228,6 +241,7 @@ class TestRewardComposition:
                 + subsidy_residual(r["z_restore"])
                 + penalty_residual(r["level"])
             )
+
             assert r["reward"] == pytest.approx(expected, abs=FLOAT32_ATOL)
 
     def test_each_residual_is_active_in_the_episode(
@@ -236,14 +250,16 @@ class TestRewardComposition:
         # Guards against a vacuous composition: the quota must bind on some
         # requests, and the subsidy and the penalty must both move the reward.
         records, _ = self.play(build_fishery, candidate_context)
-
         cut = [
             requested_fraction(r["z_harvest"]) - r["stored_harvest"] for r in records
         ]
+
         assert max(cut) > 0.05
         assert min(cut) == pytest.approx(0.0, abs=1e-3)
         assert max(subsidy_residual(r["z_restore"]) for r in records) > 0.02
+
         penalties = [penalty_residual(r["level"]) for r in records]
+
         assert min(penalties) < -0.05
         assert max(penalties) - min(penalties) > 0.02
 
@@ -284,6 +300,7 @@ class TestSocialObservations:
                 }
                 for aid in adapter.possible_agents
             }
+
             history.append(
                 {
                     "obs": obs,
@@ -292,6 +309,7 @@ class TestSocialObservations:
                     "previous_level": level,
                 }
             )
+
         return fishery, history
 
     def test_entries_hold_the_peer_s_last_delivered_actions(
@@ -305,6 +323,7 @@ class TestSocialObservations:
             for aid, obs in step["obs"].items():
                 (peer,) = [other for other in step["obs"] if other != aid]
                 delivered = step["delivered"][peer]
+
                 assert obs[HARVEST_ENTRY] == np.float32(delivered["harvest"])
                 assert obs[RESTORE_ENTRY] == np.float32(delivered["restore"])
 
@@ -319,6 +338,7 @@ class TestSocialObservations:
             for aid, obs in step["obs"].items():
                 (peer,) = [other for other in step["obs"] if other != aid]
                 delivered = step["delivered"][peer]
+
                 assert obs[HARVEST_ENTRY] == pytest.approx(
                     delivered_fraction(
                         delivered["z_harvest"], step["previous_level"], QUOTA
@@ -349,7 +369,6 @@ class TestSocialObservations:
         _, history = self.play(
             build_fishery, [candidate_context(candidate(with_social=True))]
         )
-
         gaps = [
             abs(
                 step["obs"]["fisherman:0"][HARVEST_ENTRY]
@@ -357,6 +376,7 @@ class TestSocialObservations:
             )
             for step in history[1:]
         ]
+
         assert max(gaps) > 0.05
 
     def test_nothing_is_exposed_at_reset(self, build_fishery, candidate_context):
@@ -372,6 +392,7 @@ class TestSocialObservations:
         fishery, history = self.play(build_fishery, [None])
 
         assert fishery.world.calls == 1
+
         for step in history:
             for obs in step["obs"].values():
                 assert obs[HARVEST_ENTRY] == 0.0
@@ -388,12 +409,15 @@ class TestSocialObservations:
             candidates=[None],
         )
         adapter = fishery.adapter
+
         adapter.reset()
+
         rng = np.random.default_rng(2)
 
         for _ in range(5):
             actions = policy_outputs(rng, adapter.possible_agents)
             _, rewards, _, _, _ = adapter.step(actions)
+
             for aid in adapter.possible_agents:
                 assert rewards[aid] == pytest.approx(
                     requested_fraction(z_of(actions, aid, "harvest")), abs=FLOAT32_ATOL
@@ -415,6 +439,7 @@ class TestSocialObservations:
         rng = np.random.default_rng(3)
 
         adapter.reset()
+
         first, *_ = adapter.step(policy_outputs(rng, adapter.possible_agents))
         obs, _ = adapter.reset()
         after_reset = {aid: o.copy() for aid, o in obs.items()}
@@ -427,6 +452,7 @@ class TestSocialObservations:
             assert after_reset[aid][RESTORE_ENTRY] == 0.0
             assert second[aid][HARVEST_ENTRY] > 0.0
             assert second[aid][RESTORE_ENTRY] > 0.0
+
         assert fishery.world.calls == 2
 
 
@@ -445,13 +471,16 @@ class TestEpisodeShape:
         )
         adapter = fishery.adapter
         obs, _ = adapter.reset()
+
         assert set(obs) == {"fisherman:0", "fisherman:1"}
+
         rng = np.random.default_rng(4)
 
         for step in range(5):
             obs, rewards, terminateds, truncateds, _ = adapter.step(
                 policy_outputs(rng, adapter.possible_agents)
             )
+
             assert all(o.shape == (5,) and np.isfinite(o).all() for o in obs.values())
             assert all(math.isfinite(r) for r in rewards.values())
             assert terminateds["__all__"] is False
@@ -469,10 +498,12 @@ class TestEpisodeShape:
             horizon=3,
         )
         adapter = fishery.adapter
-        adapter.reset()
-        rng = np.random.default_rng(5)
 
+        adapter.reset()
+
+        rng = np.random.default_rng(5)
         total = 0.0
+
         for _ in range(3):
             _, rewards, *_ = adapter.step(policy_outputs(rng, adapter.possible_agents))
             total += float(np.mean(list(rewards.values())))

@@ -44,7 +44,6 @@ def test_intersect_of_a_missing_base_with_one_delta_returns_the_delta():
 @pytest.mark.unit
 def test_intersect_of_boxes_takes_the_tightest_bounds():
     base = box([0.0, -5.0], [10.0, 5.0])
-
     result = intersect(
         base, [box([2.0, -1.0], [12.0, 3.0]), box([1.0, -2.0], [8.0, 9.0])]
     )
@@ -61,7 +60,6 @@ def test_intersect_does_not_mutate_its_inputs():
     delta = box([4.0], [6.0])
 
     intersect(base, [delta])
-
     np.testing.assert_array_equal(base.low, [0.0])
     np.testing.assert_array_equal(base.high, [10.0])
     np.testing.assert_array_equal(delta.low, [4.0])
@@ -93,7 +91,6 @@ def test_intersect_of_disjoint_boxes_is_an_error():
 def test_intersect_of_dicts_merges_keys_and_narrows_shared_ones():
     base = spaces.Dict({"a": box([0.0], [10.0]), "b": box([0.0], [1.0])})
     delta = spaces.Dict({"a": box([2.0], [4.0]), "c": box([-1.0], [1.0])})
-
     result = intersect(base, [delta])
 
     assert isinstance(result, spaces.Dict)
@@ -108,7 +105,6 @@ def test_intersect_of_dicts_merges_keys_and_narrows_shared_ones():
 def test_intersect_of_dicts_recurses_into_nested_dicts():
     base = spaces.Dict({"inner": spaces.Dict({"x": box([0.0], [10.0])})})
     delta = spaces.Dict({"inner": spaces.Dict({"x": box([1.0], [3.0])})})
-
     result = intersect(base, [delta])
 
     np.testing.assert_array_equal(result["inner"]["x"].low, [1.0])
@@ -159,7 +155,6 @@ def test_logical_or_dict_accepts_missing_entries():
 @pytest.mark.unit
 def test_logical_or_dict_coerces_values_to_bool_and_does_not_mutate():
     base = {"a": 0}
-
     result = logical_or_dict(base, [{"a": 2}])
 
     assert result == {"a": True}
@@ -183,7 +178,6 @@ def test_logical_or_dict_without_flags_to_merge_coerces_and_copies_the_base():
 @pytest.mark.unit
 def test_logical_or_dict_copies_a_base_that_already_holds_bools():
     base = {"a": True, "b": False}
-
     result = logical_or_dict(base, [None])
 
     assert result == base

@@ -29,12 +29,8 @@ from core.adaptors.ray.schema import (
     SeedRolloutSchema,
 )
 from core.envs.schema import EpisodeRolloutSchema
+from core.types import MechanismID, PolicyID, SeedID
 from core.utils import finite, safe_ratio, to_float
-from core.types import (
-    MechanismID,
-    PolicyID,
-    SeedID,
-)
 
 
 def _get_env(result: dict) -> dict:
@@ -253,9 +249,7 @@ def hash_weights(weights: dict) -> str:
     return h.hexdigest()
 
 
-def parse_learner_id(
-    learner_id: str,
-) -> tuple[PolicyID, MechanismID, SeedID]:
+def parse_learner_id(learner_id: str) -> tuple[PolicyID, MechanismID, SeedID]:
     """Split an RLModule name into its policy, mechanism and seed.
 
     ``RayOptimizerConfig`` names every RLModule
@@ -300,11 +294,7 @@ def parse_learner_id(
             f"Expected learner ID of the form '<policy>_m<mechanism>_s<seed>', got {learner_id!r}."
         ) from None
 
-    return (
-        policy_id,
-        mechanism_id,
-        policy_seed,
-    )
+    return (policy_id, mechanism_id, policy_seed)
 
 
 # TODO remove finite
@@ -502,8 +492,7 @@ def build_rollout(results: ResultDict) -> RolloutSchema:
         seed_rollout.by_episode[episode_id] = episode
 
     return RolloutSchema(
-        aggregate=build_episode_aggregate(results),
-        by_mechanism=by_mechanism,
+        aggregate=build_episode_aggregate(results), by_mechanism=by_mechanism
     )
 
 
@@ -651,14 +640,8 @@ def build_learner(results: ResultDict) -> LearnerSchema:
             ),
             gradient_noise=m.get("gradient_noise"),
         )
-        mechanism = by_mechanism.setdefault(
-            mechanism_id,
-            MechanismLearnerSchema(),
-        )
-        seed = mechanism.by_seed.setdefault(
-            policy_seed,
-            SeedLearnerSchema(),
-        )
+        mechanism = by_mechanism.setdefault(mechanism_id, MechanismLearnerSchema())
+        seed = mechanism.by_seed.setdefault(policy_seed, SeedLearnerSchema())
         seed.by_policy[policy_id] = policy_metrics
 
     return LearnerSchema(by_mechanism=by_mechanism)

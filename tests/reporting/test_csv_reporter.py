@@ -23,7 +23,6 @@ from core.reporting.query import Query
 SERIES = ReduceProtocol.SERIES
 MEAN = ReduceProtocol.MEAN
 HEADER = ["query", "x", "series", "value", "error", "color"]
-
 pytestmark = pytest.mark.unit
 
 
@@ -41,7 +40,6 @@ class TestConfig:
     def test_build_nests_project_and_world_label(self, tmp_path):
         config = CSVConfig(project="proj", output_dir=str(tmp_path))
         config.world = "w"
-
         labelled = config.build(label="env0")
         unlabelled = config.build()
 
@@ -52,7 +50,6 @@ class TestConfig:
     def test_building_creates_the_directory(self, tmp_path):
         config = CSVConfig(project="proj", output_dir=str(tmp_path / "deep" / "out"))
         config.world = "w"
-
         reporter = config.build(label="a")
 
         assert reporter.output_dir.is_dir()
@@ -79,10 +76,9 @@ class TestReportedRows:
         query = Query(
             title="Loss", x=("iter",), y=(("loss",), ("by_mech", "m1", "fitness"))
         )
+
         reporter.add_query(query)
-
         reporter.report(reporting_metrics)
-
         assert read_rows(reporter, query) == [
             HEADER,
             ["Loss", "0", "loss", "3.0", "", ""],
@@ -99,11 +95,12 @@ class TestReportedRows:
             x=("by_mech", SERIES, "param"),
             y=("by_mech", SERIES, "fitness"),
         )
-        reporter.add_query(query)
 
+        reporter.add_query(query)
         reporter.report(reporting_metrics)
 
         rows = read_rows(reporter, query)
+
         assert rows[0] == HEADER
         assert rows[1] == [
             "By mech",
@@ -130,11 +127,12 @@ class TestReportedRows:
             y=(("loss",), ("by_mech", SERIES, "fitness")),
             legend_labels=("Loss", "Fitness"),
         )
-        reporter.add_query(query)
 
+        reporter.add_query(query)
         reporter.report(reporting_metrics)
 
         series = [row[2] for row in read_rows(reporter, query)[1:]]
+
         assert series == ["Loss"] * 3 + [
             "Fitness [by_mech=m0]",
             "Fitness [by_mech=m0]",
@@ -152,10 +150,9 @@ class TestReportedRows:
             error="std",
             error_path=("by_mech",),
         )
+
         reporter.add_query(query)
-
         reporter.report(reporting_metrics)
-
         assert read_rows(reporter, query) == [
             HEADER,
             ["Mean", "0", "by_mech/fitness", "15.0", "5.0", ""],
@@ -172,11 +169,12 @@ class TestReportedRows:
             y=("by_mech", SERIES, "fitness"),
             color=("iter",),
         )
-        reporter.add_query(query)
 
+        reporter.add_query(query)
         reporter.report(reporting_metrics)
 
         rows = read_rows(reporter, query)[1:]
+
         assert [row[5] for row in rows] == ["0", "1", "2", "0", "1", "2"]
         assert [row[4] for row in rows] == [""] * 6
 
@@ -189,31 +187,34 @@ class TestReportedRows:
             y=("by_mech", SERIES, "fitness"),
             color=("by_mech", SERIES, "param"),
         )
-        reporter.add_query(query)
 
+        reporter.add_query(query)
         reporter.report(reporting_metrics)
 
         rows = read_rows(reporter, query)[1:]
+
         assert [row[5] for row in rows] == ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6"]
 
     def test_reporting_again_rewrites_the_file(self, reporter, reporting_metrics):
         query = Query(title="Loss", x=("iter",), y=("loss",))
-        reporter.add_query(query)
 
+        reporter.add_query(query)
         reporter.report(reporting_metrics)
+
         reporting_metrics.loss = [9.0, 8.0, 7.0]
+
         reporter.report(reporting_metrics)
 
         rows = read_rows(reporter, query)
+
         assert [row[3] for row in rows] == ["value", "9.0", "8.0", "7.0"]
 
     def test_each_query_gets_its_own_file(self, reporter, reporting_metrics):
         first = Query(title="First", x=("iter",), y=("loss",))
         second = Query(title="Second", x=("iter",), y=("by_mech", "m0", "param"))
+
         reporter.add_query(first, second)
-
         reporter.report(reporting_metrics)
-
         assert sorted(p.name for p in reporter.output_dir.iterdir()) == [
             "First.csv",
             "Second.csv",
@@ -223,10 +224,9 @@ class TestReportedRows:
     def test_a_query_without_series_writes_no_file(self, reporter, reporting_metrics):
         reporting_metrics.by_mech = {}
         query = Query(title="Empty", x=("iter",), y=("by_mech", SERIES, "fitness"))
+
         reporter.add_query(query)
-
         reporter.report(reporting_metrics)
-
         assert list(reporter.output_dir.iterdir()) == []
 
     def test_unicode_values_survive_the_round_trip(self, reporter):
@@ -235,16 +235,14 @@ class TestReportedRows:
         )
 
         reporter._report(query, {(): [1]}, [{(): [2.5]}], [{}], None)
-
         assert read_rows(reporter, query)[1][2] == "rendement ± écart"
 
     def test_close_leaves_the_files_in_place(self, reporter, reporting_metrics):
         query = Query(title="Loss", x=("iter",), y=("loss",))
+
         reporter.add_query(query)
         reporter.report(reporting_metrics)
-
         assert reporter.close() is None
-
         assert reporter.path_for(query).exists()
 
 

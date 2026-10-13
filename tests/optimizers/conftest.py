@@ -36,23 +36,28 @@ class FakeWorld:
 
     def _register(self, opt_id: str) -> str:
         self.opt_ids.append(opt_id)
+
         return opt_id
 
 
 @pytest.fixture
 def fake_world(monkeypatch) -> FakeWorld:
     """A ``FakeWorld`` with ``ray.get`` patched to return its argument."""
+
     monkeypatch.setattr(ray, "get", lambda ref, *args, **kwargs: ref)
+
     return FakeWorld()
 
 
 def unit_box(size: int = 1) -> spaces.Box:
     """Action space of one mechanism with ``size`` parameters in ``[0, 1]``."""
+
     return spaces.Box(low=0.0, high=1.0, shape=(size,), dtype=np.float32)
 
 
 def regulator_config(mechanism_spaces: dict[str, spaces.Space]) -> AgentConfig:
     """Regulator agent holding one mechanism per entry of ``mechanism_spaces``."""
+
     return AgentConfig(
         id="regulator",
         policy_id="regulator_policy",
@@ -79,6 +84,7 @@ def es_config_factory() -> Callable[..., ESConfig]:
         **training: Any,
     ) -> ESConfig:
         cfg = ESConfig().training(episodes=episodes, **training)
+
         cfg.agents(regulator_config(mechanism_spaces or {"quota": unit_box()}))
 
         return cfg.debugging(seed=seed)
@@ -151,6 +157,7 @@ class ScriptedRegulatorEnv:
 
     def step(self, actions):
         self.received.append(actions)
+
         self._taken += 1
         last = self._taken >= self.steps
 
@@ -166,6 +173,7 @@ class ScriptedRegulatorEnv:
 @pytest.fixture
 def scripted_env() -> type[ScriptedRegulatorEnv]:
     """The ``ScriptedRegulatorEnv`` class, for tests that build several."""
+
     return ScriptedRegulatorEnv
 
 

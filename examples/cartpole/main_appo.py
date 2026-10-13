@@ -1,19 +1,20 @@
 import numpy as np
 import ray
-from gymnasium import spaces
-from ray.rllib.models import ModelCatalog
 
 # core optimizers
 from core.adaptors.ray.mps_model import MPSFullyConnectedNetwork
+
+# Fishery-specific objects
+from examples.dummy.mechanism import DummyMechanismSpace
+from examples.dummy.regulator_env import DummyRegulatorEnv
+from gymnasium import spaces
+from ray.rllib.models import ModelCatalog
+
 from core.callbacks import tag_episode_with_env_idx
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
 from examples.cartpole.regulated_env import CartpoleRegulatedEnv
-
-# Fishery-specific objects
-from examples.dummy.mechanism import DummyMechanismSpace
-from examples.dummy.regulator_env import DummyRegulatorEnv
 
 # TODO the default mechanism config and fisherman, and observation spaces and action spaces part of config
 # TODO where to do ray initialization ? gpu vs cpu - needs to happen when we build optimizer
@@ -32,9 +33,7 @@ ModelCatalog.register_custom_model("mps_fcnet", MPSFullyConnectedNetwork)
 bilevel_opt_cfg: BilevelConfig = (
     BilevelConfig()
     .world(world_name="cartpole_world")
-    .mechanism(
-        space=DummyMechanismSpace(),
-    )
+    .mechanism(space=DummyMechanismSpace())
     .training(outer_iters=100)
     .ray(
         device="cpu",
@@ -55,11 +54,7 @@ bilevel_opt_cfg: BilevelConfig = (
     .outer(
         ESConfig()
         .training(  # TODO dimension inferred from mechanism ?
-            sigma=0.5,
-            mean_lr=0.2,
-            sigma_lr=0.05,
-            min_sigma=0.01,
-            max_sigma=0.6,
+            sigma=0.5, mean_lr=0.2, sigma_lr=0.05, min_sigma=0.01, max_sigma=0.6
         )
         .environment(
             env=DummyRegulatorEnv,
@@ -70,12 +65,8 @@ bilevel_opt_cfg: BilevelConfig = (
     )
     .inner(
         APPOptimizerConfig()
-        .resources(
-            num_cpus_for_main_process=1,
-        )
-        .framework(
-            framework="torch",
-        )
+        .resources(num_cpus_for_main_process=1)
+        .framework(framework="torch")
         # TODO fix this its using old api stack
         # .model(custom_model="mps_fcnet")
         # TODO use the new api stack and better custom model integration
@@ -84,9 +75,7 @@ bilevel_opt_cfg: BilevelConfig = (
         )
         .environment(
             env=CartpoleRegulatedEnv,
-            env_config={
-                "seed": 0,
-            },
+            env_config={"seed": 0},
             horizon=1000,
             disable_env_checking=False,
         )
@@ -150,10 +139,7 @@ bilevel_opt_cfg: BilevelConfig = (
                     "count": 1,
                     "policy": "cartpole_policy",
                     "observation_space": spaces.Box(
-                        low=-np.inf,
-                        high=np.inf,
-                        shape=(4,),
-                        dtype=np.float32,
+                        low=-np.inf, high=np.inf, shape=(4,), dtype=np.float32
                     ),
                     "action_space": spaces.Discrete(2),
                 }

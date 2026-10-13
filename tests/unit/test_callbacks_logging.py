@@ -31,6 +31,7 @@ class RecordingReporter(Reporter):
 
     def __init__(self) -> None:
         super().__init__()
+
         self.reports: list[tuple] = []
 
     def _report(self, query, x, ys, errors, colors) -> None:
@@ -42,6 +43,7 @@ class RecordingReporter(Reporter):
 
 def make_runner(values=(2.0,), iteration=1):
     """Return ``(env, env_runner)`` around a logger holding the given values."""
+
     logger = MetricLogger.from_schema(ValueSchema)
 
     for value in values:
@@ -49,7 +51,9 @@ def make_runner(values=(2.0,), iteration=1):
         logger.push(("value",), value)
 
     reporter = RecordingReporter()
+
     reporter.add_query(Query(title="v", x=("iter",), y=("value",)))
+
     env = SimpleNamespace(logger=logger, reporter=reporter)
     env_runner = SimpleNamespace(
         env=SimpleNamespace(envs=[SimpleNamespace(unwrapped=env)])
@@ -60,6 +64,7 @@ def make_runner(values=(2.0,), iteration=1):
 
 def recording_metrics_logger():
     """RLlib ``MetricsLogger`` stand-in keeping every ``log_value`` call."""
+
     logged: list[dict] = []
 
     return SimpleNamespace(log_value=lambda **kw: logged.append(kw)), logged
@@ -80,13 +85,17 @@ def test_episode_end_hook_reports_then_reduces():
 
     # The reporter received the raw (peeked) history, not the reduced mean.
     assert len(env.reporter.reports) == 1
+
     title, x, ys = env.reporter.reports[0]
+
     assert title == "v"
     assert x == {(): [1, 1]}
     assert ys[0] == {(): [2.0, 4.0]}
 
     (call,) = logged
+
     assert call["key"] == ("by_episode", "env=0|m=1|ps=2|ss=3")
+
     # A list per key, so several episodes of one sub-environment survive.
     assert call["reduce"] == "item_series"
     assert call["value"].value == pytest.approx(3.0)
@@ -109,6 +118,7 @@ def test_episode_end_hook_without_a_reporter_still_hands_the_metrics_to_rllib():
     )
 
     (call,) = logged
+
     assert call["value"].value == pytest.approx(3.0)
 
 
@@ -124,7 +134,6 @@ def test_episode_end_hook_empties_the_env_logger():
         env_index=0,
         metrics_logger=metrics_logger,
     )
-
     assert len(env.logger._refs[("value",)]) == 0
 
 

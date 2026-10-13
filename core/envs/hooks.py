@@ -18,6 +18,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 def _hook(func: F, name: str) -> F:
     setattr(func, name, True)
+
     return func
 
 
@@ -65,6 +66,7 @@ def reset(func: F) -> F:
     >>> MultiAgentEnv._reset is None
     True
     """
+
     return _hook(func, "reset")
 
 
@@ -107,4 +109,5 @@ def transition(func: F) -> F:
     >>> Env._transition
     'advance_stock'
     """
+
     return _hook(func, "transition")

@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TUTORIALS = REPO_ROOT / "tutorials"
 NOTEBOOKS = sorted(TUTORIALS.glob("*.ipynb"))
 KERNEL_NAME = "python3"
+
 # The slowest tutorial trains a reduced bilevel fishery through Ray in about a
 # minute; the limit leaves room for a slow CI runner without hiding a hang.
 CHILD_TIMEOUT_S = 900
@@ -47,25 +48,30 @@ def _load(notebook: Path) -> dict:
 
 def test_every_tutorial_is_collected():
     """The glob finds the five tutorials, so an empty list cannot pass silently."""
+
     assert len(NOTEBOOKS) == 5, [nb.name for nb in NOTEBOOKS]
 
 
 @pytest.mark.parametrize("notebook", NOTEBOOKS, ids=[nb.stem for nb in NOTEBOOKS])
 def test_tutorial_is_committed_without_outputs(notebook: Path):
     """No code cell carries outputs or an execution count."""
+
     dirty = [
         index
         for index, cell in enumerate(_load(notebook)["cells"])
         if cell["cell_type"] == "code"
         and (cell.get("outputs") or cell.get("execution_count") is not None)
     ]
+
     assert dirty == [], f"{notebook.name}: cells with outputs {dirty}"
 
 
 @pytest.mark.parametrize("notebook", NOTEBOOKS, ids=[nb.stem for nb in NOTEBOOKS])
 def test_tutorial_declares_the_python3_kernel(notebook: Path):
     """The kernel specification names the kernel the execution test starts."""
+
     kernelspec = _load(notebook).get("metadata", {}).get("kernelspec", {})
+
     assert kernelspec.get("name") == KERNEL_NAME, f"{notebook.name}: {kernelspec!r}"
 
 
@@ -73,8 +79,11 @@ def test_tutorial_declares_the_python3_kernel(notebook: Path):
 @pytest.mark.parametrize("notebook", NOTEBOOKS, ids=[nb.stem for nb in NOTEBOOKS])
 def test_tutorial_executes(notebook: Path, tmp_path: Path):
     """The notebook runs from its first cell to its last without an error."""
+
     env = dict(os.environ, WANDB_MODE="offline")
+
     env.pop("PYTHONPATH", None)
+
     command = [
         sys.executable,
         "-m",
@@ -89,6 +98,7 @@ def test_tutorial_executes(notebook: Path, tmp_path: Path):
         str(tmp_path),
         str(notebook),
     ]
+
     try:
         done = subprocess.run(
             command,
@@ -100,6 +110,8 @@ def test_tutorial_executes(notebook: Path, tmp_path: Path):
         )
     except subprocess.TimeoutExpired as exc:
         tail = (exc.stderr or b"")[-2000:]
+
         pytest.fail(f"{notebook.name} exceeded {CHILD_TIMEOUT_S} s; stderr: {tail!r}")
+
     assert done.returncode == 0, done.stderr[-4000:]
     assert (tmp_path / notebook.name).is_file()

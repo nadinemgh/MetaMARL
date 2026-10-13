@@ -38,6 +38,7 @@ class SettableRewardAgent:
 
 def make_env(follower: SettableRewardAgent) -> MultiAgentEnv:
     """``MultiAgentEnv`` with only the attributes ``reset`` and ``step`` touch."""
+
     env = MultiAgentEnv.__new__(MultiAgentEnv)
     env.world = SimpleNamespace(
         get_mechanism_by_id=SimpleNamespace(remote=lambda **kwargs: None)
@@ -54,6 +55,7 @@ def make_env(follower: SettableRewardAgent) -> MultiAgentEnv:
     env.m = env.m_ctx = None
     env._using_default_mechanism = True
     env.transition = lambda mdp: dataclasses.replace(mdp, t=mdp.t + 1)
+
     return env
 
 
@@ -72,10 +74,12 @@ def test_a_step_logged_before_reset_does_not_reach_the_episode():
 
     follower.value = 1.0
     mdp = env.reset(MDPState(aids={"fisherman"}))
+
     for _ in range(2):
         mdp = MultiAgentEnv.step(env, mdp)
 
     reduced = env.logger.reduce()
+
     assert reduced.reward_mean == pytest.approx(1.0)
     assert reduced.reward_total == pytest.approx(2.0)
     assert reduced.reward_max == pytest.approx(1.0)

@@ -54,11 +54,15 @@ def csv_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
         ``returncode``, ``output`` (stdout and stderr, concatenated) and
         ``workdir`` (the directory the child ran in).
     """
+
     workdir = tmp_path_factory.mktemp("debug_csv_smoke")
     env = dict(os.environ, WANDB_MODE="offline", PYTHONPATH=str(REPO_ROOT))
+
     # A fixed hash seed would make the child's world identifiers repeat across runs.
     env.pop("PYTHONHASHSEED", None)
+
     command = [sys.executable, "-m", "examples.bilevel_fishery.debug", *SCRIPT_ARGS]
+
     try:
         done = subprocess.run(
             command,
@@ -70,7 +74,9 @@ def csv_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
         )
     except subprocess.TimeoutExpired as exc:
         tail = (exc.stdout or b"")[-500:]
+
         pytest.fail(f"debug script exceeded {CHILD_TIMEOUT_S} s; stdout tail: {tail!r}")
+
     return {
         "returncode": done.returncode,
         "output": done.stdout + "\n" + done.stderr,
@@ -81,12 +87,14 @@ def csv_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
 @pytest.mark.integration
 def test_debug_script_runs_to_completion(csv_run):
     assert csv_run["returncode"] == 0, csv_run["output"][-2000:]
+
     assert "Run finished | iters=2" in csv_run["output"]
 
 
 @pytest.mark.integration
 def test_debug_script_creates_the_reporter_directory(csv_run):
     project_dir = csv_run["workdir"] / "results" / "bilevel"
+
     assert project_dir.is_dir()
     assert any(project_dir.iterdir())
 
@@ -94,6 +102,7 @@ def test_debug_script_creates_the_reporter_directory(csv_run):
 @pytest.mark.integration
 def test_debug_script_writes_csv_files(csv_run):
     csv_files = sorted((csv_run["workdir"] / "results").rglob("*.csv"))
+
     assert csv_files, "no CSV file under results/"
 
 

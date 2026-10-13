@@ -71,8 +71,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         # Simplified corn-specific crop-stress proxy
         self.permanent_wilting_fraction = ecology_cfg.get(
-            "corn_permanent_wilting_fraction",
-            0.35,
+            "corn_permanent_wilting_fraction", 0.35
         )
 
         # self.streamflow_init = ecology_cfg.get("streamflow_init", 124.724)
@@ -114,12 +113,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self.withdrawal_history_m3s = []
 
         # Seeded randomization of planting day
-        planting_day_of_year = int(
-            self.rng.integers(
-                low=121,
-                high=274,
-            )
-        )
+        planting_day_of_year = int(self.rng.integers(low=121, high=274))
         planting_date = datetime(1980, 1, 1) + timedelta(days=planting_day_of_year)
         self._planting_day = planting_date.day
         self._planting_month = planting_date.month
@@ -268,10 +262,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             # Old storage-based quota replaced by demand-fraction quota.
             allowed_m3_day = self._allowed_m3_day(reservoir_level_norm)
-            delivered_m3_day = min(
-                requested_m3_day,
-                allowed_m3_day,
-            )
+            delivered_m3_day = min(requested_m3_day, allowed_m3_day)
 
             if crop_water_need_m3_day <= EPS:
                 crop_satisfaction[agent_id] = 1.0
@@ -311,10 +302,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         # Old storage-based quota replaced by demand-fraction quota.
         allowed_frac = self._allowed_frac(reservoir_level_norm)
         allowed_m3_day = allowed_frac * self.full_required_m3_day
-        delivered_m3_day = min(
-            requested_m3_day,
-            allowed_m3_day,
-        )
+        delivered_m3_day = min(requested_m3_day, allowed_m3_day)
 
         # TODO review this
         quota_violation_m3_day = max(0.0, requested_m3_day - allowed_m3_day)
@@ -382,10 +370,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         return 1.0
 
     def transition_kernel(
-        self,
-        *,
-        A_t: MultiAgentDict,
-        S_t: dict[str, float],
+        self, *, A_t: MultiAgentDict, S_t: dict[str, float]
     ) -> dict[str, float]:
         delivered_m3_day = {}
 
@@ -398,10 +383,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             # Old storage-based quota replaced by demand-fraction quota.
             allowed_m3_day = self._allowed_m3_day(reservoir_level_norm)
-            delivered_m3_day[agent_id] = min(
-                requested_m3_day,
-                allowed_m3_day,
-            )
+            delivered_m3_day[agent_id] = min(requested_m3_day, allowed_m3_day)
 
         total_usage_m3_day = sum(delivered_m3_day.values())
         total_usage_m3s = total_usage_m3_day / 86400.0
@@ -569,11 +551,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         return self.run_root
 
-    def _append_extraction_to_rvt(
-        self,
-        run_dir: str,
-        date: datetime,
-    ) -> int:
+    def _append_extraction_to_rvt(self, run_dir: str, date: datetime) -> int:
         rvt_path = Path(run_dir) / "input" / "Extraction.rvt"
         lines = rvt_path.read_text(encoding="utf-8").splitlines()
         header_idx = next(
@@ -629,14 +607,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         run_dir = self._prepare_raven_run()
 
-        self._append_extraction_to_rvt(
-            run_dir=run_dir,
-            date=date,
-        )
-        self._patch_raven_end_date(
-            run_dir=run_dir,
-            date=date,
-        )
+        self._append_extraction_to_rvt(run_dir=run_dir, date=date)
+        self._patch_raven_end_date(run_dir=run_dir, date=date)
 
         out_dir = "3_Model_output"
 
@@ -678,9 +650,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             return None
 
         csv_path = os.path.join(
-            self.run_root,
-            "3_Model_output",
-            "ohms_canshield_ReservoirStages.csv",
+            self.run_root, "3_Model_output", "ohms_canshield_ReservoirStages.csv"
         )
 
         if not os.path.exists(csv_path):
@@ -725,9 +695,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             return None
 
         csv_path = os.path.join(
-            self.run_root,
-            "3_Model_output",
-            "ohms_canshield_Hydrographs.csv",
+            self.run_root, "3_Model_output", "ohms_canshield_Hydrographs.csv"
         )
 
         if not os.path.exists(csv_path):
@@ -747,8 +715,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             if column_name not in row:
                 match = next(
-                    (k for k in row.keys() if k.strip() == column_name.strip()),
-                    None,
+                    (k for k in row.keys() if k.strip() == column_name.strip()), None
                 )
 
                 if match is None:
@@ -783,9 +750,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             return None
 
         csv_path = os.path.join(
-            self.run_root,
-            "3_Model_output",
-            "ohms_canshield_Hydrographs.csv",
+            self.run_root, "3_Model_output", "ohms_canshield_Hydrographs.csv"
         )
 
         if not os.path.exists(csv_path):
@@ -805,8 +770,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
             if column_name not in row:
                 match = next(
-                    (k for k in row.keys() if k.strip() == column_name.strip()),
-                    None,
+                    (k for k in row.keys() if k.strip() == column_name.strip()), None
                 )
 
                 if match is None:

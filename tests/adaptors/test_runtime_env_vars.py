@@ -41,13 +41,17 @@ _MANAGED_VARS = (
 @pytest.fixture
 def clean_env(monkeypatch):
     """Remove every managed variable and record ``torch.set_default_device`` calls."""
+
     for name in _MANAGED_VARS:
         # ``setenv`` first, so that teardown removes what the test exports even
         # when the variable was absent to begin with.
         monkeypatch.setenv(name, "")
         monkeypatch.delenv(name)
+
     calls: list = []
+
     monkeypatch.setattr(torch, "set_default_device", lambda dev: calls.append(dev))
+
     return calls
 
 
@@ -59,7 +63,6 @@ def _env(name: str) -> str | None:
 @pytest.mark.parametrize("disable_mps", [True, False])
 def test_cpu_branch(clean_env, disable_mps):
     RayRuntimeConfig(device="cpu", disable_mps=disable_mps)._apply_env_vars()
-
     assert _env("CUDA_VISIBLE_DEVICES") == ""
     assert _env("RLLIB_NUM_GPUS") == "0"
     assert _env("USE_CUDA") == "0"
@@ -75,8 +78,8 @@ def test_mps_branch_ignores_disable_flags(clean_env, disable_mps, disable_cuda):
     cfg = RayRuntimeConfig(
         device="mps", disable_mps=disable_mps, disable_cuda=disable_cuda
     )
-    cfg._apply_env_vars()
 
+    cfg._apply_env_vars()
     assert _env("CUDA_VISIBLE_DEVICES") == ""
     assert _env("RLLIB_NUM_GPUS") == "0"
     assert _env("PYTORCH_ENABLE_MPS_FALLBACK") == "1"
@@ -89,7 +92,6 @@ def test_mps_branch_ignores_disable_flags(clean_env, disable_mps, disable_cuda):
 @pytest.mark.parametrize("disable_cuda", [True, False])
 def test_cuda_branch(clean_env, disable_cuda):
     RayRuntimeConfig(device="cuda", disable_cuda=disable_cuda)._apply_env_vars()
-
     assert _env("PYTORCH_ENABLE_MPS_FALLBACK") == "0"
     assert _env("CUDA_VISIBLE_DEVICES") == ("" if disable_cuda else None)
     assert _env("RLLIB_NUM_GPUS") is None
@@ -107,6 +109,7 @@ def test_num_gpus_overrides_rllib_num_gpus(clean_env, device, num_gpus):
         expected = "0" if device in ("cpu", "mps") else None
     else:
         expected = str(num_gpus)
+
     assert _env("RLLIB_NUM_GPUS") == expected
 
 

@@ -20,10 +20,10 @@ import pytest
 from gymnasium import spaces
 
 from core.agents.base import Agent
+from core.mechanism.algorithms.incentive import Subsidy
 from core.mechanism.algorithms.penalty import ThresholdPenalty
 from core.mechanism.algorithms.quota import Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
-from core.mechanism.algorithms.incentive import Subsidy
 from core.mechanism.base import MDPState, Mechanism
 
 REGULATOR = "regulator"
@@ -49,13 +49,19 @@ def run_as_an_environment(agent, mdp, steps, followers=None):
     followers' new actions of the step, as ``update`` does in the adaptor.
     Returns the list of the states reached after each ``Agent.action``.
     """
+
     reached = []
+
     for step in range(steps):
         mdp = agent.action(mdp)
+
         reached.append(mdp)
+
         mdp = mdp.advance(state={"fish": mdp.state["fish"][mdp.t] * 0.9})
+
         if followers is not None:
             mdp = mdp.update(actions=followers(step + 1))
+
     return reached
 
 
@@ -65,42 +71,40 @@ class TestNonIdempotentDecode:
         halver = Halver(
             aid=REGULATOR, id="halve", action_space=UNIT, acts_on=("fisherman", "x")
         )
+
         return Agent(id=REGULATOR, policy_id="p", mechanisms={"halve": halver})
 
     def test_the_delivered_action_does_not_compound_over_the_steps(self):
         mdp = MDPState(
             state={"fish": 100.0}, actions={REGULATOR: {"halve": np.array([0.3])}}
         )
-
         reached = run_as_an_environment(
             self.make_agent(), mdp, steps=4, followers=lambda t: {}
         )
-
         delivered = [state.actions[REGULATOR]["halve"][state.t] for state in reached]
+
         assert delivered == pytest.approx([0.15, 0.15, 0.15, 0.15])
 
     def test_the_effect_of_the_mechanism_does_not_decay_over_the_steps(self):
         mdp = MDPState(
             state={"fish": 100.0}, actions={REGULATOR: {"halve": np.array([0.3])}}
         )
-
         reached = run_as_an_environment(
             self.make_agent(), mdp, steps=4, followers=lambda t: {}
         )
-
         rewards = [state.rewards["fisherman:0"][state.t] for state in reached]
+
         assert rewards == pytest.approx([0.15, 0.15, 0.15, 0.15])
 
     def test_the_raw_action_is_still_held_after_decoding(self):
         mdp = MDPState(
             state={"fish": 100.0}, actions={REGULATOR: {"halve": np.array([0.3])}}
         )
-
         reached = run_as_an_environment(
             self.make_agent(), mdp, steps=3, followers=lambda t: {}
         )
-
         raw = [state.raw_actions[REGULATOR]["halve"][state.t] for state in reached]
+
         assert [float(value[0]) for value in raw] == [0.3, 0.3, 0.3]
 
     def test_a_new_raw_action_of_a_follower_is_decoded_once_per_step(self):
@@ -117,8 +121,8 @@ class TestNonIdempotentDecode:
             return {"fisherman:0": {"halve": raw[step]}} if step < len(raw) else {}
 
         reached = run_as_an_environment(agent, mdp, steps=3, followers=next_raw)
-
         delivered = [s.actions["fisherman:0"]["halve"][s.t] for s in reached]
+
         assert delivered == pytest.approx([0.4, 0.2, 0.1])
 
 
@@ -128,7 +132,9 @@ class TestRawActionsTrajectory:
         mdp = MDPState(actions={"a": {"m": 1.0}})
 
         assert mdp.raw_actions["a"]["m"] == [1.0]
+
         mdp.actions["a"]["m"][0] = 2.0
+
         assert mdp.raw_actions["a"]["m"] == [1.0]
 
     def test_calling_a_mechanism_leaves_the_raw_action_alone(self):
@@ -136,23 +142,24 @@ class TestRawActionsTrajectory:
         mdp = MDPState(actions={"a": {"m": 0.8}})
 
         halver(mdp, 0.8)
-
         assert mdp.actions["a"]["m"] == [0.4]
         assert mdp.raw_actions["a"]["m"] == [0.8]
 
     def test_update_advance_and_add_write_both_trajectories(self):
         mdp = MDPState(actions={"a": {"m": 1.0}})
-
         mdp = mdp.update(actions={"a": {"m": 1.5}})
+
         assert (mdp.actions["a"]["m"], mdp.raw_actions["a"]["m"]) == ([1.5], [1.5])
 
         mdp = mdp.advance(actions={"a": {"m": 2.0}})
+
         assert (mdp.actions["a"]["m"], mdp.raw_actions["a"]["m"]) == (
             [1.5, 2.0],
             [1.5, 2.0],
         )
 
         mdp = mdp.add(MDPState(actions={"a": {"m": 0.25}}))
+
         assert (mdp.actions["a"]["m"], mdp.raw_actions["a"]["m"]) == (
             [1.5, 2.25],
             [1.5, 2.25],
@@ -185,11 +192,13 @@ def regulator_with_the_four_mechanisms() -> Agent:
             id="social", obs_offset=2, acts_on=("fisherman", "harvest")
         ).build(REGULATOR),
     }
+
     return Agent(id=REGULATOR, policy_id="p", mechanisms=mechanisms)
 
 
 def followers_actions(step: int) -> dict:
     """Raw policy outputs of two fishers at ``step``, different at each step."""
+
     return {
         f"fisherman:{i}": {
             "harvest": np.array([0.7 * (i + 1) - 0.4 * step], dtype=np.float32),
@@ -219,9 +228,12 @@ def initial_state() -> MDPState:
 
 def decoding_from_the_actions(agent: Agent, mdp: MDPState) -> MDPState:
     """``Agent.action`` as it was before ``raw_actions``: decode from ``actions``."""
+
     acts = mdp.actions.data.get(agent.id)
+
     if not acts:
         return mdp
+
     return mdp.add(
         [
             agent.mechanisms[mid](mdp, a[mdp.t])
@@ -240,12 +252,15 @@ def snapshot(mdp: MDPState) -> dict:
 
 def assert_identical(left, right, path="") -> None:
     """Exact comparison of two trees whose leaves are numbers or arrays."""
+
     if isinstance(left, dict):
         assert isinstance(right, dict) and left.keys() == right.keys(), path
+
         for key in left:
             assert_identical(left[key], right[key], f"{path}/{key}")
     elif isinstance(left, list):
         assert isinstance(right, list) and len(left) == len(right), path
+
         for index, (a, b) in enumerate(zip(left, right)):
             assert_identical(a, b, f"{path}[{index}]")
     else:
@@ -255,19 +270,25 @@ def assert_identical(left, right, path="") -> None:
 
 def play(act, steps: int) -> list[dict]:
     """Four steps of an environment: act, advance, new follower actions, observe."""
+
     agent = regulator_with_the_four_mechanisms()
     mdp = initial_state()
     recorded = []
+
     for step in range(steps):
         mdp = act(agent, mdp)
+
         recorded.append(snapshot(mdp))
+
         mdp = mdp.advance(
             state={"fish": mdp.state["fish"][mdp.t] * (0.9 - 0.1 * step)},
             obs={f"fisherman:{i}": np.zeros(6, dtype=np.float32) for i in range(2)},
         )
         mdp = mdp.update(actions=followers_actions(step + 1))
         mdp = mdp.add(agent.mechanism_observations(mdp))
+
         recorded.append(snapshot(mdp))
+
     return recorded
 
 
@@ -281,6 +302,7 @@ class TestIdempotentMechanismsAreUnchanged:
         for raw in (0.0, 0.3, 0.55, 1.0, 1.7, -0.4):
             once = mechanism.decode(mdp, np.array([raw], dtype=np.float32))
             twice = mechanism.decode(mdp, once)
+
             np.testing.assert_array_equal(np.asarray(twice), np.asarray(once))
 
     def test_five_steps_are_bit_identical_to_decoding_from_the_actions(self):
@@ -288,5 +310,6 @@ class TestIdempotentMechanismsAreUnchanged:
         before = play(decoding_from_the_actions, steps=5)
 
         assert len(with_raw) == len(before) == 10
+
         for new, old in zip(with_raw, before):
             assert_identical(new, old)

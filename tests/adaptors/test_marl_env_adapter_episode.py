@@ -50,11 +50,14 @@ class Follower:
 
     def action(self, mdp: MDPState) -> MDPState:
         quota = mdp.actions.data.get(self.aid, {}).get("quota")
+
         self.quota_seen.append(float(quota[mdp.t][0]) if quota else float("nan"))
+
         return mdp
 
     def reward(self, mdp: MDPState) -> MDPState:
         quota = self.quota_seen[-1]
+
         return MDPState(rewards={self.aid: 10.0 * quota + mdp.t})
 
     def observation(self, mdp: MDPState) -> MDPState:
@@ -79,7 +82,9 @@ class Regulator:
     def mechanism_observations(self, mdp: MDPState) -> list[MDPState]:
         if "regulator" not in mdp.actions.data:
             return []
+
         signal = np.asarray([0.0, float(mdp.t + 1)], dtype=np.float32)
+
         return [MDPState(obs={aid: signal for aid in ("fisher:0", "fisher:1")})]
 
 
@@ -93,6 +98,7 @@ class ScriptedWorld:
 
     def _fetch(self, **kwargs):
         self.fetches.append(kwargs)
+
         return self.answers.pop(0) if self.answers else None
 
 
@@ -162,10 +168,12 @@ def test_leaders_are_not_rllib_agents():
 @pytest.mark.unit
 def test_spaces_are_dicts_keyed_by_agent_and_mechanism(adapter):
     assert set(adapter.observation_spaces.spaces) == {"fisher:0", "fisher:1"}
+
     for aid, box in adapter.observation_spaces.spaces.items():
         assert box == adapter.env.followers[aid].observation_space
 
     quota_space = adapter.env.followers["fisher:0"].mechanisms["quota"].action_space
+
     assert isinstance(adapter.action_spaces, spaces.Dict)
     assert adapter.action_spaces["fisher:0"]["quota"] == quota_space
     assert set(adapter.action_spaces["fisher:1"].spaces) == {"quota"}
@@ -203,6 +211,7 @@ def test_reset_returns_the_first_observation_of_every_follower_and_no_infos(adap
 
     assert infos == {}
     assert set(obs) == {"fisher:0", "fisher:1"}
+
     for value in obs.values():
         np.testing.assert_array_equal(value, [0.0, 0.0])
         assert value.dtype == np.float32
@@ -211,12 +220,14 @@ def test_reset_returns_the_first_observation_of_every_follower_and_no_infos(adap
 @pytest.mark.unit
 def test_reset_gives_the_env_a_fresh_state_that_carries_the_spaces(adapter):
     seen: list[MDPState] = []
+
     original = adapter.env.reset
     adapter.env.reset = lambda mdp: (seen.append(mdp), original(mdp))[1]
 
     adapter.reset()
 
     (mdp,) = seen
+
     assert mdp.t == 0
     assert mdp.aids == {"fisher:0", "fisher:1"}
     assert mdp.obs_space is adapter.observation_spaces
@@ -247,8 +258,8 @@ def test_reset_after_steps_starts_a_new_episode_at_time_zero(adapter):
 @pytest.mark.unit
 def test_reset_fetches_the_candidate_by_mechanism_id_policy_seed_and_mode():
     world = ScriptedWorld([None])
-    RLlibMultiAgentEnvAdapter(StepEnv(world)).reset()
 
+    RLlibMultiAgentEnvAdapter(StepEnv(world)).reset()
     assert world.fetches == [
         {"mechanism_id": "7", "seed": 22, "mode": MechanismStatus.train}
     ]
@@ -275,9 +286,7 @@ def test_step_returns_the_five_rllib_dicts(adapter):
 @pytest.mark.unit
 def test_step_delivers_each_agents_action_to_the_env(adapter):
     adapter.reset()
-
     adapter.step({"fisher:0": quota_action(0.5), "fisher:1": quota_action(0.25)})
-
     assert adapter.env.followers["fisher:0"].quota_seen == [0.5]
     assert adapter.env.followers["fisher:1"].quota_seen == [0.25]
 
@@ -316,12 +325,14 @@ def test_step_observations_belong_to_the_new_time_step(adapter):
 @pytest.mark.unit
 def test_episode_is_truncated_at_the_horizon_and_never_terminated(adapter):
     adapter.reset()
+
     flags = []
 
     for _ in range(HORIZON):
         _, _, terminateds, truncateds, _ = adapter.step(
             {"fisher:0": quota_action(0.5), "fisher:1": quota_action(0.5)}
         )
+
         flags.append((terminateds["__all__"], truncateds["__all__"]))
 
     assert flags == [(False, False), (False, False), (False, True)]
@@ -333,10 +344,10 @@ def test_episode_is_truncated_at_the_horizon_and_never_terminated(adapter):
 def test_step_state_persists_between_calls(adapter):
     adapter.reset()
     adapter.step({"fisher:0": quota_action(0.5), "fisher:1": quota_action(0.5)})
+
     state_after_one = adapter._mdp
 
     adapter.step({"fisher:0": quota_action(0.5), "fisher:1": quota_action(0.5)})
-
     assert state_after_one.t == 1
     assert adapter._mdp.t == 2
     assert state_after_one.state["clock"][-1] == 1
@@ -352,7 +363,6 @@ def test_step_state_persists_between_calls(adapter):
 def test_leader_contribution_reaches_the_observations_once_a_candidate_is_published():
     world = ScriptedWorld([candidate(0.3)])
     adapter = RLlibMultiAgentEnvAdapter(StepEnv(world, with_leader=True))
-
     obs, _ = adapter.reset()
     stepped, *_ = adapter.step(
         {"fisher:0": quota_action(0.5), "fisher:1": quota_action(0.5)}
@@ -365,7 +375,6 @@ def test_leader_contribution_reaches_the_observations_once_a_candidate_is_publis
 @pytest.mark.unit
 def test_leader_contribution_is_absent_before_any_candidate_is_published():
     adapter = RLlibMultiAgentEnvAdapter(StepEnv(ScriptedWorld([]), with_leader=True))
-
     obs, _ = adapter.reset()
 
     np.testing.assert_allclose(obs["fisher:0"], [0.0, 0.0])

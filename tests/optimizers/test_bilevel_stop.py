@@ -25,6 +25,7 @@ class RecordingLevel:
     def train(self) -> dict:
         if self.fails:
             raise RuntimeError("inner training crashed")
+
         return SUMMARY
 
     def stop(self) -> None:
@@ -33,6 +34,7 @@ class RecordingLevel:
 
 def make_bilevel(outer: RecordingLevel, inner: RecordingLevel) -> BilevelOptimizer:
     config = SimpleNamespace(episodes=None, env=None, world_name="w")
+
     return BilevelOptimizer(config, outer=outer, inner=inner, reporter=None)
 
 
@@ -50,4 +52,5 @@ def test_failed_train_still_stops_both_levels():
 
     with pytest.raises(RuntimeError, match="inner training crashed"):
         make_bilevel(outer, inner).train()
+
     assert (outer.stopped, inner.stopped) == (1, 1)

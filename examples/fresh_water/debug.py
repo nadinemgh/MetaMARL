@@ -28,7 +28,7 @@ bilevel_opt_cfg: BilevelConfig = (
     )
     .mechanism(
         # TODO adding defaults
-        space=WaterMechanismSpace(),
+        space=WaterMechanismSpace()
     )
     .training(outer_iters=100)
     .ray(
@@ -49,13 +49,7 @@ bilevel_opt_cfg: BilevelConfig = (
     )
     .outer(
         ESConfig()
-        .training(
-            sigma=0.5,
-            mean_lr=0.2,
-            sigma_lr=0.05,
-            min_sigma=0.01,
-            max_sigma=0.6,
-        )
+        .training(sigma=0.5, mean_lr=0.2, sigma_lr=0.05, min_sigma=0.01, max_sigma=0.6)
         .environment(
             env=WaterRegulatorRavenEnv,
             env_config={
@@ -63,27 +57,19 @@ bilevel_opt_cfg: BilevelConfig = (
                     "sus_weight": 1.0,
                     "sus_threshold": 0.1,
                     "max_water": 100.0,
-                },
+                }
             },
             horizon=100,
             train_iters=200,
         )
-        .debugging(
-            seed=42,
-            num_seeds=1,
-        )
+        .debugging(seed=42, num_seeds=1)
     )
     .inner(
         APPOptimizerConfig()
-        .resources(
-            num_cpus_for_main_process=1,
-        )
-        .framework(
-            framework="torch",
-        )
+        .resources(num_cpus_for_main_process=1)
+        .framework(framework="torch")
         .api_stack(
-            enable_rl_module_and_learner=True,
-            enable_env_runner_and_connector_v2=True,
+            enable_rl_module_and_learner=True, enable_env_runner_and_connector_v2=True
         )
         .environment(
             env=WaterRegulatedEdHsEnv,
@@ -112,13 +98,8 @@ bilevel_opt_cfg: BilevelConfig = (
             rollout_fragment_length=150,
             batch_mode="truncate_episodes",
         )
-        .learners(
-            num_learners=0,
-            num_gpus_per_learner=0,
-        )
-        .callbacks(
-            on_episode_created=tag_episode_with_env_idx,
-        )
+        .learners(num_learners=0, num_gpus_per_learner=0)
+        .callbacks(on_episode_created=tag_episode_with_env_idx)
         .training(
             vtrace=True,
             circular_buffer_num_batches=4,
@@ -191,13 +172,8 @@ bilevel_opt_cfg: BilevelConfig = (
                 }
             }
         )
-        .fault_tolerance(
-            restart_failed_env_runners=False,
-        )
-        .debugging(
-            seed=42,
-            num_seeds=1,
-        )
+        .fault_tolerance(restart_failed_env_runners=False)
+        .debugging(seed=42, num_seeds=1)
         .reporting(
             min_time_s_per_iteration=0,
             min_sample_timesteps_per_iteration=0,

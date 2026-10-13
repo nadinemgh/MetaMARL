@@ -69,34 +69,35 @@ model. Bulletin of the Inter-American Tropical Tuna Commission, 13(3),
 421-458. https://www.iattc.org/BulletinsENG.htm
 """
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from typing import Any, ClassVar
-from gymnasium.core import ActType
+
 import numpy as np
+from gymnasium.core import ActType
 
 from core.agents.base import Agent, AgentConfig
-from core.envs.marl_regulated import MultiAgentEnv
 from core.envs.hooks import reset, transition
+from core.envs.marl_regulated import MultiAgentEnv
 from core.mechanism.base import MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
 from core.mechanism.utils import ACTION_TEMPERATURE
 from core.utils import sigmoid
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
 logger = logging.getLogger(__name__)
-
 EPS = 1e-8
+
 # observation layout
 # [fish_norm, usage_norm, harvest, restoration]
 FISH_NORM = 0
 USAGE_NORM = 1
 HARVEST = 2
 RESTORATION = 3
+
 
 class Fisherman(Agent):
     # TODO (nadine) replace usage with inidividual harvest observation
@@ -136,18 +137,21 @@ class Fisherman(Agent):
             ``[fish / K, 0, usage / K, 0, 0]`` of shape ``(5,)``, with the
             stock and the usage read at ``mdp.t``.
         """
+
         K = max(mdp.params["K"], EPS)
         fish_norm = mdp.state["fish"][mdp.t] / K
         harvest_norm = mdp.state["harvest"][mdp.t - 1] / K if mdp.t > 0 else 0.0
-        
+
         # Observation residual
         history = mdp.obs.data.get(self.id, [])
         current = (
             np.asarray(history[min(mdp.t, len(history) - 1)], dtype=np.float32)
-            if history else np.zeros(self.observation_space.shape, dtype=np.float32)
+            if history
+            else np.zeros(self.observation_space.shape, dtype=np.float32)
         )
         do = np.zeros_like(current)
         do[[0, 2]] = [fish_norm, harvest_norm] - current[[0, 2]]
+
         return MDPState(obs={self.id: do})
 
     def reward(self, mdp: MDPState) -> MDPState:
@@ -172,8 +176,11 @@ class Fisherman(Agent):
         MDPState
             An MDP whose ``rewards`` hold this agent's reward.
         """
+
         harvest = mdp.actions[self.id]["harvest"][mdp.t]
+
         return MDPState(rewards={self.id: float(np.asarray(harvest).item())})
+
 
 class FishermanConfig(AgentConfig):
     """Configuration that builds ``Fisherman`` agents.
@@ -275,6 +282,7 @@ class Fishing(Mechanism):
         """
 
         z = np.asarray(action, dtype=np.float32).reshape(-1)
+
         return sigmoid(float(z[0]) / ACTION_TEMPERATURE)
 
     def apply(self, mdp: MDPState, harvest_frac: ActType) -> MDPState:
@@ -297,12 +305,17 @@ class Fishing(Mechanism):
             catch (biomass units, ``aid`` being the owning fisher). The stock
             is left untouched.
         """
+
         fish = mdp.state["fish"][mdp.t]
         n_fishers = len(mdp.aids)
-        max_harvest_multiplier =  mdp.params["unregulated_f_multiplier"] # allow unsustainable
+        max_harvest_multiplier = mdp.params[
+            "unregulated_f_multiplier"
+        ]  # allow unsustainable
         catch_capacity = max_harvest_multiplier * mdp.params["F_msy"] * fish / n_fishers
         harvest = harvest_frac * catch_capacity
+
         return MDPState(state={"fish": -harvest, "harvest": harvest})
+
 
 class Restore(Mechanism):
     """Restoration mechanism of a fisher: restores biomass to the stock.
@@ -335,13 +348,10 @@ class Restore(Mechanism):
     >>> restore.apply(mdp, 1.0).state["restoration"]
     [5.0]
     """
-    def __init__(
-            self, 
-            *, 
-            restoration_cost: float, 
-            restoration_power: float,
-            **kwargs):
+
+    def __init__(self, *, restoration_cost: float, restoration_power: float, **kwargs):
         super().__init__(**kwargs)
+
         self.restoration_cost = restoration_cost
         self.restoration_power = restoration_power
 
@@ -362,6 +372,7 @@ class Restore(Mechanism):
         """
 
         z = np.asarray(action, dtype=np.float32).reshape(-1)
+
         return sigmoid(float(z[0]) / ACTION_TEMPERATURE)
 
     def apply(self, mdp: MDPState, restoration_frac: ActType) -> MDPState:
@@ -382,10 +393,18 @@ class Restore(Mechanism):
             (biomass units), summed over the fishers by the shared state and
             added to the stock by the transition.
         """
+
         n_fishers = len(mdp.aids)
-        restoration = self.restoration_power * mdp.params["K"] * restoration_frac / n_fishers
+        restoration = (
+            self.restoration_power * mdp.params["K"] * restoration_frac / n_fishers
+        )
         cost = self.restoration_cost * restoration_frac**2
-        return MDPState(state={"fish": restoration, "restore": restoration}, rewards={self.aid: -cost})
+
+        return MDPState(
+            state={"fish": restoration, "restore": restoration},
+            rewards={self.aid: -cost},
+        )
+
 
 class FishingConfig(MechanismConfig):
     """Configuration that builds the ``Fishing`` mechanism.
@@ -424,6 +443,7 @@ class FishingConfig(MechanismConfig):
 
     mechanism_cls: ClassVar[type[Mechanism]] = Fishing
 
+
 @dataclass(frozen=True, kw_only=True)
 class RestoreConfig(MechanismConfig):
     """Configuration that builds the ``Restore`` mechanism.
@@ -459,9 +479,11 @@ class RestoreConfig(MechanismConfig):
     >>> type(config.build("fisherman:0")).__name__
     'Restore'
     """
+
     restoration_cost: float = 0.25
     restoration_power: float = 0.05
     mechanism_cls: ClassVar[type[Mechanism]] = Restore
+
 
 class FisheryRegulatedEnv(MultiAgentEnv):
     """Single-stock fishery that the inner level of the bilevel loop trains on.
@@ -537,23 +559,16 @@ class FisheryRegulatedEnv(MultiAgentEnv):
     [500.0, 75.0, 0.15]
     """
 
-    def __init__(
-        self,
-        *,
-        ecology_cfg: dict,
-        **kwargs: Any,
-    ):
+    def __init__(self, *, ecology_cfg: dict, **kwargs: Any):
         super().__init__(**kwargs)
 
         r = ecology_cfg.get("r", 0.3)
         self.K = max(ecology_cfg.get("K", ecology_cfg.get("max_fish", 1000.0)), EPS)
         p = max(ecology_cfg.get("p", 1.0), EPS)
         B_msy = max(self.K * (1.0 / (p + 1.0)) ** (1.0 / p), EPS)
-        MSY = (r * self.K / (p + 1.0) ** ((p + 1.0) / p))
-
+        MSY = r * self.K / (p + 1.0) ** ((p + 1.0) / p)
         self.fish_init = ecology_cfg.get("fish_init", ecology_cfg.get("B0", self.K))
-        self.initial_stock_log_sigma =  ecology_cfg.get("initial_stock_log_sigma",0.05,)
-
+        self.initial_stock_log_sigma = ecology_cfg.get("initial_stock_log_sigma", 0.05)
         self.ecology = {
             "r": r,
             "p": p,
@@ -562,7 +577,9 @@ class FisheryRegulatedEnv(MultiAgentEnv):
             "MSY": MSY,
             "F_msy": MSY / B_msy,
             "sigma": ecology_cfg.get("sigma", 0.05),
-            "unregulated_f_multiplier": ecology_cfg.get("unregulated_f_multiplier", 2.0),
+            "unregulated_f_multiplier": ecology_cfg.get(
+                "unregulated_f_multiplier", 2.0
+            ),
         }
 
     # TODO (nadine) reset should not take mdp and init params should not be stateful
@@ -605,19 +622,21 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         >>> residual.state["fish"], residual.state["usage"]
         ([800.0], [0.0])
         """
+
         if self.initial_stock_log_sigma == 0.0:
             fish_init = self.fish_init
         else:
             # TODO (nadine) change to scipy truncnorm rather than clip to avoid flat signal
-            fish_init = np.clip(self.rng.lognormal(
+            fish_init = np.clip(
+                self.rng.lognormal(
                     mean=np.log(max(self.fish_init, EPS)),
-                sigma=self.initial_stock_log_sigma, #sigma around sampling from lognormal distribution
+                    sigma=self.initial_stock_log_sigma,  # sigma around sampling from lognormal distribution
                 ),
                 EPS,
                 self.K,
             )
-        return MDPState(state={"fish": fish_init, "harvest": 0.0}, params=self.ecology)
 
+        return MDPState(state={"fish": fish_init, "harvest": 0.0}, params=self.ecology)
 
     @transition
     def pella_tomlinson(self, mdp: MDPState) -> MDPState:
@@ -687,10 +706,10 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         >>> advanced.state["usage"]
         [0.0, 800.0]
         """
+
         # intervention already happened
         r = mdp.params["r"]
         p = mdp.params["p"]
-        
         H = float(mdp.state["harvest"][mdp.t])
         R = float(mdp.state["restore"][mdp.t])
         B = float(mdp.state["fish"][mdp.t] - R + H)
@@ -702,28 +721,38 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         # biological growth appears from the following timestep onward.
         noise = mdp.params["sigma"] * self.rng.normal() * B
         biological_growth = (r / p) * B * (1.0 - (B / self.K) ** p)
-
         growth = biological_growth + noise + R
         available = max(B + growth, 0.0)
-
         H_realized = min(H, available)
         fish_next = np.float64(np.clip(available - H_realized, 0.0, self.K))
 
         # TODO (nadine): Refactor collapse penalty into a state-dependent
         # incentive mechanism evaluated after the environment transition.
         fish_norm_next = float(fish_next / self.K)
-        collapse_penalty = 0.1 / (1.0 + np.exp(np.clip((fish_norm_next - 0.20) / 0.03, -60.0, 60.0)))
-        mdp = mdp.add(MDPState(rewards={ aid: -float(collapse_penalty) for aid in self.followers}))
+        collapse_penalty = 0.1 / (
+            1.0 + np.exp(np.clip((fish_norm_next - 0.20) / 0.03, -60.0, 60.0))
+        )
+        mdp = mdp.add(
+            MDPState(rewards={aid: -float(collapse_penalty) for aid in self.followers})
+        )
 
         self.logger.push(key=("B_msy",), value=mdp.params["B_msy"])
         self.logger.push(key=("MSY",), value=mdp.params["MSY"])
         self.logger.push(key=("F_msy",), value=mdp.params["F_msy"])
         self.logger.push(key=("fish_stock",), value=B)
         self.logger.push(key=("fish_stock_next",), value=fish_next)
-        self.logger.push(key=("fish_norm_next_mean",), value=fish_next / max(self.K, EPS))
-        self.logger.push(key=("fish_norm_next_min",), value=fish_next / max(self.K, EPS))
-        self.logger.push(key=("fish_norm_next_max",), value=fish_next / max(self.K, EPS))
-        self.logger.push(key=("fish_norm_next_last",), value=fish_next / max(self.K, EPS))
+        self.logger.push(
+            key=("fish_norm_next_mean",), value=fish_next / max(self.K, EPS)
+        )
+        self.logger.push(
+            key=("fish_norm_next_min",), value=fish_next / max(self.K, EPS)
+        )
+        self.logger.push(
+            key=("fish_norm_next_max",), value=fish_next / max(self.K, EPS)
+        )
+        self.logger.push(
+            key=("fish_norm_next_last",), value=fish_next / max(self.K, EPS)
+        )
         self.logger.push(key=("growth",), value=growth)
         self.logger.push(key=("growth_noise",), value=noise)
         self.logger.push(key=("H_attempted",), value=H)

@@ -24,7 +24,6 @@ from core.config import cli, hash_seed
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FISHERY_CONFIG = REPO_ROOT / "examples" / "bilevel_fishery" / "config.yaml"
 CONSOLE_SCRIPT = Path(sys.executable).parent / "metamarl"
-
 VALID_CONFIG = """
 experiment:
   _target_: fractions.Fraction
@@ -37,21 +36,24 @@ run:
 
 def _main(monkeypatch, *argv: str) -> int:
     monkeypatch.setattr(sys, "argv", ["metamarl", *argv])
+
     return cli.main()
 
 
 @pytest.fixture
 def config_path(tmp_path) -> Path:
     path = tmp_path / "config.yaml"
+
     path.write_text(VALID_CONFIG)
+
     return path
 
 
 @pytest.mark.unit
 def test_run_executes_the_run_section_and_exits_zero(monkeypatch, config_path):
     results = []
-    monkeypatch.setattr(cli, "run_experiment", lambda path: results.append(path))
 
+    monkeypatch.setattr(cli, "run_experiment", lambda path: results.append(path))
     assert _main(monkeypatch, "run", str(config_path)) == 0
     assert results == [str(config_path)]
 
@@ -67,7 +69,6 @@ def test_check_does_not_execute_the_run_section(monkeypatch, config_path):
         raise AssertionError("check must not run the experiment")
 
     monkeypatch.setattr(cli, "run_experiment", fail)
-
     assert _main(monkeypatch, "check", str(config_path)) == 0
 
 
@@ -88,6 +89,7 @@ def test_a_config_without_an_experiment_is_a_configuration_error(
     tmp_path, monkeypatch, caplog
 ):
     path = tmp_path / "empty.yaml"
+
     path.write_text("other: 1\n")
 
     with caplog.at_level(logging.ERROR):
@@ -104,7 +106,6 @@ def test_keyboard_interrupt_exits_with_code_130(monkeypatch, config_path, comman
 
     monkeypatch.setattr(cli, "load_experiment", interrupt)
     monkeypatch.setattr(cli, "run_experiment", interrupt)
-
     assert _main(monkeypatch, command, str(config_path)) == 130
 
 
@@ -125,6 +126,7 @@ def test_script_entry_restarts_first_then_exits_with_the_command_status(
     monkeypatch, config_path, capsys
 ):
     order = []
+
     monkeypatch.setattr(hash_seed, "ensure_hash_seed", lambda: order.append("seed"))
     monkeypatch.setattr(sys, "argv", ["metamarl", "check", str(config_path)])
 
@@ -152,7 +154,6 @@ def test_script_entry_exits_with_two_on_a_configuration_error(monkeypatch, tmp_p
 @pytest.mark.unit
 def test_fishery_configuration_passes_the_check(monkeypatch, capsys):
     monkeypatch.setenv("WANDB_MODE", "offline")
-
     assert _main(monkeypatch, "check", str(FISHERY_CONFIG)) == 0
     assert "Config OK: core.optimizers.bilevel.BilevelConfig" in capsys.readouterr().out
 
@@ -174,7 +175,9 @@ def test_entry_resolves_modules_of_the_working_directory(monkeypatch, tmp_path, 
         sys, "path", [p for p in sys.path if p not in ("", os.getcwd())]
     )
     monkeypatch.delitem(sys.modules, "local_experiment", raising=False)
+
     order = []
+
     monkeypatch.setattr(cli, "ensure_hash_seed", lambda: order.append("seed"))
     monkeypatch.setattr(sys, "argv", ["metamarl", "check", "config.yaml"])
 
@@ -206,7 +209,6 @@ def test_installed_command_restarts_and_checks_the_fishery_config():
     # unset: it must restart once and then resolve the example's modules.
     env = {k: v for k, v in os.environ.items() if k != "PYTHONHASHSEED"}
     env["WANDB_MODE"] = "offline"
-
     result = subprocess.run(
         [str(CONSOLE_SCRIPT), "check", str(FISHERY_CONFIG.relative_to(REPO_ROOT))],
         cwd=REPO_ROOT,
@@ -217,5 +219,7 @@ def test_installed_command_restarts_and_checks_the_fishery_config():
     )
 
     assert result.returncode == 0, result.stderr
+
     assert "restarting with PYTHONHASHSEED=0" in result.stderr
+
     assert "Config OK: core.optimizers.bilevel.BilevelConfig" in result.stdout

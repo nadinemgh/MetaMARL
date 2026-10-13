@@ -37,7 +37,6 @@ def test_world_and_outer_iters_are_unset_until_the_optimizer_fills_them():
 
 def test_world_and_outer_iters_setters():
     config = _Config(project="p")
-
     config.world = "w"
     config.outer_iters = 7
 
@@ -49,11 +48,10 @@ def test_copy_is_deep_and_independent():
     config.world = "w"
     config.outer_iters = 3
     config.extra = {"nested": [1]}  # type: ignore[attr-defined]
-
     clone = config.copy()
     clone.world = "other"
-    clone.extra["nested"].append(2)  # type: ignore[attr-defined]
 
+    clone.extra["nested"].append(2)  # type: ignore[attr-defined]
     assert clone is not config and isinstance(clone, _Config)
     assert clone.outer_iters == 3 and clone.project_name == "p"
     assert config.world == "w"

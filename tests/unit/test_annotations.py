@@ -26,6 +26,7 @@ def test_override_returns_method_unchanged():
         return "child"
 
     decorated = override(_Parent)(run)
+
     assert decorated is run
 
 
@@ -51,7 +52,6 @@ def test_override_accepts_non_method_attribute_names():
 @pytest.mark.unit
 def test_override_raises_name_error_for_unknown_method():
     with pytest.raises(NameError, match="missing must override"):
-
         class Child(_Parent):  # noqa: F841
             @override(_Parent)
             def missing(self):
@@ -78,6 +78,7 @@ def test_inner_descriptor_would_enforce_subclass_if_it_were_bound():
     it would do if it were bound: bind the function on a proper subclass and
     raise ``TypeError`` on an unrelated owner.
     """
+
     import inspect
 
     override_check = inspect.getclosurevars(override(_Parent)).nonlocals[
@@ -108,20 +109,25 @@ def test_every_override_names_a_direct_base_of_its_class():
     so ``@override(gym.Env)`` on a class that does not derive from ``gym.Env``
     passes silently and misleads the reader about where the method comes from.
     """
+
     import ast
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
     mismatches = []
+
     for path in sorted(
         [*root.joinpath("core").rglob("*.py"), *root.joinpath("examples").rglob("*.py")]
     ):
         tree = ast.parse(path.read_text())
+
         for cls in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
             bases = {ast.unparse(base) for base in cls.bases}
+
             for method in cls.body:
                 if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
+
                 for decorator in method.decorator_list:
                     if (
                         isinstance(decorator, ast.Call)
@@ -129,6 +135,7 @@ def test_every_override_names_a_direct_base_of_its_class():
                         and ast.unparse(decorator.args[0]) not in bases
                     ):
                         where = f"{path.relative_to(root)}:{method.lineno}"
+
                         mismatches.append(f"{where} {cls.name}.{method.name}")
 
     assert mismatches == []

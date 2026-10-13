@@ -34,6 +34,7 @@ class OrderedLevel:
 
     def train(self):
         self.journal.append((self.name, "train"))
+
         if self.fails:
             raise RuntimeError("outer search failed")
 
@@ -61,7 +62,6 @@ def config(**overrides):
 def test_constructor_copies_the_config_and_starts_empty():
     cfg = config()
     outer, inner, reporter = object(), object(), object()
-
     opt = BilevelOptimizer(cfg, outer=outer, inner=inner, reporter=reporter)
 
     assert opt.config is cfg
@@ -89,12 +89,13 @@ def test_the_summary_of_the_outer_level_is_returned_unchanged():
 def test_converged_is_taken_from_the_summary_of_the_outer_level(flag, monkeypatch):
     journal = []
     outer = OrderedLevel("outer", journal)
+
     monkeypatch.setattr(outer, "train", lambda: {**SUMMARY, "converged": flag})
+
     opt = BilevelOptimizer(config(), outer=outer, inner=None, reporter=None)
+
     assert opt.converged is False
-
     opt.train()
-
     assert opt.converged is flag
 
 
@@ -125,7 +126,6 @@ def test_levels_are_stopped_outer_first_then_the_reporter_is_closed():
     )
 
     opt.train()
-
     assert journal == [
         ("outer", "train"),
         ("outer", "stop"),
@@ -161,7 +161,6 @@ def test_a_missing_inner_level_is_skipped_when_stopping():
     )
 
     opt.train()
-
     assert journal == [("outer", "train"), ("outer", "stop"), ("reporter", "close")]
 
 
@@ -179,6 +178,7 @@ def test_the_run_is_framed_by_two_log_lines(caplog):
         opt.train()
 
     start, finish = [record.getMessage() for record in caplog.records]
+
     assert start == "[Bilevel] Starting run | max_outer_iters=3 | world=w1"
     assert finish == (
         "[Bilevel] Run finished | iters=3 | converged=True | "

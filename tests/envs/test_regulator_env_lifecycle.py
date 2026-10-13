@@ -30,6 +30,7 @@ class RecordingInner:
 
     def train(self) -> dict:
         self.trains += 1
+
         return {"trained": self.trains}
 
     def reduce_metrics(self) -> str:
@@ -65,7 +66,9 @@ def make_env(toy, inner, *, env_cls=FitnessEnv, **overrides):
         "schema": EpisodeRolloutSchema,
         "opt_id": "opt_1",
     }
+
     kwargs.update(overrides)
+
     return env_cls(**kwargs)
 
 
@@ -95,7 +98,6 @@ def test_missing_seeds_become_an_empty_list(toy, inner, seeds, expected):
 @pytest.mark.unit
 def test_queries_are_added_to_the_reporter(toy, inner):
     query = Query(title="iter", x=("iter",), y=("reward_mean",))
-
     env = make_env(toy, inner, queries=(query,))
 
     assert env.reporter.queries == (query,)
@@ -108,13 +110,10 @@ def test_reset_resets_the_inner_policy_unless_asked_to_persist(toy, inner):
 
     assert env.reset() == (None, {})
     assert (env._t, inner.resets) == (0, 1)
-
     env.reset(options={"persist_agents_policy": True})
     assert inner.resets == 1
-
     env.reset(options={"persist_agents_policy": False})
     assert inner.resets == 2
-
     env.reset(options=None)
     assert inner.resets == 3
 
@@ -122,7 +121,6 @@ def test_reset_resets_the_inner_policy_unless_asked_to_persist(toy, inner):
 @pytest.mark.unit
 def test_reset_accepts_a_seed_and_ignores_it(toy, inner):
     env = make_env(toy, inner, seeds=[7, 8])
-
     assert env.reset(seed=3) == (None, {})
 
     # The policy seeds are fixed at construction; the call's seed changes nothing.
@@ -134,7 +132,6 @@ def test_reset_accepts_a_seed_and_ignores_it(toy, inner):
 @pytest.mark.unit
 def test_step_returns_the_reward_and_the_reduced_inner_metrics(toy, inner):
     env = make_env(toy, inner)
-
     obs, reward, terminated, truncated, info = env.step([{"fee": 0.1}])
 
     assert obs is None
@@ -164,6 +161,7 @@ def test_published_contexts_carry_the_optimizer_step_and_env(toy, inner):
     env.step([{"fee": 0.2}])
 
     contexts = env.world.contexts
+
     assert [c.step for c in contexts] == [0, 0, 1, 1]
     assert {c.opt_id for c in contexts} == {"opt_1"}
     assert {c.env for c in contexts} == {"FitnessEnv"}
@@ -175,10 +173,9 @@ def test_published_contexts_carry_the_optimizer_step_and_env(toy, inner):
 @pytest.mark.unit
 def test_opt_id_setter_is_stamped_on_the_published_contexts(toy, inner):
     env = make_env(toy, inner, opt_id=None)
-
     env.opt_id = "opt_9"
-    env.step([{"fee": 0.1}])
 
+    env.step([{"fee": 0.1}])
     assert env.world.contexts[0].opt_id == "opt_9"
 
 
@@ -203,14 +200,12 @@ def test_step_without_a_logger_still_counts(toy, inner):
     env = make_env(toy, inner, schema=None)
 
     env.step([{"fee": 0.1}])
-
     assert env._t == 1
 
 
 @pytest.mark.unit
 def test_horizon_none_never_terminates(toy, inner):
     env = make_env(toy, inner, horizon=None)
-
     terminated = [env.step([{"fee": 0.1}])[2] for _ in range(4)]
 
     assert terminated == [False] * 4
@@ -227,7 +222,6 @@ def test_a_horizon_of_one_terminates_after_the_first_step(toy, inner):
 @pytest.mark.parametrize("horizon", [2, 3, 5])
 def test_a_horizon_of_n_gives_n_steps(toy, inner, horizon):
     env = make_env(toy, inner, horizon=horizon)
-
     terminated = [env.step([{"fee": 0.1}])[2] for _ in range(horizon)]
 
     assert terminated == [False] * (horizon - 1) + [True]

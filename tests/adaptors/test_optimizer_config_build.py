@@ -57,6 +57,7 @@ def fisher(agent_id: str = "fisher", count: int = 2, policy: str | None = None):
 
 def applied_config(*, num_envs=4, seeds=(11, 22), agents=None):
     """Config whose ops were replayed by hand, ready for ``_apply_agents_to_rllib``."""
+
     cfg = PPOptimizerConfig().agents(agents or (fisher(count=2),))
     cfg.seeds = list(seeds)
     cfg.rllib_cfg = PPO.get_default_config().env_runners(
@@ -69,31 +70,29 @@ def applied_config(*, num_envs=4, seeds=(11, 22), agents=None):
 @pytest.mark.unit
 def test_one_rl_module_is_declared_per_mechanism_and_training_seed():
     cfg = applied_config(num_envs=4, seeds=(11, 22))
-
     agents = cfg._apply_agents_to_rllib()
-
     expected = {f"fisher_m{m}_s{s}" for m in (0, 1) for s in (11, 22)}
     spec = cfg.rllib_cfg.rl_module_spec
+
     assert isinstance(spec, MultiRLModuleSpec)
     assert set(spec.rl_module_specs) == expected
     assert set(cfg.rllib_cfg.policies) == expected
     assert set(cfg.rllib_cfg.policies_to_train) == expected
 
     module = spec.rl_module_specs["fisher_m0_s11"]
+
     assert module.observation_space == OBS
     assert module.action_space == ACT_DICT
     assert module.model_config.vf_share_layers is False
     assert module.model_config.fcnet_bias_initializer == "zeros_"
     assert callable(module.model_config.fcnet_kernel_initializer)
     assert callable(module.model_config.head_fcnet_kernel_initializer)
-
     assert list(agents) == ["fisher:0", "fisher:1"]
 
 
 @pytest.mark.unit
 def test_every_agent_instance_becomes_a_single_agent_config():
     cfg = applied_config(agents=(fisher(count=2), fisher("boat", count=1)))
-
     agents = cfg._apply_agents_to_rllib()
 
     assert list(agents) == ["fisher:0", "fisher:1", "boat:0"]
@@ -101,6 +100,7 @@ def test_every_agent_instance_becomes_a_single_agent_config():
         cfg.agents_cfgs["fisher"], id="fisher:1", count=1
     )
     assert all(agent.count == 1 for agent in agents.values())
+
     # The declaration itself is left untouched.
     assert cfg.agents_cfgs["fisher"].id == "fisher"
     assert cfg.agents_cfgs["fisher"].count == 2
@@ -111,7 +111,6 @@ def test_instance_spaces_are_written_into_the_env_config():
     cfg = applied_config(agents=(fisher(count=2),))
 
     cfg._apply_agents_to_rllib()
-
     assert cfg.env_config["observation_spaces"] == {"fisher:0": OBS, "fisher:1": OBS}
     assert cfg.env_config["action_spaces"] == {
         "fisher:0": ACT_DICT,
@@ -129,9 +128,11 @@ def test_two_modules_of_one_seed_start_from_identical_initializers():
     inits = [
         specs[f"fisher_m{m}_s11"].model_config.fcnet_kernel_initializer for m in (0, 1)
     ]
+
     assert inits[0] is not inits[1]
 
     first, second = torch.empty(4, 3), torch.empty(4, 3)
+
     inits[0](first)
     inits[1](second)
     assert torch.equal(first, second)
@@ -142,7 +143,9 @@ def test_policy_mapping_routes_an_agent_to_the_module_named_by_its_episode_id():
     cfg = applied_config(
         num_envs=4, seeds=(11, 22), agents=(fisher(count=1), fisher("boat", count=1))
     )
+
     cfg._apply_agents_to_rllib()
+
     mapping = cfg.rllib_cfg.policy_mapping_fn
     episode = SimpleNamespace(id_="env=3|m=1|ps=22|ss=99|raw=abc")
 
@@ -153,7 +156,9 @@ def test_policy_mapping_routes_an_agent_to_the_module_named_by_its_episode_id():
 @pytest.mark.unit
 def test_policy_mapping_rejects_an_unknown_module_and_names_the_candidates():
     cfg = applied_config(num_envs=4, seeds=(11, 22))
+
     cfg._apply_agents_to_rllib()
+
     unknown = SimpleNamespace(id_="env=3|m=7|ps=22|ss=22|raw=abc")
 
     with pytest.raises(RuntimeError, match="Unknown policy") as raised:
@@ -162,12 +167,14 @@ def test_policy_mapping_rejects_an_unknown_module_and_names_the_candidates():
     message = str(raised.value)
     assert "policy_id=fisher_m7_s22" in message
     assert "episode_id=env=3|m=7|ps=22|ss=22|raw=abc" in message
+
     assert "fisher_m0_s11" in message
 
 
 @pytest.mark.unit
 def test_policy_mapping_rejects_an_untagged_episode_id():
     cfg = applied_config()
+
     cfg._apply_agents_to_rllib()
 
     with pytest.raises(RuntimeError, match="missing identity keys"):
@@ -189,6 +196,7 @@ def test_a_none_seed_gives_the_default_initializer_and_a_none_module_suffix():
     cfg._apply_agents_to_rllib()
 
     specs = cfg.rllib_cfg.rl_module_spec.rl_module_specs
+
     assert set(specs) == {"fisher_m0_sNone", "fisher_m1_sNone"}
     assert specs["fisher_m0_sNone"].model_config.fcnet_kernel_initializer == (
         "xavier_uniform_"
@@ -233,6 +241,7 @@ class RecordingReporterConfig(ReporterConfig):
 
     def build(self, *, label=None):
         reporter = RecordingReporter(label)
+
         RecordingReporterConfig.built.append(reporter)
 
         return reporter
@@ -266,6 +275,7 @@ class FakeEnvContext(dict):
 
     def __init__(self, *args, worker_index=0, **kwargs):
         super().__init__(*args, **kwargs)
+
         self.worker_index = worker_index
 
 
@@ -281,7 +291,9 @@ class StubOptimizer:
 @pytest.fixture
 def registered(monkeypatch) -> dict:
     """Patch ``register_env``, the env adapter and ``ray.get``; return the registry."""
+
     registry: dict = {}
+
     monkeypatch.setattr(
         optimizer_config_module,
         "register_env",
@@ -291,6 +303,7 @@ def registered(monkeypatch) -> dict:
         optimizer_config_module, "RLlibMultiAgentEnvAdapter", WrappedEnv
     )
     monkeypatch.setattr(ray, "get", lambda ref, *args, **kwargs: ref)
+
     RecordingReporterConfig.built = []
 
     return registry
@@ -299,6 +312,7 @@ def registered(monkeypatch) -> dict:
 @pytest.fixture
 def stub_optimizer(monkeypatch) -> None:
     """Replace ``RayOptimizer`` in the config module by ``StubOptimizer``."""
+
     monkeypatch.setattr(optimizer_config_module, "RayOptimizer", StubOptimizer)
 
 
@@ -347,12 +361,12 @@ def test_build_resolves_the_rllib_config_and_registers_the_environment(
     registered, stub_optimizer
 ):
     cfg = society(mechanisms=2, train_seeds=2, eval_seeds=(7, 8))
-
     opt, world = build(cfg)
 
     # One evaluation runner per (evaluation seed, training seed), each hosting
     # one environment per mechanism and running one episode per environment.
     rllib = cfg.rllib_cfg
+
     assert rllib.num_envs_per_env_runner == 4
     assert rllib.evaluation_num_env_runners == 4
     assert rllib.evaluation_config["num_envs_per_env_runner"] == 2
@@ -361,12 +375,12 @@ def test_build_resolves_the_rllib_config_and_registers_the_environment(
     assert rllib.evaluation_interval is None
 
     (env_name,) = registered
+
     assert env_name.startswith("regulated_env_")
     assert rllib.env == env_name
     assert rllib.env_config["alpha"] == 0.5
     assert set(rllib.env_config["observation_spaces"]) == {"fisher:0", "fisher:1"}
     assert cfg.world_name == "w"
-
     assert isinstance(opt, StubOptimizer)
     assert opt.kwargs["world"] is world
     assert opt.id == world.opt_ids[-1]
@@ -375,7 +389,6 @@ def test_build_resolves_the_rllib_config_and_registers_the_environment(
 @pytest.mark.unit
 def test_the_optimizer_receives_a_deep_copy_of_the_config(registered, stub_optimizer):
     cfg = society()
-
     opt, _ = build(cfg)
 
     assert opt.config is not cfg
@@ -390,7 +403,6 @@ def test_each_build_draws_its_own_optimizer_id_and_environment_name(
     registered, stub_optimizer
 ):
     cfg = society()
-
     first, world = build(cfg)
     second, _ = build(cfg, world)
 
@@ -402,7 +414,9 @@ def test_each_build_draws_its_own_optimizer_id_and_environment_name(
 @pytest.mark.unit
 def test_a_second_build_reuses_the_resolved_rllib_config(registered, stub_optimizer):
     cfg = society()
+
     build(cfg)
+
     resolved = cfg.rllib_cfg
     cfg._cfg_ops["resources"] = optimizer_config_module.RLlibConfigOp(
         fn=lambda c, **k: pytest.fail("ops must not be replayed twice"),
@@ -411,7 +425,6 @@ def test_a_second_build_reuses_the_resolved_rllib_config(registered, stub_optimi
     )
 
     build(cfg)
-
     assert cfg.rllib_cfg is resolved
 
 
@@ -422,7 +435,6 @@ def test_build_without_evaluation_leaves_the_evaluation_config_alone(
     cfg = society(eval_seeds=None)
 
     build(cfg)
-
     assert "_evaluation_rllib" not in cfg._cfg_ops
     assert cfg.rllib_cfg.custom_evaluation_function is None
 
@@ -454,10 +466,9 @@ def test_disable_env_checking_is_replayed_on_the_rllib_config(
     registered, stub_optimizer
 ):
     cfg = society()
+
     cfg.environment(env=RecordingEnv, horizon=5, disable_env_checking=True)
-
     build(cfg)
-
     assert cfg.rllib_cfg.disable_env_checking is True
 
 
@@ -508,21 +519,27 @@ def test_training_envs_are_laid_out_by_mechanism_then_training_seed(
         (0, seeds[0]),
     ]
     envs = []
+
     for mechanism_idx, seed in expected:
         wrapped = env_creator(FakeEnvContext({"alpha": 0.5}, worker_index=1))
+
         assert isinstance(wrapped, WrappedEnv)
+
         env = wrapped.env
+
         envs.append(env)
         assert env.kwargs["mechanism_id"] == mechanism_idx
         assert env.kwargs["seed"] == seed
         assert env.kwargs["policy_seed"] == seed
 
     kwargs = envs[0].kwargs
+
     assert kwargs["world"] is world
     assert kwargs["opt_id"] == world.opt_ids[-1]
     assert list(kwargs["agents_cfg_dict"]) == ["fisher:0", "fisher:1"]
     assert kwargs["env_name"] == cfg.rllib_cfg.env
     assert kwargs["alpha"] == 0.5
+
     # ``mode`` is read from the context (default ``train``), never written back.
     assert "mode" not in kwargs
 
@@ -532,7 +549,9 @@ def test_evaluation_envs_take_their_seeds_from_the_runner_index(
     registered, stub_optimizer
 ):
     cfg = society(mechanisms=2, train_seeds=2, eval_seeds=(70, 80))
+
     build(cfg)
+
     env_creator = env_creator_of(registered)
     train_seeds, eval_seeds = cfg.seeds, cfg.eval_seeds
 
@@ -544,11 +563,13 @@ def test_evaluation_envs_take_their_seeds_from_the_runner_index(
         (3, 0, train_seeds[0], eval_seeds[1]),
         (4, 1, train_seeds[1], eval_seeds[1]),
     ]
+
     for worker_index, mechanism_idx, policy_seed, env_seed in cases:
         wrapped = env_creator(
             FakeEnvContext({"mode": "eval"}, worker_index=worker_index)
         )
         env = wrapped.env
+
         # The exploration keys read the runner index from the adapter.
         assert wrapped.worker_index == worker_index
         assert env.kwargs["mode"] == "eval"
@@ -558,6 +579,7 @@ def test_evaluation_envs_take_their_seeds_from_the_runner_index(
 
     # The training counter is independent of the evaluation one.
     train_env = env_creator(FakeEnvContext({}, worker_index=1)).env
+
     assert train_env.kwargs["mechanism_id"] == 0
 
 
@@ -566,6 +588,7 @@ def test_evaluation_envs_without_evaluation_seeds_run_unseeded(
     registered, stub_optimizer
 ):
     cfg = society(eval_seeds=None)
+
     build(cfg)
 
     env = env_creator_of(registered)(
@@ -584,10 +607,9 @@ def test_the_optimizer_level_reporter_is_built_once_and_loaded_with_the_declarat
     registered, stub_optimizer
 ):
     cfg = society(reporting=True)
-
     opt, _ = build(cfg)
-
     reporter = opt.kwargs["reporting"]
+
     assert RecordingReporterConfig.built == [reporter]
     assert reporter.label == "StubOptimizer"
     assert reporter.queries == (OPT_QUERY,)
@@ -598,20 +620,24 @@ def test_every_environment_receives_its_own_copy_of_the_reporter_config(
     registered, stub_optimizer
 ):
     cfg = society(reporting=True)
-    build(cfg)
-    env_creator = env_creator_of(registered)
 
+    build(cfg)
+
+    env_creator = env_creator_of(registered)
     first = env_creator(FakeEnvContext({}, worker_index=1)).env
     second = env_creator(FakeEnvContext({}, worker_index=1)).env
 
     for env in (first, second):
         reporter_cfg = env.kwargs["reporter_cfg"]
+
         assert isinstance(reporter_cfg, RecordingReporterConfig)
         assert reporter_cfg is not cfg.reporter_cfg
         assert reporter_cfg.project_name == "unit"
         assert env.kwargs["queries"] == (ENV_QUERY,)
         assert env.kwargs["schema"] is EnvSchema
+
     assert first.kwargs["reporter_cfg"] is not second.kwargs["reporter_cfg"]
+
     # Environments get the config, never a built reporter.
     assert len(RecordingReporterConfig.built) == 1
 
@@ -623,6 +649,7 @@ def test_a_config_without_reporter_builds_an_optimizer_without_reporter(
     # The docstring of ``build_optimizer`` says the optimizer-level reporter is
     # ``None`` when no ``reporter_cfg`` was set (reporting is optional).
     cfg = society(reporter=False)
+
     assert cfg.reporter_cfg is None
 
     opt, _ = build(cfg)
@@ -637,9 +664,10 @@ def test_the_built_optimizer_holds_the_reporter_it_was_built_with(
     # ``build_optimizer`` documents ``opt.reporting`` as the optimizer-level
     # reporter; ``Optimizer.report_metrics`` renders the queries through it.
     actors = SimpleNamespace(remote=lambda algo_config: MagicMock(name="actor"))
-    monkeypatch.setattr(policy_actor_module, "PolicyActor", actors)
-    cfg = society(reporting=True)
 
+    monkeypatch.setattr(policy_actor_module, "PolicyActor", actors)
+
+    cfg = society(reporting=True)
     opt, _ = build(cfg)
 
     assert isinstance(opt, RayOptimizer)

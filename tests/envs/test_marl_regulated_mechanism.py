@@ -29,11 +29,13 @@ class ScriptedWorld:
 
     def _fetch(self, **kwargs):
         self.calls += 1
+
         return self.answers.pop(0)
 
 
 def make_env(world: ScriptedWorld) -> MultiAgentEnv:
     """``MultiAgentEnv`` with only the attributes ``reset`` touches."""
+
     env = MultiAgentEnv.__new__(MultiAgentEnv)
     env.world = world
     env.logger = MetricLogger.from_schema(EpisodeRolloutSchema)
@@ -45,13 +47,16 @@ def make_env(world: ScriptedWorld) -> MultiAgentEnv:
     env.followers = {}
     env.m = env.m_ctx = None
     env._using_default_mechanism = True
+
     return env
 
 
 def quota_at_reset(env: MultiAgentEnv) -> float | None:
     mdp = env.reset(MDPState())
+
     if "regulator" not in mdp.actions:
         return None
+
     return float(np.asarray(mdp.actions["regulator"]["quota"][0]).item())
 
 
@@ -67,7 +72,6 @@ def ray_get_is_identity(monkeypatch):
 @pytest.mark.unit
 def test_later_episodes_keep_the_fetched_candidate():
     env = make_env(ScriptedWorld([candidate(0.3), None, None]))
-
     quotas = [quota_at_reset(env) for _ in range(3)]
 
     assert quotas == pytest.approx([0.3, 0.3, 0.3])
@@ -76,7 +80,6 @@ def test_later_episodes_keep_the_fetched_candidate():
 @pytest.mark.unit
 def test_a_newly_published_candidate_replaces_the_kept_one():
     env = make_env(ScriptedWorld([candidate(0.3), None, candidate(0.7), None]))
-
     quotas = [quota_at_reset(env) for _ in range(4)]
 
     assert quotas == pytest.approx([0.3, 0.3, 0.7, 0.7])

@@ -33,7 +33,6 @@ from ray.actor import ActorHandle
 
 from core.agents.base import Agent, AgentConfig
 from core.annotations import override
-from core.mechanism.base import MDPState
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.optimizers.base import Optimizer
@@ -42,11 +41,7 @@ from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
 from core.types import AgentID, OptimizerID
 from core.world.base import World
-from core.world.context import (
-    Context,
-    MechanismContext,
-    MechanismStatus,
-)
+from core.world.context import Context, MechanismContext, MechanismStatus
 
 
 class RegulatorEnv(gym.Env):
@@ -152,7 +147,7 @@ class RegulatorEnv(gym.Env):
         self,
         *,
         world: ActorHandle[World],
-        optimizer: Optimizer, # TODO (nadine) not clear and avoid providing instantiated obj
+        optimizer: Optimizer,  # TODO (nadine) not clear and avoid providing instantiated obj
         horizon: Optional[int],
         agents_cfgs: dict[AgentID, AgentConfig],
         # Agent policy seeds required for mechanism publishing.
@@ -169,7 +164,9 @@ class RegulatorEnv(gym.Env):
         self._opt_id = opt_id
         self.horizon = horizon
         self._t = 0
-        self.agents: dict[AgentID, Agent] = {aid: cfg.build() for aid, cfg in agents_cfgs.items()}
+        self.agents: dict[AgentID, Agent] = {
+            aid: cfg.build() for aid, cfg in agents_cfgs.items()
+        }
         self.inner: Optimizer = optimizer
         self.seeds: list[int] = seeds or []
 
@@ -185,6 +182,7 @@ class RegulatorEnv(gym.Env):
         if reporter_cfg is not None:
             self.reporter = reporter_cfg.build(label=reporting_env_id)
             self.reporter.schema = schema
+
             self.reporter.add_query(*(queries or ()))
 
     @property
@@ -194,11 +192,13 @@ class RegulatorEnv(gym.Env):
         ``None`` until an identifier is given at construction or assigned to the
         property.
         """
+
         return self._opt_id
 
     @opt_id.setter
     def opt_id(self, opt_id: Optional[OptimizerID]) -> None:
         """Set the optimizer identifier stamped on every context this env publishes."""
+
         self._opt_id = opt_id
 
     @override(gym.Env)
@@ -227,6 +227,7 @@ class RegulatorEnv(gym.Env):
         tuple
             ``(None, {})``: the environment has no observation and no info.
         """
+
         # The seed is fixed at construction (``seeds``); a per-call seed is ignored.
         self._t = 0
 
@@ -279,6 +280,7 @@ class RegulatorEnv(gym.Env):
             metrics, reduced by ``inner.reduce_metrics()`` (which also clears
             them).
         """
+
         # TODO (nadine) alternative way to pass mechanism to agents
         self._t_agents = 0
 
@@ -298,8 +300,8 @@ class RegulatorEnv(gym.Env):
                         metrics=None,
                     ),
                 )
-                ray.get(self.world.append_context.remote(ctx))
 
+                ray.get(self.world.append_context.remote(ctx))
 
         # TODO (nadine) return reduced results to avoid L:223
         results = self.inner.train()
@@ -308,7 +310,6 @@ class RegulatorEnv(gym.Env):
         reward = self.reward(results)
         obs = None
         info = {"metrics": self.inner.reduce_metrics()}
-
         self._t += 1
 
         if self.logger is not None:

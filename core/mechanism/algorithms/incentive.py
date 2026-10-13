@@ -1,4 +1,3 @@
-
 """Reward-based incentive mechanism for targeted agent actions.
 
 For a targeted agent ``i`` with decoded action ``e_i`` in ``(0, 1)``
@@ -23,15 +22,13 @@ requirement of a specific published economic model.
 """
 
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import numpy as np
 
 from core.annotations import override
 from core.mechanism.base import ActType, MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
-from core.mechanism.utils import ACTION_TEMPERATURE
-from core.utils import sigmoid
 
 """Nominal maximum incentive rate, in reward units per unit of effort.
 
@@ -40,7 +37,8 @@ action space should impose the intended upper bound.
 """
 
 # TODO (nadine) temp val / max_subsidy for migration set to 0.5 later
-MAX = 0.5 
+MAX = 0.5
+
 
 class IncentiveMechanism(Mechanism):
     """Add a linear reward incentive for targeted agent actions.
@@ -110,7 +108,9 @@ class IncentiveMechanism(Mechanism):
         float
             Incentive rate clipped to ``[0, 1]``.
         """
+
         value = float(np.asarray(action, dtype=np.float32).reshape(-1)[0])
+
         return float(np.clip(value, 0.0, 1.0))
 
     @override(Mechanism)
@@ -141,20 +141,30 @@ class IncentiveMechanism(Mechanism):
         ValueError
             If ``acts_on`` is missing and an action is provided.
         """
+
         if action is None:
             return MDPState()
+
         if self.acts_on is None:
             raise ValueError("QuotaMechanism requires `acts_on`.")
 
         # TODO (nadine) temp legacy attributes
         obs = {}
+
         for aid in mdp.aids:
-            if not str(aid).startswith(f"{self.acts_on[0]}:"): continue
+            if not str(aid).startswith(f"{self.acts_on[0]}:"):
+                continue
+
             history = mdp.obs.data.get(aid, [])
-            current = (np.asarray(history[-1], dtype=np.float32) if history else np.zeros(9, dtype=np.float32))
+            current = (
+                np.asarray(history[-1], dtype=np.float32)
+                if history
+                else np.zeros(9, dtype=np.float32)
+            )
             delta = np.zeros(9, dtype=np.float32)
             delta[8] = np.float32(action) - current[8]
             obs[aid] = delta
+
         return MDPState(obs=obs)
 
     @override(Mechanism)
@@ -192,11 +202,11 @@ class IncentiveMechanism(Mechanism):
         ValueError
             If ``acts_on`` is missing.
         """
+
         if self.acts_on is None:
             raise ValueError("IncentiveMechanism requires `acts_on`.")
 
         target_agent, target_mechanism = self.acts_on
-
         dr = {}
 
         for aid, a in (mdp.actions.data or {}).items():

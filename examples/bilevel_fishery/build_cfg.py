@@ -92,7 +92,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     >>> args.reporter
     'csv'
     """
+
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+
     parser.add_argument(
         "--outer-iters", type=int, default=1000, help="ES generations (outer level)"
     )
@@ -111,6 +113,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default="wandb",
         help="where the queries are rendered",
     )
+
     return parser.parse_args(argv)
 
 
@@ -135,8 +138,10 @@ def reporter_config(name: str) -> ReporterConfig:
     >>> type(reporter_config("csv")).__name__
     'CSVConfig'
     """
+
     if name == "csv":
         return CSVConfig(project="bilevel")
+
     return WandbConfig(
         project="bilevel",
         x_disable_stats=True,
@@ -170,6 +175,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
     >>> type(config).__name__
     'BilevelConfig'
     """
+
     return (
         BilevelConfig()
         .world(world_name="fishery_world")
@@ -359,16 +365,20 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     When to use: as the body of the script. It starts Ray and runs the full
     bilevel loop, so it has no doctest.
     """
+
     # The library does not configure the root logger, so the script does it,
     # before the hash-seed check, whose restart notice must be visible.
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     ensure_hash_seed()
+
     args = parse_args(argv)
 
     ray.shutdown()
+
     bilevel_opt = build_config(args).build_optimizer()
+
     bilevel_opt.train()
     ray.shutdown()
 

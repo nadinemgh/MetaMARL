@@ -192,10 +192,7 @@ class Query:
         if not self.error_path:
             raise ValueError(f"error={self.error!r} requires error_path.")
 
-        if isinstance(
-            self.error_path[-1],
-            ReduceProtocol,
-        ):
+        if isinstance(self.error_path[-1], ReduceProtocol):
             raise ValueError(
                 "error_path must point to the dynamic dimension, not its reduction operator."
             )
@@ -217,9 +214,6 @@ class Query:
         """
 
         if self.y and isinstance(self.y[0], tuple):
-            return cast(
-                tuple[Path, ...],
-                self.y,
-            )
+            return cast(tuple[Path, ...], self.y)
 
         return (cast(Path, self.y),)

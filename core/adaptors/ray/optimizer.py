@@ -215,8 +215,7 @@ class RayOptimizer(Optimizer):
 
         if is_eval:
             evaluation = EvalSchema(
-                rollout=build_rollout(result),
-                performance=build_performance(result),
+                rollout=build_rollout(result), performance=build_performance(result)
             )
 
             return RaySchema(train=None, eval=evaluation)
@@ -263,13 +262,16 @@ class RayOptimizer(Optimizer):
 
         for episode in range(self.episodes):
             logger.info("[Ray] Training step started")
+
             result = ray.get(self.policy_actor.train.remote())
 
             # step = int(to_float(result.get("training_iteration")) or 0)
             self.logger.push(key=("iter",), value=episode)
 
             # RLlib's own lifetime training counter, retained only for debugging.
-            rllib_training_iteration = int(to_float(result.get("training_iteration")) or 0)
+            rllib_training_iteration = int(
+                to_float(result.get("training_iteration")) or 0
+            )
             metrics = self._to_logger_payload(result)
 
             self.logger.push_data(metrics)
@@ -297,11 +299,11 @@ class RayOptimizer(Optimizer):
                 steps_life,
                 f"{policy_loss:.6f}" if np.isfinite(policy_loss) else "NA",
             )
+
         self.evaluate()
-
         self.report_metrics()
-        return self.logger.peek()
 
+        return self.logger.peek()
 
     # TODO (nadine) future support for async eval, otherwise must publish eval mechanism obj
     @override(Optimizer)
@@ -315,6 +317,7 @@ class RayOptimizer(Optimizer):
         registry so they are not fetched again. The regulator reads the outcome
         from the logger snapshot that ``train`` returns, not from the World.
         """
+
         logger.info("[Ray] Evaluation started")
 
         result = ray.get(self.policy_actor.evaluate.remote())
@@ -322,7 +325,6 @@ class RayOptimizer(Optimizer):
 
         self.logger.push_data(metrics)
         logger.info("[Ray] Evaluation completed")
-
         ray.get(self.world.flush.remote(status=MechanismStatus.eval))
 
     @override(Optimizer)

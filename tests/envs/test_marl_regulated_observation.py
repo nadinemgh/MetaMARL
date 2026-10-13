@@ -31,6 +31,7 @@ class StockObserver:
 
     def observation(self, mdp: MDPState) -> MDPState:
         fish = mdp.state["fish"][mdp.t]
+
         return MDPState(obs={self.aid: np.asarray([fish, 0.0], dtype=np.float32)})
 
 
@@ -50,11 +51,13 @@ class PeerSignalLeader:
 
     def mechanism_observations(self, mdp: MDPState) -> list[MDPState]:
         signal = np.asarray([0.0, float(mdp.t + 1)], dtype=np.float32)
+
         return [MDPState(obs={"fisherman:0": signal})]
 
 
 def make_env(stocks: list[float], leaders: dict | None = None):
     """Stand-in ``self`` whose transition replays ``stocks``."""
+
     followers = {"fisherman:0": StockObserver("fisherman:0")}
     leaders = leaders or {}
     env = SimpleNamespace(
@@ -66,6 +69,7 @@ def make_env(stocks: list[float], leaders: dict | None = None):
     )
     env.transition = lambda mdp: mdp.advance(state={"fish": stocks[mdp.t + 1]})
     env.termination = lambda mdp: MultiAgentEnv.termination(env, mdp)
+
     return env
 
 
@@ -75,10 +79,11 @@ def test_observation_is_the_current_stock_not_a_running_sum():
     env = make_env(stocks)
     mdp = MDPState(aids=set(env.followers), state={"fish": stocks[0]})
     mdp = mdp.add([agent.observation(mdp) for agent in env.followers.values()])
-
     observed = [float(mdp.obs["fisherman:0"][mdp.t][0])]
+
     for _ in range(3):
         mdp = MultiAgentEnv.step(env, mdp)
+
         observed.append(float(mdp.obs["fisherman:0"][mdp.t][0]))
 
     assert observed == pytest.approx(stocks)
@@ -102,6 +107,7 @@ def test_step_adds_the_leaders_contribution_to_the_new_observation():
 @pytest.mark.unit
 def test_reset_adds_the_leaders_contribution(monkeypatch):
     monkeypatch.setattr(marl_regulated.ray, "get", lambda ref: ref)
+
     env = MultiAgentEnv.__new__(MultiAgentEnv)
     env.world = SimpleNamespace(
         get_mechanism_by_id=SimpleNamespace(remote=lambda **kwargs: None)
@@ -115,7 +121,6 @@ def test_reset_adds_the_leaders_contribution(monkeypatch):
     env.followers = {"fisherman:0": StockObserver("fisherman:0")}
     env.m = env.m_ctx = None
     env._using_default_mechanism = True
-
     mdp = env.reset(MDPState(state={"fish": 0.8}))
 
     np.testing.assert_allclose(mdp.obs["fisherman:0"][0], [0.8, 1.0])

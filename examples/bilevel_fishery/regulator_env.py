@@ -15,17 +15,13 @@ from collections import defaultdict
 from typing import Any
 
 import numpy as np
-from gymnasium.core import ObsType
 import ray
+from gymnasium.core import ObsType
 
 from core.annotations import override
 from core.envs.regulator import RegulatorEnv
 from core.metrics.schemas import MetricSchema
-from core.world.context import (
-    Context,
-    MechanismContext,
-    MechanismStatus,
-)
+from core.world.context import Context, MechanismContext, MechanismStatus
 from examples.bilevel_fishery.contexts import FitnessContext
 
 logger = logging.getLogger(__name__)
@@ -313,7 +309,6 @@ class FisheryRegulatorEnv(RegulatorEnv):
             )
             objective = float(fitness_ctx.objective_score)
             fitness[idx] = objective
-
             ctx = Context(
                 id=None,
                 opt_id=self._opt_id,
@@ -328,8 +323,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
                     metrics=fitness_ctx,
                 ),
             )
-            ray.get(self.world.append_context.remote(ctx))
 
+            ray.get(self.world.append_context.remote(ctx))
             per_mech_metrics.append(
                 {
                     "idx": idx,
@@ -346,12 +341,10 @@ class FisheryRegulatorEnv(RegulatorEnv):
             )
 
         objectives = np.asarray(
-            [m["objective"] for m in per_mech_metrics],
-            dtype=np.float32,
+            [m["objective"] for m in per_mech_metrics], dtype=np.float32
         )
         collapse_rates = np.asarray(
-            [m["collapse_rate"] for m in per_mech_metrics],
-            dtype=np.float32,
+            [m["collapse_rate"] for m in per_mech_metrics], dtype=np.float32
         )
         best_position = int(np.argmax(objectives))
         worst_position = int(np.argmin(objectives))

@@ -16,9 +16,9 @@ import copy
 from abc import ABC
 from typing import TYPE_CHECKING, Any, Optional, Self, Type, Union
 
+import gymnasium as gym
 import numpy as np
 import ray
-import gymnasium as gym
 from ray.actor import ActorHandle
 from ray.rllib.utils.metrics.metrics_logger import DEFAULT_STATS_CLS_LOOKUP
 
@@ -209,10 +209,7 @@ class OptimizerConfig(_Config, ABC):
             ``self`` for chaining.
         """
 
-        self.env_config = {
-            **(self.env_config or {}),
-            **extra,
-        }
+        self.env_config = {**(self.env_config or {}), **extra}
 
         return self
 
@@ -379,13 +376,16 @@ class OptimizerConfig(_Config, ABC):
         # Build reporter
         reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
         reporting.schema = self._reporting_schema
+
         reporting.add_query(*(self._reporting_queries or ()))
 
         opt: Optimizer = cfg.opt_class(world=world, reporting=reporting, config=cfg)
 
         if world is not None:
             registry = ray.get(world.get_opt_registry.remote())
-            opt.id = ray.get(world._set_new_opt_id.remote(opt_id=generate_uuid(registry)))
+            opt.id = ray.get(
+                world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
+            )
 
         env = cfg._env_creator(
             world=world,
@@ -491,6 +491,7 @@ class OptimizerConfig(_Config, ABC):
         OptimizerConfig
             ``self`` for chaining.
         """
+
         if episodes is not None:
             self.episodes = episodes
 
@@ -554,6 +555,7 @@ class OptimizerConfig(_Config, ABC):
         OptimizerConfig
             ``self`` for chaining.
         """
+
         if schema is not None:
             self._reporting_schema = schema
 
@@ -587,7 +589,9 @@ class OptimizerConfig(_Config, ABC):
                 raise ValueError("agents cannot be empty")
         else:
             agents = (agents,)
+
         self.agents_cfgs = {agent.id: agent for agent in agents}
+
         return self
 
     # TODO Docstring explanation

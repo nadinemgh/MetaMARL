@@ -37,8 +37,10 @@ NUMERIC_METRICS = [MeanMetric, MinMetric, MaxMetric, SumMetric]
 
 def filled(cls, values):
     metric = cls()
+
     for value in values:
         metric.push(value)
+
     return metric
 
 
@@ -60,22 +62,26 @@ class TestEmptyWindow:
 
     def test_peek_and_reduce_agree_on_the_empty_value(self, cls, empty):
         metric = cls()
+
         assert metric.peek() == empty
         assert metric.reduce() == empty
         assert metric.reduce() == empty  # reducing twice does not change it
 
     def test_the_empty_value_has_the_documented_type(self, cls, empty):
         reduced = cls().reduce()
+
         assert type(reduced) is type(empty)
 
     def test_a_window_emptied_by_reduce_is_empty_again(self, cls, empty):
         metric = filled(cls, [1, 2, 3])
+
         metric.reduce()
         assert len(metric) == 0
         assert metric.peek() == empty
 
     def test_a_window_emptied_by_flush_is_empty_again(self, cls, empty):
         metric = filled(cls, [1, 2, 3])
+
         metric.flush()
         assert len(metric) == 0
         assert metric.reduce() == empty
@@ -101,12 +107,14 @@ class TestSingleValue:
     )
     def test_single_value_reduces_to_itself(self, cls, pushed, expected):
         metric = filled(cls, [pushed])
+
         assert metric.peek() == expected
         assert metric.reduce() == expected
         assert len(metric) == 0
 
     def test_zero_is_a_value_not_an_empty_window(self):
         """``0`` must not be confused with the empty sentinel ``None``."""
+
         for cls in (MeanMetric, MinMetric, MaxMetric, LastMetric):
             assert filled(cls, [0]).reduce() == 0
             assert filled(cls, [0]).reduce() is not None
@@ -116,15 +124,18 @@ class TestSingleValue:
 class TestNumericTypes:
     def test_mean_of_integers_is_a_float(self):
         reduced = filled(MeanMetric, [1, 2]).reduce()
+
         assert reduced == 1.5 and isinstance(reduced, float)
 
     @pytest.mark.parametrize("cls", [SumMetric, MinMetric, MaxMetric])
     def test_integer_inputs_keep_the_integer_type(self, cls):
         reduced = filled(cls, [4, 2, 3]).reduce()
+
         assert isinstance(reduced, int) and not isinstance(reduced, bool)
 
     def test_numpy_float64_is_accepted_as_a_float(self):
         metric = filled(MeanMetric, [np.float64(1.0), np.float64(3.0)])
+
         assert metric.reduce() == 2.0
 
     @pytest.mark.parametrize("cls", NUMERIC_METRICS)
@@ -134,8 +145,11 @@ class TestNumericTypes:
     )
     def test_numpy_numeric_scalars_are_accepted(self, cls, scalar):
         metric = cls()
+
         metric.push(scalar)
+
         history = metric.peek(compile=False)
+
         assert history == [scalar.item()]
         assert type(history[0]) in (int, float)  # stored as a plain Python number
         assert metric.reduce() == scalar.item()
@@ -149,8 +163,10 @@ class TestNumericTypes:
     @pytest.mark.parametrize("flag", [True, False, np.True_, np.False_])
     def test_booleans_stay_rejected(self, cls, flag):
         metric = cls()
+
         with pytest.raises(TypeError, match=f"{cls.__name__} only accepts"):
             metric.push(flag)
+
         assert len(metric) == 0
 
     @pytest.mark.parametrize("cls", NUMERIC_METRICS)
@@ -161,8 +177,10 @@ class TestNumericTypes:
     @pytest.mark.parametrize("cls", NUMERIC_METRICS)
     def test_rejected_value_leaves_the_window_untouched(self, cls):
         metric = filled(cls, [1.0, 2.0])
+
         with pytest.raises(TypeError, match=f"{cls.__name__} only accepts"):
             metric.push(None)
+
         assert metric.peek(compile=False) == [1.0, 2.0]
 
 
@@ -172,6 +190,7 @@ class TestNonFiniteValues:
     def test_lone_nan_is_reported_as_nan(self, cls):
         reduced = filled(cls, [NAN]).reduce()
         values = reduced if isinstance(reduced, list) else [reduced]
+
         assert len(values) == 1 and math.isnan(values[0])
 
     @pytest.mark.parametrize("cls", [MeanMetric, SumMetric])
@@ -210,6 +229,7 @@ class TestNonFiniteValues:
     )
     def test_max_and_min_ignore_nan_whatever_the_position(self, cls, expected, values):
         metric = filled(cls, values)
+
         assert metric.peek() == expected
         assert metric.reduce() == expected
 
@@ -220,10 +240,12 @@ class TestNonFiniteValues:
     @pytest.mark.parametrize("cls", [MaxMetric, MinMetric])
     def test_nan_stays_in_the_raw_history(self, cls):
         history = filled(cls, [1.0, NAN]).peek(compile=False)
+
         assert history[0] == 1.0 and math.isnan(history[1])
 
     def test_series_keeps_every_nan_in_place(self):
         reduced = filled(SeriesMetric, [1.0, NAN, 3.0]).reduce()
+
         assert reduced[0] == 1.0 and math.isnan(reduced[1]) and reduced[2] == 3.0
 
 
@@ -242,9 +264,12 @@ class TestWindows:
     )
     def test_successive_windows_are_independent(self, cls, first, second, expected):
         metric = filled(cls, first)
+
         assert metric.reduce() == expected[0]
+
         for value in second:
             metric.push(value)
+
         assert metric.reduce() == expected[1]
 
     @pytest.mark.parametrize(
@@ -253,6 +278,7 @@ class TestWindows:
     def test_peek_does_not_open_a_new_window(self, cls):
         metric = filled(cls, [1.0, 2.0])
         before = metric.peek()
+
         assert metric.peek() == before
         assert len(metric) == 2
 
@@ -260,12 +286,15 @@ class TestWindows:
     def test_peeked_history_is_a_copy(self, cls):
         metric = filled(cls, [1.0, 2.0])
         history = metric.peek(compile=False)
+
         history.append(99.0)
+
         assert metric.peek(compile=False) == [1.0, 2.0]
 
     def test_uncompiled_reduce_of_a_series_is_detached_from_the_source(self):
         metric = filled(SeriesMetric, [1.0, 2.0])
         kept = metric.reduce(compile=False)
+
         metric.push(5.0)
         assert kept.peek() == [1.0, 2.0]
         assert metric.peek() == [5.0]
@@ -274,6 +303,7 @@ class TestWindows:
         for cls in SCALAR_METRICS + [SeriesMetric]:
             source = filled(cls, [1.0])
             copy = source.empty_copy()
+
             assert type(copy) is cls and len(copy) == 0 and len(source) == 1
 
 
@@ -282,11 +312,13 @@ class TestConversions:
     @pytest.mark.parametrize("cls", [MeanMetric, MinMetric, MaxMetric, SumMetric])
     def test_float_and_int_use_the_compiled_value(self, cls):
         metric = filled(cls, [2, 4])
+
         assert float(metric) == float(metric.peek())
         assert int(metric) == int(metric.peek())
 
     def test_conversion_does_not_consume_the_window(self):
         metric = filled(MeanMetric, [2, 4])
+
         float(metric), int(metric)
         assert len(metric) == 2
 
@@ -309,6 +341,7 @@ class TestFactoryTable:
     )
     def test_each_protocol_maps_to_its_own_class(self, protocol, cls):
         metric = MetricFactory.create(protocol)
+
         assert type(metric) is cls
         assert metric is not MetricFactory.create(
             protocol
@@ -316,12 +349,14 @@ class TestFactoryTable:
 
     def test_only_ema_is_unimplemented_and_the_error_names_it(self):
         unimplemented = []
+
         for protocol in ReduceProtocol:
             try:
                 assert isinstance(MetricFactory.create(protocol), Metric)
             except NotImplementedError as error:
                 assert repr(protocol.value) in str(error)
                 unimplemented.append(protocol)
+
         assert unimplemented == [ReduceProtocol.EMA]
 
     def test_protocol_values_are_the_lowercase_names(self):

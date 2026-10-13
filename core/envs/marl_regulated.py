@@ -25,17 +25,18 @@ and with a ``reporter_cfg`` a ``Reporter`` renders the configured ``queries``
 against it (see ``core.callbacks``). Without a ``schema`` there is no logger and
 ``reset`` and ``step`` log nothing.
 """
-from functools import reduce
+
 import logging
 from abc import ABC
 from typing import ClassVar, Optional
+
+import gymnasium as gym
+import numpy as np
 import ray
 
-import numpy as np
-import gymnasium as gym
 from core.agents.base import AgentConfig
 from core.annotations import override
-from core.mechanism.base import ActType, MDPState, Mechanism, StateType
+from core.mechanism.base import ActType, MDPState, StateType
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.reporting.base import Reporter
@@ -43,23 +44,23 @@ from core.reporting.config import ReporterConfig
 from core.reporting.query import Query
 from core.types import AgentID, MechanismID, OptimizerID
 from core.world.base import World
-from core.world.context import (
-    MechanismStatus,
-    MechanismContext
-)
+from core.world.context import MechanismContext, MechanismStatus
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
 logger = logging.getLogger(__name__)
+
 
 # TODO create a reward type
 # TODO separate reported vs type mdp from agent to principal
 # TODO wrapper for MultiAgentEnv adaptor to work with ray
 
+
 # TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+
+
 class MultiAgentEnv(ABC):
     """Base class of mechanism-regulated multi-agent benchmarks.
 
@@ -255,7 +256,7 @@ class MultiAgentEnv(ABC):
         # seeding
         self.seed = seed
         self.policy_seed = policy_seed
-        self.mode = MechanismStatus(mode) # TODO change name to just Status
+        self.mode = MechanismStatus(mode)  # TODO change name to just Status
 
         # TODO (nadine) later replace with planner id
         # Mechanism
@@ -268,7 +269,7 @@ class MultiAgentEnv(ABC):
         self.followers = {aid: cfg.build() for aid, cfg in agents_cfg_dict.items()}
         self.leaders = {aid: cfg.build() for aid, cfg in leaders_cfg_dict.items()}
         self.lids = set(leaders_cfg_dict.keys())
-        self.agents = {**self.leaders, **self.followers,}
+        self.agents = {**self.leaders, **self.followers}
 
         # Logger
         self.logger: Optional[MetricLogger] = (
@@ -285,12 +286,10 @@ class MultiAgentEnv(ABC):
         )
         self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
         self.reporter.schema = schema
+
         self.reporter.add_query(*(queries or ()))
 
-    def __init_subclass__(
-            cls,
-            **kwargs,
-        ):
+    def __init_subclass__(cls, **kwargs):
         """Record the names of the methods marked with a hook decorator.
 
         Each attribute of the new class that carries the ``reset`` or
@@ -306,11 +305,18 @@ class MultiAgentEnv(ABC):
             If two methods of the class body carry the same mark. The message
             names the class, the hook and both methods.
         """
+
         super().__init_subclass__(**kwargs)
+
         for name, func in tuple(cls.__dict__.items()):
-            if getattr(func, "reset", False): cls._reset = name
-            if getattr(func, "transition", False): cls._transition = name  # S_{t+1} = T(S_t, A_t)
-            if getattr(func, "state_space", False): cls._state_space = name
+            if getattr(func, "reset", False):
+                cls._reset = name
+
+            if getattr(func, "transition", False):
+                cls._transition = name  # S_{t+1} = T(S_t, A_t)
+
+            if getattr(func, "state_space", False):
+                cls._state_space = name
 
     @property
     def mechanism(self) -> Optional[dict[MechanismID, np.ndarray]]:
@@ -319,9 +325,10 @@ class MultiAgentEnv(ABC):
         This is the dictionary from mechanism identifier to action array that
         the leaders hold as their action; it is the same object as ``m``.
         """
+
         if self.m is not None:
             return self.m
-    
+
     @property
     def published_mechanism_assigned(self) -> bool:
         """Whether a candidate published to the ``World`` has been fetched.
@@ -329,6 +336,7 @@ class MultiAgentEnv(ABC):
         ``False`` until a ``reset`` receives a candidate; then ``True`` for the
         rest of the env's life, even when later fetches return nothing.
         """
+
         return self.m is not None and not self._using_default_mechanism
 
     @property
@@ -338,11 +346,13 @@ class MultiAgentEnv(ABC):
         ``None`` until an identifier is given at construction or assigned to the
         property.
         """
+
         return self._opt_id
 
     @opt_id.setter
     def opt_id(self, opt_id: Optional[OptimizerID]) -> None:
         """Set the optimizer identifier stamped on every context this env publishes."""
+
         self._opt_id = opt_id
 
     @override(gym.Env)
@@ -391,6 +401,7 @@ class MultiAgentEnv(ABC):
             the ``World`` fails; the message then names the ``mechanism_id`` and
             the original exception is chained as the cause.
         """
+
         self._t = 0
         self.rng = np.random.default_rng(self.seed)
 
@@ -410,23 +421,21 @@ class MultiAgentEnv(ABC):
                 "mechanism_id must be injected at env creation."
             )
 
-        if not self.published_mechanism_assigned: 
+        if not self.published_mechanism_assigned:
             try:
                 new_ctx: MechanismContext = ray.get(
                     self.world.get_mechanism_by_id.remote(
-                        mechanism_id = self.mechanism_id, 
+                        mechanism_id=self.mechanism_id,
                         seed=self.policy_seed,
-                        mode=self.mode
+                        mode=self.mode,
                     )
                 )
             except Exception as e:
                 self._debug_remote(
                     "pre_reset_fetch_failed",
-                    {
-                        "error_type": type(e).__name__,
-                        "error_repr": repr(e),
-                    },
+                    {"error_type": type(e).__name__, "error_repr": repr(e)},
                 )
+
                 raise RuntimeError(
                     f"Could not fetch mechanism_id={self.mechanism_id} from World."
                 ) from e
@@ -442,20 +451,28 @@ class MultiAgentEnv(ABC):
 
         # persist action to leaders
         decoded = {
-            lid: {mid: mech.decode(mdp, raw) for mid, mech in leader.mechanisms.items()
-            if (raw := self.m.get(mid) if self.m is not None else mech._u) is not None} 
-            for lid, leader in self.leaders.items()}
+            lid: {
+                mid: mech.decode(mdp, raw)
+                for mid, mech in leader.mechanisms.items()
+                if (raw := self.m.get(mid) if self.m is not None else mech._u)
+                is not None
+            }
+            for lid, leader in self.leaders.items()
+        }
         decoded = {lid: actions for lid, actions in decoded.items() if actions}
-        if decoded: mdp = mdp.add(MDPState(actions=decoded))
+
+        if decoded:
+            mdp = mdp.add(MDPState(actions=decoded))
+
         # TODO raising error if training started and default mechanism is still on - leads to silent error
-        
-        mdp: MDPState = mdp.add([agent.action(mdp, reset=True) for agent in self.agents.values()])
+
+        mdp: MDPState = mdp.add(
+            [agent.action(mdp, reset=True) for agent in self.agents.values()]
+        )
+
         return mdp.add([agent.observation(mdp) for agent in self.followers.values()])
 
-    def transition(
-            self, 
-            mdp: MDPState,
-    ) -> MDPState:
+    def transition(self, mdp: MDPState) -> MDPState:
         """Advance the shared state by one step with the benchmark's hook.
 
         Calls the method marked with :func:`core.envs.hooks.transition`, passing
@@ -474,8 +491,10 @@ class MultiAgentEnv(ABC):
             subclass declares no transition hook, ``mdp`` itself is returned
             unchanged and the clock does not advance.
         """
+
         if self._transition is not None:
             return getattr(self, self._transition)(mdp=mdp)
+
         return mdp
 
     def termination(self, mdp: MDPState) -> MDPState:
@@ -497,13 +516,15 @@ class MultiAgentEnv(ABC):
             The same ``mdp`` object, modified in place: its ``terminateds`` and
             ``truncateds`` are replaced by new dictionaries.
         """
-        time_limit = ( self.horizon is not None and mdp.t >= self.horizon)
+
+        time_limit = self.horizon is not None and mdp.t >= self.horizon
         terminateds = {aid: False for aid in self.agents}
         terminateds["__all__"] = False
         truncateds = {aid: time_limit for aid in self.agents}
         truncateds["__all__"] = time_limit
         mdp.terminateds = terminateds
         mdp.truncateds = truncateds
+
         return mdp
 
     def step(self, mdp: MDPState) -> MDPState:
@@ -540,13 +561,19 @@ class MultiAgentEnv(ABC):
             The state after the transition, with the rewards of the step,
             the new observations and the termination and truncation flags.
         """
+
         mdp = mdp.add([agent.action(mdp) for agent in self.agents.values()])
         mdp = mdp.add([agent.reward(mdp) for agent in self.agents.values()])
         mdp = self.transition(mdp)
+
         mdp.update(rewards={aid: 0.0 for aid in mdp.rewards.data})
+
         mdp = self.termination(mdp)
+
         self.logger.push(key=("iter",), value=mdp.t)
+
         mdp = mdp.add([agent.action(mdp, reset=True) for agent in self.agents.values()])
         mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])
         self._t += 1
+
         return mdp

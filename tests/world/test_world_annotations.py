@@ -70,7 +70,6 @@ def test_a_context_without_owner_is_stored_without_an_optimizer_entry(world):
             metrics=None,
         ),
     )
-
     cid = world.append_context(ctx)
 
     assert world.get_context(cid) is ctx

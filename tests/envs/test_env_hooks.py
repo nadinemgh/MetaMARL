@@ -36,7 +36,9 @@ def test_subclass_records_the_name_of_the_marked_method(hook):
             return MDPState()
 
     assert getattr(Env, f"_{hook}") == "my_hook"
+
     other = next(h for h in ENV_HOOKS if h != hook)
+
     assert getattr(Env, f"_{other}") is None
 
 
@@ -59,6 +61,7 @@ def test_inherited_hooks_are_kept_and_can_be_redeclared():
 
     assert (Child._reset, Child._transition) == ("parent_reset", "child_transition")
     assert Override._reset == "child_reset"
+
     # A subclass never changes what its parents or the base class record.
     assert (Parent._transition, MultiAgentEnv._reset, MultiAgentEnv._transition) == (
         None,
@@ -75,11 +78,11 @@ def test_transition_calls_the_hook_with_the_mdp_keyword(toy):
         @hooks.transition
         def spy(self, *, mdp):
             seen["mdp"] = mdp
+
             return mdp.advance(state={"stock": 42.0})
 
     env = toy.make_env(toy.ScriptedWorld(), env_cls=Env)
     mdp = MDPState(state={"stock": 1.0})
-
     advanced = env.transition(mdp)
 
     assert seen["mdp"] is mdp
@@ -104,7 +107,6 @@ def test_two_methods_with_the_same_hook_mark_are_rejected(hook):
     decorator = getattr(hooks, hook)
 
     with pytest.raises(TypeError, match=rf"Twice.*'first'.*'second'.*'{hook}'"):
-
         class Twice(MultiAgentEnv):
             @decorator
             def first(self, mdp):

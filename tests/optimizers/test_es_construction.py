@@ -25,6 +25,7 @@ def unit_box(size: int = 1) -> spaces.Box:
 
 def leader(agent_id: str, mechanism_id: str, size: int = 1) -> AgentConfig:
     """Regulator agent ``agent_id`` owning one mechanism of ``size`` parameters."""
+
     return AgentConfig(
         id=agent_id,
         policy_id=f"{agent_id}_policy",
@@ -47,7 +48,6 @@ class TestESConfig:
 
     def test_training_stores_every_hyperparameter_and_chains(self):
         cfg = ESConfig()
-
         returned = cfg.training(
             episodes=9,
             sigma=0.2,
@@ -79,7 +79,6 @@ class TestESConfig:
         cfg = ESConfig().training(sigma=0.3, episodes=5)
 
         cfg.training(mean_lr=0.2)
-
         assert (cfg.sigma, cfg.mean_lr, cfg.episodes) == (0.3, 0.2, 5)
 
     def test_custom_optimizer_class_is_kept(self):
@@ -171,7 +170,6 @@ class TestInitialMean:
     def test_given_mean_is_used_and_copied(self, es_factory):
         given = [0.2, 0.8]
         opt = es_factory({"quota": unit_box(2)}, initial_mean=given)
-
         given[0] = 0.99
 
         np.testing.assert_allclose(opt.mean, [0.2, 0.8])
@@ -220,6 +218,7 @@ class TestSearchSpace:
 
     def test_the_search_space_is_the_union_of_every_leader(self):
         cfg = ESConfig().training(episodes=1).debugging(seed=0)
+
         cfg.agents((leader("regulator", "quota"), leader("treasury", "subsidy", 2)))
 
         opt = ESOptimizer(cfg)
@@ -230,6 +229,7 @@ class TestSearchSpace:
 
     def test_a_mechanism_id_shared_by_two_leaders_is_rejected(self):
         cfg = ESConfig().training(episodes=1).debugging(seed=0)
+
         cfg.agents((leader("regulator", "quota"), leader("treasury", "quota")))
 
         with pytest.raises(ValueError, match=r"'quota'.*'regulator'.*'treasury'"):
@@ -272,6 +272,7 @@ class TestBatchCapacity:
             opt = es_factory({"penalty": unit_box(0)}, population=3)
 
         assert opt.batch_capacity == 3
+
         assert "batch_capacity=3" in caplog.text
 
 

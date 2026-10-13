@@ -28,14 +28,14 @@ creator with ``ray.tune`` and returns a ``RayOptimizer``; the ``Algorithm``
 itself is only built later, inside the ``PolicyActor``.
 """
 
-import uuid 
+import uuid
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
 
 import numpy as np
 import ray
 import torch
-from gymnasium import Space, spaces
+from gymnasium import spaces
 from ray.actor import ActorHandle
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
@@ -43,12 +43,11 @@ from ray.rllib.core.rl_module.default_model_config import DefaultModelConfig
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
-from ray.rllib.utils.typing import AgentID
 from ray.tune.registry import register_env
 
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.adaptors.ray.optimizer import RayOptimizer
-from core.agents.base import Agent, AgentConfig
+from core.agents.base import AgentConfig
 from core.annotations import override
 from core.callbacks import _evaluate_with_fixed_duration_once
 from core.metrics.schemas import MetricSchema
@@ -823,7 +822,6 @@ class RayOptimizerConfig(OptimizerConfig):
 
         policies = {}
         agent_type_map = {}
-
         observation_spaces = {}
         action_spaces = {}
 
@@ -851,12 +849,7 @@ class RayOptimizerConfig(OptimizerConfig):
                 # TODO verify case when null seed
                 for m_idx in range(num_mechanisms):
                     policy_id = f"{base_policy}_m{m_idx}_s{seed}"
-                    policies[policy_id] = (
-                        None,
-                        obs_space,
-                        act_space,
-                        {},
-                    )
+                    policies[policy_id] = (None, obs_space, act_space, {})
                     module_specs[policy_id] = RLModuleSpec(
                         observation_space=obs_space,
                         action_space=act_space,
@@ -873,7 +866,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
             for i in range(count):
                 agent_id = f"{aid}:{i}"
-                agents_cfgs[agent_id] = replace(agent,id=agent_id, count=1)
+                agents_cfgs[agent_id] = replace(agent, id=agent_id, count=1)
                 agent_type_map[agent_id] = base_policy
                 observation_spaces[agent_id] = obs_space
                 action_spaces[agent_id] = act_space
@@ -919,10 +912,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
     @override(OptimizerConfig)
     def build_optimizer(
-        self,
-        *,
-        world: ActorHandle[World],
-        world_name: Optional[str] = None,
+        self, *, world: ActorHandle[World], world_name: Optional[str] = None
     ) -> RayOptimizer:
         """Resolve the RLlib config, register the env and build a ``RayOptimizer``.
 
@@ -1002,11 +992,13 @@ class RayOptimizerConfig(OptimizerConfig):
                 f"{type(self).__name__}.build_optimizer needs the shared World "
                 + "actor: every environment fetches its mechanism from it."
             )
+
         if not self.agents_cfgs:
             raise ValueError(
                 f"{type(self).__name__} has no agents: call .agents(...) on the "
                 + "society optimizer config."
             )
+
         # One RLModule is declared per (mechanism, training seed) pair, so an
         # empty seed list would declare none.
         if not self.seeds:
@@ -1023,7 +1015,6 @@ class RayOptimizerConfig(OptimizerConfig):
             num_eval_runners = num_eval_seeds * num_train_seeds
             num_eval_episodes = num_eval_runners * self.num_mechanisms
             evaluation_op.kwargs["evaluation_num_env_runners"] = num_eval_runners
-
             evaluation_op.kwargs["evaluation_duration"] = num_eval_episodes
             evaluation_op.kwargs["custom_evaluation_function"] = (
                 _evaluate_with_fixed_duration_once
@@ -1041,17 +1032,13 @@ class RayOptimizerConfig(OptimizerConfig):
         env_name = f"regulated_env_{uuid.uuid4().hex}"
 
         if world_name is None:
-            raise ValueError(
-                "world_name must be provided when using Ray world actor"
-            )
+            raise ValueError("world_name must be provided when using Ray world actor")
 
         self.world_name = world_name
         registry = ray.get(world.get_opt_registry.remote())
 
         # Register the new ID and get the result
-        opt_id = ray.get(
-            world._set_new_opt_id.remote(opt_id=generate_uuid(registry))
-        )
+        opt_id = ray.get(world._set_new_opt_id.remote(opt_id=generate_uuid(registry)))
 
         if self.agents_cfgs:
             agents = self._apply_agents_to_rllib()
@@ -1112,18 +1099,20 @@ class RayOptimizerConfig(OptimizerConfig):
 
             env_ctx["seed"] = env_seed
             env_ctx["policy_seed"] = policy_seed
-
             env = self._env_creator(
                 world=world,
                 opt_id=opt_id,
                 env_name=env_name,
                 agents_cfg_dict=agents,
                 mechanism_id=mechanism_idx,
-                reporter_cfg=self._reporter_cfg.copy() if self._reporter_cfg is not None else None,
+                reporter_cfg=self._reporter_cfg.copy()
+                if self._reporter_cfg is not None
+                else None,
                 queries=self._reporting_queries_env,
                 schema=self._reporting_schema_env,
                 **dict(env_ctx),
             )
+
             return RLlibMultiAgentEnvAdapter(env)
 
         register_env(env_name, env_creator)
@@ -1131,12 +1120,12 @@ class RayOptimizerConfig(OptimizerConfig):
         self.rllib_cfg = self.rllib_cfg.environment(
             env=env_name, env_config=self.env_config
         )
-
         cfg = self.copy(copy_frozen=True)
 
         # Build reporter
         reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
         reporting.schema = self._reporting_schema
+
         reporting.add_query(*(self._reporting_queries or ()))
 
         opt = RayOptimizer(world=world, reporting=reporting, config=cfg)
@@ -1193,7 +1182,9 @@ class RayOptimizerConfig(OptimizerConfig):
         >>> cfg.episodes, cfg._cfg_ops["_training_rllb"].kwargs
         (3, {'lr': 0.001})
         """
+
         super().training(episodes=episodes)
+
         return self._training_rllb(**kwargs)
 
     @rllib_config_mutator

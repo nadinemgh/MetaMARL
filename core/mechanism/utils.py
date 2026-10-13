@@ -1,4 +1,5 @@
 ACTION_TEMPERATURE = 4.0
+
 """Temperature of the map ``sigmoid(z / ACTION_TEMPERATURE)`` from a raw policy
 output ``z`` to a fraction in ``(0, 1)``.
 

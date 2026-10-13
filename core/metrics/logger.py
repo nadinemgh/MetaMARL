@@ -349,19 +349,14 @@ class MetricLogger(ABC):
 
             if runtime_child is None:
                 runtime_child, refs = self._build_from_schema(
-                    node.schema,
-                    prefix=prefix,
-                    subtree_reduce=node.subtree_reduce,
+                    node.schema, prefix=prefix, subtree_reduce=node.subtree_reduce
                 )
                 node[dynamic_id] = runtime_child
 
                 self._refs.update(refs)
 
             return self._resolve_path(
-                path=path,
-                node=runtime_child,
-                index=index + 1,
-                prefix=prefix,
+                path=path, node=runtime_child, index=index + 1, prefix=prefix
             )
 
         if index >= len(path):
@@ -384,10 +379,7 @@ class MetricLogger(ABC):
             return child
 
         return self._resolve_path(
-            node=child,
-            path=path,
-            index=index + 1,
-            prefix=child_path,
+            node=child, path=path, index=index + 1, prefix=child_path
         )
 
     # TODO refactor into one push function
@@ -472,9 +464,7 @@ class MetricLogger(ABC):
 
                     subtree_reduce = child_node.subtree_reduce
                     child_node, refs = self._build_from_schema(
-                        runtime_schema,
-                        prefix=path,
-                        subtree_reduce=subtree_reduce,
+                        runtime_schema, prefix=path, subtree_reduce=subtree_reduce
                     )
                     node[field_name] = child_node
 
@@ -535,9 +525,7 @@ class MetricLogger(ABC):
                         )
 
                     self.push_data(
-                        dynamic_child,
-                        prefix=runtime_path,
-                        node=runtime_node,
+                        dynamic_child, prefix=runtime_path, node=runtime_node
                     )
 
                 continue
@@ -638,10 +626,7 @@ class MetricLogger(ABC):
                     f"Error peeking metric {metric} at path {path}."
                 ) from e
 
-        peeked = tree.map_structure_with_path(
-            _peek,
-            self._tree,
-        )
+        peeked = tree.map_structure_with_path(_peek, self._tree)
 
         return self._tree.construct(peeked)
 
@@ -674,10 +659,7 @@ class MetricLogger(ABC):
                     f"Error reducing metrics {metric} at path {path}."
                 ) from e
 
-        reduced = tree.map_structure_with_path(
-            _reduce,
-            self._tree,
-        )
+        reduced = tree.map_structure_with_path(_reduce, self._tree)
 
         return self._tree.construct(reduced)
 

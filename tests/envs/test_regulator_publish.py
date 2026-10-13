@@ -24,6 +24,7 @@ class RecordingWorld:
 
 def make_env(world: RecordingWorld, seeds: list[int]) -> RegulatorEnv:
     """``RegulatorEnv`` with only the attributes ``step`` touches."""
+
     env = RegulatorEnv.__new__(RegulatorEnv)
     env.world = world
     env._opt_id = None
@@ -32,6 +33,7 @@ def make_env(world: RecordingWorld, seeds: list[int]) -> RegulatorEnv:
     env.seeds = seeds
     env.logger = None
     env.inner = SimpleNamespace(train=lambda: {}, reduce_metrics=lambda: {})
+
     return env
 
 
@@ -51,5 +53,6 @@ def test_every_candidate_is_published_for_every_seed():
         (c.payload.index, c.payload.seed, c.payload.mechanism["quota"])
         for c in world.contexts
     )
+
     assert published == [(0, 11, 0.3), (0, 22, 0.3), (1, 11, 0.7), (1, 22, 0.7)]
     assert {c.payload.status for c in world.contexts} == {MechanismStatus.published}

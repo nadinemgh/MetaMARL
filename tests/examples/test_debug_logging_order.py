@@ -24,6 +24,7 @@ SCRIPTS = (
 def test_logging_is_configured_before_the_hash_seed_check(monkeypatch, module_name):
     script = importlib.import_module(module_name)
     calls = []
+
     monkeypatch.setattr(script, "ensure_hash_seed", lambda: calls.append("seed"))
     monkeypatch.setattr(logging, "basicConfig", lambda **_: calls.append("logging"))
 

@@ -34,5 +34,6 @@ def test_save_accepts_the_optional_checkpoint_directory_of_its_overrides(tmp_pat
     opt = NoOpOptimizer()
 
     assert opt.save() is None
+
     assert opt.save(checkpoint_dir=tmp_path) is None
     assert opt.save(checkpoint_dir=str(tmp_path)) is None

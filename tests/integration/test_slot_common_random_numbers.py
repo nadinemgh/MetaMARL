@@ -70,9 +70,12 @@ def negligible_spread_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
     dict
         ``returncode`` and ``output`` (stdout and stderr, concatenated).
     """
+
     workdir = tmp_path_factory.mktemp("slot_common_random")
     env = dict(os.environ, WANDB_MODE="offline", PYTHONPATH=str(REPO_ROOT))
+
     env.pop("PYTHONHASHSEED", None)
+
     try:
         done = subprocess.run(
             [sys.executable, "-c", DRIVER],
@@ -84,7 +87,9 @@ def negligible_spread_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
         )
     except subprocess.TimeoutExpired as exc:
         tail = (exc.stdout or b"")[-500:]
+
         pytest.fail(f"driver exceeded {CHILD_TIMEOUT_S} s; stdout tail: {tail!r}")
+
     return {"returncode": done.returncode, "output": done.stdout + "\n" + done.stderr}
 
 
@@ -97,9 +102,11 @@ def test_slots_of_one_seed_return_identical_fitness_without_a_binding_quota(
     ]
 
     generations = FITNESS_LINE.findall(negligible_spread_run["output"])
+
     assert [int(gen) for gen, _ in generations] == [0, 1]
 
     for gen, values in generations:
         fitness = [float(value) for value in values.split(",")]
+
         assert len(fitness) == 4
         assert fitness == [fitness[0]] * 4, f"generation {gen}: {fitness}"

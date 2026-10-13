@@ -24,6 +24,7 @@ class ConstantFitnessEnv:
 
     def step(self, actions):
         self.steps += 1
+
         return None, np.ones(len(actions), dtype=np.float32), True, False, {}
 
 
@@ -54,6 +55,7 @@ def make_es(
     opt = ESOptimizer(cfg)
     opt.batch_capacity = population
     opt.env = ConstantFitnessEnv()
+
     return opt
 
 
@@ -61,7 +63,6 @@ def make_es(
 @pytest.mark.parametrize("episodes", [0, 1, 3])
 def test_train_reports_generations_run_and_convergence(episodes):
     opt = make_es(episodes)
-
     result = opt.train()
 
     assert result["episodes"] == episodes == opt.env.steps
@@ -74,7 +75,6 @@ def test_bilevel_train_accepts_the_es_summary():
     es = make_es(episodes=2)
     config = SimpleNamespace(episodes=None, env=None, world_name="w")
     bilevel = BilevelOptimizer(config, outer=es, inner=None, reporter=None)
-
     result = bilevel.train()
 
     assert result["episodes"] == 2 and result["converged"] is False

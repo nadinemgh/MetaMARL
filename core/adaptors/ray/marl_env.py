@@ -14,14 +14,15 @@ environment and reads the answers back. Only the followers are RLlib agents:
 the leaders of the wrapped environment never appear in the spaces or in the
 returned dictionaries.
 """
+
 # TODO (nadine) wraps ray multiagentenv with MetaMARL abstraction
 import logging
 from typing import Any, Optional
 
 # TODO remove ray and gymnasium dependency
 import numpy as np
-from ray.rllib import MultiAgentEnv as RllibMultiAgentEnv
 from gymnasium import spaces
+from ray.rllib import MultiAgentEnv as RllibMultiAgentEnv
 
 from core.annotations import override
 from core.envs.marl_regulated import MultiAgentEnv
@@ -29,13 +30,15 @@ from core.mechanism.base import MDPState
 from core.types import MultiAgentDict
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
 logger = logging.getLogger(__name__)
 
+
 # TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+
+
 class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     """RLlib ``MultiAgentEnv`` that drives a framework ``MultiAgentEnv``.
 
@@ -129,12 +132,9 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     _env: MultiAgentEnv
     _mdp: MDPState
 
-    def __init__(
-        self,
-        env: MultiAgentEnv,
-        **kwargs
-    ):
+    def __init__(self, env: MultiAgentEnv, **kwargs):
         super().__init__(**kwargs)
+
         self.env = env
 
         # env identity
@@ -142,17 +142,16 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         self.seed = env.seed
         self.policy_seed = env.policy_seed
         self.mode = env.mode
-
         self.agents = list(self.env.followers.keys())
         self.possible_agents = list(self.env.followers.keys())
-
-        self.observation_spaces = {aid: agent.observation_space for aid, agent in env.followers.items()}
+        self.observation_spaces = {
+            aid: agent.observation_space for aid, agent in env.followers.items()
+        }
         self.observation_spaces = spaces.Dict(self.observation_spaces)
-
         self.action_spaces = {
-            aid: spaces.Dict({
-                mid: m.action_space for mid, m in agent.mechanisms.items()
-            })
+            aid: spaces.Dict(
+                {mid: m.action_space for mid, m in agent.mechanisms.items()}
+            )
             for aid, agent in self.env.followers.items()
         }
         self.action_spaces = spaces.Dict(self.action_spaces)
@@ -163,13 +162,9 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
 
         # TODO (nadine) env serialization with numpy to avoid using MDPState and faster computation
 
-
     @override(RllibMultiAgentEnv)
     def reset(
-        self, 
-        *, 
-        seed: Optional[int] = None, 
-        options: Optional[dict[str, Any]] = None,
+        self, *, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None
     ) -> tuple[MultiAgentDict, MultiAgentDict]:
         """Start a new episode and return the first observation of each agent.
 
@@ -202,12 +197,14 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         # `reset(seed=..., options=...)` keeps the Gymnasium/RLlib-compatible signature,
         # but these arguments are not used to mutate the environment's persistent
         # configuration after construction.
-        self._mdp = MDPState(aids=set(self.possible_agents),
-            obs_space=self.observation_spaces, 
-            action_spaces=self.action_spaces
+        self._mdp = MDPState(
+            aids=set(self.possible_agents),
+            obs_space=self.observation_spaces,
+            action_spaces=self.action_spaces,
         )
         self._mdp = self.env.reset(self._mdp)
         obs = {aid: self._mdp.obs[aid][self._mdp.t] for aid in self.env.followers}
+
         return obs, {}
 
     @override(RllibMultiAgentEnv)
@@ -246,16 +243,27 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
             Always empty.
         """
 
-        decode = {aid: {mid: self.env.followers[aid].mechanisms[mid].decode(self._mdp, a)
-            for mid, a in acts.items()} for aid, acts in action_dict.items()}
+        decode = {
+            aid: {
+                mid: self.env.followers[aid].mechanisms[mid].decode(self._mdp, a)
+                for mid, a in acts.items()
+            }
+            for aid, acts in action_dict.items()
+        }
+
         self._mdp.update(actions=decode)
+
         m: MDPState = self.env.step(self._mdp)
+
         aids = self.possible_agents
         obs = {aid: m.obs[aid][m.t] for aid in aids}
-        rewards = {aid: float(np.asarray(m.rewards[aid][m.t - 1]).item()) for aid in aids}
+        rewards = {
+            aid: float(np.asarray(m.rewards[aid][m.t - 1]).item()) for aid in aids
+        }
         terminateds = {aid: m.terminateds[aid] for aid in aids}
         terminateds["__all__"] = m.terminateds["__all__"]
         truncateds = {aid: m.truncateds[aid] for aid in aids}
         truncateds["__all__"] = m.truncateds["__all__"]
         self._mdp = m
+
         return obs, rewards, terminateds, truncateds, {}

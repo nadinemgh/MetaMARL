@@ -13,8 +13,7 @@ from core.envs.marl_regulated import MultiAgentRegulatedEnv
 from core.world.context import EnvStepContext
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
 logger = logging.getLogger(__name__)
@@ -31,12 +30,7 @@ EPS = 1e-8
 
 
 class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
-    def __init__(
-        self,
-        *,
-        render_mode: str | None = None,
-        **kwargs,
-    ):
+    def __init__(self, *, render_mode: str | None = None, **kwargs):
         super().__init__(**kwargs)
 
         # Ensure number of agents == 1
@@ -86,14 +80,8 @@ class CartpoleRegulatedEnv(MultiAgentRegulatedEnv):
         self.S_t = np.asarray(obs, dtype=np.float32)
         observations = {self.agent_id: self.S_t}
         rewards = {self.agent_id: float(reward)}
-        terminateds = {
-            self.agent_id: bool(terminated),
-            "__all__": bool(terminated),
-        }
-        truncateds = {
-            self.agent_id: bool(truncated),
-            "__all__": bool(truncated),
-        }
+        terminateds = {self.agent_id: bool(terminated), "__all__": bool(terminated)}
+        truncateds = {self.agent_id: bool(truncated), "__all__": bool(truncated)}
         infos = {self.agent_id: info}
 
         self._publish(

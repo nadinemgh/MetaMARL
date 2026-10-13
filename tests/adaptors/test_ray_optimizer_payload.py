@@ -31,6 +31,7 @@ def episode(mechanism_id, seed, reward):
 
 def result_dict(*, return_mean=1.5, steps=80, evaluation=None):
     """New-API-stack ``train()`` result with two modules and three episodes."""
+
     result = {
         "env_runners": {
             "episode_return_mean": return_mean,
@@ -67,7 +68,9 @@ def test_training_result_fills_every_train_block_and_leaves_eval_empty():
     assert payload.train.rollout.aggregate.reward_mean == 1.5
     assert set(payload.train.rollout.by_mechanism) == {"0", "1"}
     assert set(payload.train.rollout.by_mechanism["1"].by_seed) == {"100", "200"}
+
     by_mechanism = payload.train.learner.by_mechanism
+
     assert by_mechanism["0"].by_seed["100"].by_policy["fisher"].policy_loss == 0.2
     assert by_mechanism["1"].by_seed["100"].by_policy["fisher"].total_loss == 0.7
     assert payload.train.performance.env_steps_this_iter == 80.0
@@ -77,7 +80,6 @@ def test_training_result_fills_every_train_block_and_leaves_eval_empty():
 @pytest.mark.unit
 def test_evaluation_block_nested_in_a_training_result_fills_the_eval_branch():
     nested = {"env_runners": {"episode_return_mean": 9.0, "num_env_steps_sampled": 12}}
-
     payload = RayOptimizer._to_logger_payload(
         NO_MODULES, result_dict(evaluation=nested)
     )
@@ -125,13 +127,15 @@ def test_payloads_accumulate_in_the_logger_and_reduce_to_the_last_iteration():
         logger.push_data(payload)
 
     peeked = logger.peek()
+
     assert peeked.iter == [1, 2]
     assert peeked.train.rollout.aggregate.reward_mean == [1.5, 2.5]
+
     assert peeked.train.rollout.by_mechanism["1"].by_seed["200"].by_episode[
         "e3|n=0"
     ].reward_mean == [4.0, 4.0]
-
     reduced = logger.reduce()
+
     assert reduced.iter == 2
     assert reduced.train.rollout.aggregate.reward_mean == 2.5
     assert reduced.train.performance.env_steps_this_iter == 90.0
@@ -160,5 +164,6 @@ def test_iterations_without_learner_statistics_log_nan_for_every_module():
     by_mechanism = logger.peek().train.learner.by_mechanism
     losses = by_mechanism["0"].by_seed["100"].by_policy["fisher"].policy_loss
     totals = by_mechanism["1"].by_seed["100"].by_policy["fisher"].total_loss
+
     np.testing.assert_array_equal(losses, [np.nan, 0.2, np.nan])
     np.testing.assert_array_equal(totals, [np.nan, 0.7, np.nan])

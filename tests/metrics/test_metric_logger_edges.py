@@ -37,6 +37,7 @@ class TestNode:
     def test_construct_without_schema_raises(self):
         node = Node()
         node["x"] = MeanMetric()
+
         with pytest.raises(RuntimeError, match="no schema"):
             node.construct({"x": 1.0})
 
@@ -46,6 +47,7 @@ class TestNode:
         node = Node(dynamic=True, schema=Leaf)
         node["a"] = child
         built = node.construct({"a": {name: None for name in child}})
+
         assert set(built) == {"a"} and isinstance(built["a"], Leaf)
 
 
@@ -54,10 +56,12 @@ class TestBuild:
     def test_init_token_guard(self, metric_schemas):
         *_, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
+
         # ``__init__`` carries the same guard as ``__new__``; ``from_schema`` never
         # calls it, so the only way in is an explicit call.
         with pytest.raises(TypeError, match="from_schema"):
             MetricLogger.__init__(logger)
+
         MetricLogger.__init__(logger, _token=MetricLogger._TOKEN)  # accepted
 
     def test_union_of_two_non_none_types_is_kept_as_is(self):
@@ -67,6 +71,7 @@ class TestBuild:
             )
 
         logger = MetricLogger.from_schema(Multi)
+
         logger.push(("value",), "x")
         assert logger.peek_value(("value",)) == "x"
 
@@ -77,8 +82,10 @@ class TestBuild:
         in the ``dict[ID, MetricSchema]`` branch), so this documents the internal
         contract: nested schemas and leaves are skipped when ``dynamic`` is set.
         """
+
         *_, Root = metric_schemas
         node, refs = MetricLogger._build_from_schema(Root, dynamic=True)
+
         assert node.dynamic and node.schema is Root
         assert "static" not in node and "iter" not in node
         assert "group" not in node
@@ -91,6 +98,7 @@ class TestResolvePath:
         *_, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
         logger._tree["group"]["by_id"].schema = None
+
         with pytest.raises(RuntimeError, match="no schema"):
             logger.push(("group", "by_id", "a", "mean_value"), 1.0)
 
@@ -101,6 +109,7 @@ class TestPushDataGuards:
         Leaf, *_ = metric_schemas
         logger = MetricLogger.from_schema(Leaf)
         node = Node(schema=Leaf)  # a node built without any field
+
         with pytest.raises(KeyError, match="Unknown logger field"):
             logger.push_data(Leaf(mean_value=1.0), prefix=("p",), node=node)
 
@@ -108,6 +117,7 @@ class TestPushDataGuards:
         Leaf, _, Group, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
         bad = Root.model_construct(static=Leaf(), group=Group(), iter=Leaf())
+
         with pytest.raises(TypeError, match="Expected Node"):
             logger.push_data(bad)
 
@@ -115,6 +125,7 @@ class TestPushDataGuards:
         Leaf, _, Group, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
         logger._tree["static"].schema = None
+
         with pytest.raises(RuntimeError, match="no declared schema"):
             logger.push_data(Root(static=Leaf(mean_value=1.0), group=Group()))
 
@@ -122,9 +133,12 @@ class TestPushDataGuards:
         Leaf, _, Group, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
         bad = Root.model_construct(static={"a": Leaf()}, group=Group())
+
         with pytest.raises(TypeError, match="Expected dynamic Node"):
             logger.push_data(bad)
+
         bad = Root.model_construct(static=Leaf(), group=Group(), iter={"a": 1})
+
         with pytest.raises(TypeError, match="Expected dynamic Node"):
             logger.push_data(bad)
 
@@ -132,6 +146,7 @@ class TestPushDataGuards:
         Leaf, _, Group, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
         logger._tree["group"]["by_id"].schema = None
+
         with pytest.raises(RuntimeError, match="no declared schema"):
             logger.push_data(Root(static=Leaf(), group=Group(by_id={"a": Leaf()})))
 
@@ -141,6 +156,7 @@ class TestPushDataGuards:
         bad = Root.model_construct(
             static=Leaf(), group=Group.model_construct(by_id={"a": 1.0})
         )
+
         with pytest.raises(TypeError, match="Expected MetricSchema"):
             logger.push_data(bad)
 
@@ -148,6 +164,7 @@ class TestPushDataGuards:
         Leaf, _, Group, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
         logger._tree["group"]["by_id"]["a"] = MeanMetric()
+
         with pytest.raises(TypeError, match="Expected runtime Node"):
             logger.push_data(Root(static=Leaf(), group=Group(by_id={"a": Leaf()})))
 
@@ -155,13 +172,16 @@ class TestPushDataGuards:
         Leaf, _, Group, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
         bad = Root.model_construct(static=1.0, group=Group())
+
         with pytest.raises(TypeError, match="Expected Metric"):
             logger.push_data(bad)
 
     def test_root_payload_must_be_exact_schema_not_subclass(self, metric_schemas):
         """The root payload must be the exact schema; nested slots accept subtypes."""
+
         Leaf, Rich, *_ = metric_schemas
         logger = MetricLogger.from_schema(Leaf)
+
         with pytest.raises(TypeError, match="Expected LeafSchema"):
             logger.push_data(Rich(mean_value=1.0))
 
@@ -175,11 +195,13 @@ class TestFailingMetrics:
         raising = _RaisingMetric()
         logger._tree["static"]["mean_value"] = raising
         logger._refs[("static", "mean_value")] = raising
+
         return logger
 
     def test_peek_wraps_errors_with_path(self, logger_with_raising_leaf):
         with pytest.raises(ValueError, match="Error peeking metric") as info:
             logger_with_raising_leaf.peek()
+
         assert "mean_value" in str(info.value)
         assert isinstance(info.value.__cause__, RuntimeError)
 
@@ -201,16 +223,20 @@ class TestRepeatedDynamicPushes:
     def test_unknown_leaf_under_a_materialized_id(self, metric_schemas):
         *_, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
+
         logger.push(("group", "by_id", "a", "sum_value"), 1.0)
+
         with pytest.raises(KeyError, match="Unknown logger path"):
             logger.push(("group", "by_id", "a", "nope"), 1.0)
 
     def test_push_data_twice_on_the_same_id_accumulates(self, metric_schemas):
         Leaf, _, Group, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
+
         for value in (1.0, 3.0):
             logger.push_data(
                 Root(static=Leaf(), group=Group(by_id={"a": Leaf(mean_value=value)}))
             )
+
         assert logger.peek_value(("group", "by_id", "a", "mean_value")) == 2.0
         assert logger.reduce().group.by_id["a"].mean_value == 2.0

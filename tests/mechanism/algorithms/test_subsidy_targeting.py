@@ -17,6 +17,7 @@ REGULATOR = "regulator"
 
 def zero_effort_action() -> np.ndarray:
     """Policy output whose decoded effort is ``1/2``."""
+
     return np.array([0.0], dtype=np.float32)
 
 
@@ -35,7 +36,6 @@ def test_agent_without_the_subsidised_mechanism_is_not_paid():
             "fisherman:1": {"harvest": zero_effort_action()},
         }
     )
-
     delta = mechanism(mdp, mdp.actions[REGULATOR]["subsidy"][0])
 
     assert set(delta.rewards.data) == {"fisherman:0"}

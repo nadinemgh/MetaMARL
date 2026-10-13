@@ -26,6 +26,7 @@ class RecordingOptimizer(Optimizer):
 
     def __init__(self, config=None, **kwargs):
         super().__init__(config, **kwargs)
+
         self.extra = kwargs
 
     def train(self):
@@ -44,11 +45,13 @@ class RecordingReporterConfig(ReporterConfig):
 
     def __init__(self, project: str):
         super().__init__(project)
+
         self.built: list = []
 
     def build(self, *, label=None):
         reporter = SimpleNamespace(label=label, schema="unset", queries=[])
         reporter.add_query = lambda *queries: reporter.queries.extend(queries)
+
         self.built.append(reporter)
 
         return reporter
@@ -95,7 +98,6 @@ class TestInterface:
     def test_reporter_config_round_trips_through_its_property(self):
         cfg = RecordingConfig()
         marker = object()
-
         cfg.reporter_cfg = marker
 
         assert cfg.reporter_cfg is marker
@@ -106,12 +108,10 @@ class TestInterface:
 
         cfg.training(episodes=7)
         cfg.training()
-
         assert cfg.episodes == 7
 
     def test_training_returns_the_config_for_chaining(self):
         cfg = RecordingConfig()
-
         assert cfg.training(episodes=7) is cfg
 
 
@@ -147,19 +147,16 @@ class TestEnvironmentBuilder:
         cfg = RecordingConfig().environment(env=RecordingEnv, env_config={"a": 1})
 
         cfg.environment(horizon=3)
-
         assert cfg.env is RecordingEnv
 
     def test_each_call_resets_the_environment_keywords(self):
         cfg = RecordingConfig().environment(env=RecordingEnv, env_config={"a": 1})
 
         cfg.environment(horizon=3)
-
         assert cfg.env_config == {"horizon": 3}
 
     def test_merge_adds_keywords_and_the_extra_wins(self):
         cfg = RecordingConfig().environment(env_config={"a": 1, "b": 2})
-
         returned = cfg._merge_env_config({"b": 3, "c": 4})
 
         assert returned is cfg
@@ -170,12 +167,10 @@ class TestEnvironmentBuilder:
         cfg.env_config = None
 
         cfg._merge_env_config({"a": 1})
-
         assert cfg.env_config == {"a": 1}
 
     def test_env_creator_forwards_keywords_to_the_environment_class(self):
         cfg = RecordingConfig().environment(env=RecordingEnv)
-
         env = cfg._env_creator(world="w", train_iters=2)
 
         assert isinstance(env, RecordingEnv)
@@ -186,8 +181,8 @@ class TestEnvironmentBuilder:
 class TestSeeds:
     def test_seeds_are_the_seed_sequence_state(self):
         cfg = RecordingConfig().debugging(seed=42, num_seeds=3)
-
         expected = np.random.SeedSequence(42).generate_state(3).tolist()
+
         assert cfg.base_seed == 42
         assert cfg.seeds == expected
         assert all(type(seed) is int for seed in cfg.seeds)
@@ -214,7 +209,6 @@ class TestSeeds:
         cfg = RecordingConfig().debugging(seed=9)
 
         cfg.debugging()
-
         assert cfg.seeds == []
         assert cfg.base_seed == 9
 
@@ -230,12 +224,10 @@ class TestReportingAndAgents:
         cfg = RecordingConfig().reporting(queries=["q"])
 
         cfg.reporting(queries=None)
-
         assert cfg._reporting_queries == ("q",)
 
     def test_a_single_agent_is_keyed_by_its_id(self):
         agent = regulator("quota")
-
         cfg = RecordingConfig().agents(agent)
 
         assert cfg.agents_cfgs == {"regulator": agent}
@@ -245,7 +237,6 @@ class TestReportingAndAgents:
         second = AgentConfig(
             id="b", policy_id="p", mechanisms=regulator("m").mechanisms
         )
-
         cfg = RecordingConfig().agents((first, second))
 
         assert cfg.agents_cfgs == {"a": first, "b": second}
@@ -270,7 +261,6 @@ class TestFreezeAndCopy:
 
         cfg.freeze()
         cfg.freeze()
-
         assert cfg._is_frozen is True
 
     def test_a_frozen_config_refuses_its_builders(self):
@@ -281,7 +271,6 @@ class TestFreezeAndCopy:
 
     def test_copy_frozen_leaves_the_original_editable(self):
         cfg = ESConfig().training(sigma=0.3)
-
         frozen = cfg.copy(copy_frozen=True)
         cfg.sigma = 0.4
 
@@ -296,7 +285,6 @@ class TestFreezeAndCopy:
 
     def test_copy_unfrozen_makes_it_writable_again(self):
         frozen = ESConfig().training(sigma=0.3).copy(copy_frozen=True)
-
         thawed = frozen.copy(copy_frozen=False)
         thawed.sigma = 0.1
 
@@ -305,6 +293,7 @@ class TestFreezeAndCopy:
     def test_unfreezing_also_unfreezes_the_nested_evaluation_config(self):
         cfg = ESConfig()
         cfg.evaluation_config = ESConfig()
+
         cfg.evaluation_config.freeze()
 
         frozen = cfg.copy(copy_frozen=True)
@@ -312,11 +301,11 @@ class TestFreezeAndCopy:
 
         assert frozen.evaluation_config._is_frozen
         assert not thawed.evaluation_config._is_frozen
+
         thawed.evaluation_config.sigma = 0.5
 
     def test_the_copy_is_deep(self):
         cfg = RecordingConfig().environment(env_config={"nested": {"a": 1}})
-
         copy = cfg.copy()
         copy.env_config["nested"]["a"] = 2
 
@@ -326,7 +315,6 @@ class TestFreezeAndCopy:
         frozen = (
             RecordingConfig().environment(env_config={"a": 1}).copy(copy_frozen=True)
         )
-
         frozen.env_config["a"] = 2
 
         assert frozen.env_config == {"a": 2}
@@ -343,6 +331,7 @@ class TestSerialisation:
 
     def test_from_yaml_reads_a_mapping(self, tmp_path):
         path = tmp_path / "es.yaml"
+
         path.write_text(yaml.safe_dump({"sigma": 0.11, "mean_lr": 0.2}))
 
         cfg = ESConfig.from_yaml(str(path))
@@ -359,7 +348,9 @@ class TestBuildOptimizer:
             .agents(regulator("quota"))
             .reporting(queries=["q"])
         )
+
         cfg.training(episodes=4)
+
         cfg.reporter_cfg = reporter_config
 
         return cfg
@@ -375,7 +366,6 @@ class TestBuildOptimizer:
         self, fake_world, reporter_config
     ):
         cfg = self.make(reporter_config)
-
         opt = cfg.build_optimizer(world=fake_world)
 
         assert isinstance(opt, RecordingOptimizer)
@@ -394,7 +384,6 @@ class TestBuildOptimizer:
 
     def test_each_build_gets_a_distinct_id(self, fake_world, reporter_config):
         cfg = self.make(reporter_config)
-
         first = cfg.build_optimizer(world=fake_world)
         second = cfg.build_optimizer(world=fake_world)
 
@@ -406,11 +395,12 @@ class TestBuildOptimizer:
     ):
         cfg = self.make(reporter_config, horizon=9)
         inner = object()
-
         opt = cfg.build_optimizer(world=fake_world, inner_opt=inner)
 
         assert isinstance(opt.env, RecordingEnv)
+
         kwargs = opt.env.kwargs
+
         assert kwargs["world"] is fake_world
         assert kwargs["opt_id"] == opt.id
         assert kwargs["optimizer"] is inner
@@ -422,7 +412,6 @@ class TestBuildOptimizer:
         self, fake_world, reporter_config
     ):
         opt = self.make(reporter_config).build_optimizer(world=fake_world)
-
         env_reporter_cfg = opt.env.kwargs["reporter_cfg"]
 
         assert isinstance(env_reporter_cfg, RecordingReporterConfig)
@@ -435,7 +424,6 @@ class TestBuildOptimizer:
         cfg = self.make(reporter_config).environment(
             env=RecordingEnv, queries=["eq"], schema=list
         )
-
         opt = cfg.build_optimizer(world=fake_world)
 
         assert opt.env.kwargs["queries"] == ("eq",)
@@ -447,6 +435,7 @@ class TestBuildOptimizer:
         self.make(reporter_config).build_optimizer(world=fake_world)
 
         (reporter,) = reporter_config.built
+
         assert reporter.label == "RecordingOptimizer"
         assert reporter.queries == ["q"]
 

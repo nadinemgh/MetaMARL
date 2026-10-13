@@ -20,6 +20,7 @@ STEPS = [0.3, 0.5, 0.4]
 )
 def test_fish_norm_reductions(field, expected):
     logger = MetricLogger.from_schema(FisheryMetricSchema)
+
     for value in STEPS:
         logger.push(key=(field,), value=value)
 

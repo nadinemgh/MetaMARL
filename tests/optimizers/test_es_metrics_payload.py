@@ -38,6 +38,7 @@ def two_parameter_es(es_factory):
 def test_schema_series_fields_reduce_as_series():
     for name in ("sigma", "population_size", "fitness_mean", "fitness_best"):
         extra = ESSchema.model_fields[name].json_schema_extra
+
         assert extra["reduce"] is ReduceProtocol.SERIES
 
 
@@ -76,7 +77,9 @@ class TestPopulationPayload:
         payload = self.make_payload(two_parameter_es, np.array([1.0, 4.0, 2.0, 3.0]))
 
         assert set(payload.by_mechanism) == {"0", "1", "2", "3"}
+
         candidate = payload.by_mechanism["2"]
+
         assert candidate.fitness == 2.0
         assert candidate.by_parameter["quota"].value == pytest.approx(0.5)
         assert candidate.by_parameter["subsidy"].value == pytest.approx(0.6)
@@ -90,9 +93,11 @@ class TestPopulationPayload:
 
         assert payload.search_mean["quota"].value == pytest.approx(0.4)
         assert payload.search_mean["subsidy"].value == pytest.approx(0.5)
+
         # Global best is the optimizer's best candidate, here candidate 1.
         assert payload.global_best["quota"].value == pytest.approx(0.3)
         assert payload.global_best["subsidy"].value == pytest.approx(0.4)
+
         # Generation best is the row of the best fitness of this generation.
         assert payload.generation_best["quota"].value == pytest.approx(0.3)
         assert payload.generation_best["subsidy"].value == pytest.approx(0.4)
@@ -100,7 +105,6 @@ class TestPopulationPayload:
     def test_global_best_can_differ_from_the_generation_best(self, two_parameter_es):
         two_parameter_es.best_fitness = 99.0
         two_parameter_es.best_candidate = np.array([0.9, 0.9], dtype=np.float32)
-
         payload = two_parameter_es._to_logger_payload(
             generation=3,
             inner=InnerSchema(),
@@ -120,7 +124,6 @@ class TestPopulationPayload:
     ):
         opt = es_factory({"quota": unit_box(2)}, population=2)
         opt.best_candidate = np.array([0.2, 0.3], dtype=np.float32)
-
         payload = opt._to_logger_payload(
             generation=0,
             inner=InnerSchema(),
@@ -146,6 +149,7 @@ class TestPopulationPayload:
             )
 
         peeked = logger.peek()
+
         assert peeked.iter == [0, 1]
         assert peeked.generation == [0, 1]
         assert peeked.fitness_best == [4.0, 5.0]
@@ -161,6 +165,7 @@ class TestPopulationPayload:
 
     def test_peeking_does_not_consume_the_series(self, two_parameter_es):
         logger = MetricLogger.from_schema(ESSchema)
+
         logger.push_data(self.make_payload(two_parameter_es, np.array([1.0, 4, 2, 3])))
 
         first = logger.peek()

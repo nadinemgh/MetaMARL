@@ -36,6 +36,7 @@ def test_get_mechanism_by_id_transition_table(
     world, make_context, make_mechanism, start, mode
 ):
     payload = make_mechanism(index=2, seed=5, status=start)
+
     world.append_context(make_context(payload))
 
     fetched = world.get_mechanism_by_id(2, 5, mode)
@@ -53,15 +54,13 @@ def test_candidate_is_handed_out_once_for_training_then_reusable_for_eval(
     world, make_context, make_mechanism
 ):
     payload = make_mechanism(index=1, seed=10)
-    world.append_context(make_context(payload))
 
+    world.append_context(make_context(payload))
     assert world.get_mechanism_by_id(1, 10, MechanismStatus.eval) is None
     assert payload.status == MechanismStatus.published
-
     assert world.get_mechanism_by_id(1, 10, MechanismStatus.train) is payload
     assert payload.status == MechanismStatus.train
     assert world.get_mechanism_by_id(1, 10, MechanismStatus.train) is None
-
     assert world.get_mechanism_by_id(1, 10, MechanismStatus.eval) is payload
     assert payload.status == MechanismStatus.eval
     assert world.get_mechanism_by_id(1, 10, MechanismStatus.eval) is payload
@@ -83,7 +82,6 @@ def test_get_mechanism_by_id_matches_index_and_seed(
     assert world.get_mechanism_by_id(1, 99, MechanismStatus.train) is None
     assert world.get_mechanism_by_id(5, 10, MechanismStatus.train) is None
     assert world.get_mechanism_by_id(1, 20, MechanismStatus.train) is second
-
     assert first.status == MechanismStatus.published
     assert third.status == MechanismStatus.published
     assert second.status == MechanismStatus.train
@@ -100,11 +98,12 @@ def test_get_mechanism_by_id_prefers_the_first_registered_duplicate(
     world, make_context, make_mechanism
 ):
     """Two entries with the same ``(index, seed)`` are served in insertion order."""
+
     older = make_mechanism(index=0, seed=0)
     newer = make_mechanism(index=0, seed=0)
+
     world.append_context(make_context(older))
     world.append_context(make_context(newer))
-
     assert world.get_mechanism_by_id(0, 0, MechanismStatus.train) is older
     assert world.get_mechanism_by_id(0, 0, MechanismStatus.train) is newer
     assert world.get_mechanism_by_id(0, 0, MechanismStatus.train) is None
@@ -116,6 +115,7 @@ def test_get_mechanism_by_id_rejects_a_mode_that_is_not_train_or_eval(
     world, make_context, make_mechanism, mode
 ):
     payload = make_mechanism(index=0, seed=0)
+
     world.append_context(make_context(payload))
 
     with pytest.raises(ValueError, match=mode.name):
@@ -135,11 +135,12 @@ def test_get_mechanism_by_index_finds_the_candidate_with_that_index(
 ):
     first = make_mechanism(index=0)
     second = make_mechanism(index=4)
+
     world.append_context(make_context(first))
     world.append_context(make_context(second))
-
     assert world.get_mechanism_by_index(4) is second
     assert world.get_mechanism_by_index(0) is first
+
     # The lookup does not claim the entry: its status is untouched.
     assert second.status == MechanismStatus.published
 
@@ -162,11 +163,12 @@ def test_get_mechanism_by_index_returns_the_first_seed_copy_of_a_candidate(
     world, make_context, make_mechanism
 ):
     """The regulator publishes one copy per seed; every copy has the same index."""
+
     seed_a = make_mechanism(index=2, seed=10)
     seed_b = make_mechanism(index=2, seed=20)
+
     world.append_context(make_context(seed_a))
     world.append_context(make_context(seed_b))
-
     assert world.get_mechanism_by_index(2) is seed_a
 
 
@@ -175,12 +177,14 @@ def test_get_mechanism_by_index_skips_the_done_records_of_earlier_generations(
     world, make_context, make_mechanism
 ):
     """A ``done`` record carries fitness, not a mechanism, and shares the index."""
+
     world.append_context(
         make_context(make_mechanism(index=0, seed=None, status=MechanismStatus.done))
     )
-    candidate = make_mechanism(index=0)
-    world.append_context(make_context(candidate))
 
+    candidate = make_mechanism(index=0)
+
+    world.append_context(make_context(candidate))
     assert world.get_mechanism_by_index(0) is candidate
 
 
@@ -208,7 +212,6 @@ def test_flush_by_status_keeps_the_other_entries(world, make_context, make_mecha
     )
 
     world.flush(status=MechanismStatus.eval)
-
     assert set(world.get_mechanism_registry()) == {published, trained}
     assert world.get_ctx_ids() == {published, trained}
     assert world.get_context(evaluated) is None
@@ -223,9 +226,9 @@ def test_flush_without_status_empties_every_registry_but_keeps_the_optimizer(
         world.append_context(make_context(make_mechanism(index=i)))
 
     world.flush()
-
     assert world.get_mechanism_registry() == {}
     assert world.get_ctx_ids() == set()
+
     # The optimizer ID stays registered: ``build_optimizer`` reserved it and
     # ``generate_uuid`` must not hand it out again.
     assert world.get_opt_ids() == {"opt"}
@@ -237,6 +240,7 @@ def test_flush_keeps_every_listed_context_id_resolvable(
     world, make_context, make_mechanism, make_other
 ):
     """The three registries agree after a partial flush."""
+
     world.append_context(make_context(make_other(), opt_id="a"))
     world.append_context(
         make_context(make_mechanism(index=0, status=MechanismStatus.eval), opt_id="a")
@@ -248,7 +252,6 @@ def test_flush_keeps_every_listed_context_id_resolvable(
     world.append_context(
         make_context(make_mechanism(index=3, status=MechanismStatus.eval), opt_id=None)
     )
-
     world.flush(status=MechanismStatus.eval)
 
     listed = [cid for opt in world.get_opt_ids() for cid in world.get_opt_ctx_ids(opt)]
@@ -265,7 +268,5 @@ def test_flushed_evaluation_entries_are_no_longer_fetchable(
     world.append_context(make_context(make_mechanism(index=0, seed=0)))
     world.get_mechanism_by_id(0, 0, MechanismStatus.train)
     assert world.get_mechanism_by_id(0, 0, MechanismStatus.eval) is not None
-
     world.flush(status=MechanismStatus.eval)
-
     assert world.get_mechanism_by_id(0, 0, MechanismStatus.eval) is None

@@ -57,6 +57,7 @@ class StubLevelConfig:
     def copy(self, copy_frozen=None):
         duplicate = copy.copy(self)
         duplicate.env_config = dict(self.env_config)
+
         self.copies.append(duplicate)
 
         return duplicate
@@ -98,14 +99,18 @@ class RecordingReporterConfig(ReporterConfig):
 @pytest.fixture
 def patched_actors(monkeypatch):
     """Patch Ray initialisation and the ``World`` actor class."""
+
     init_calls = []
+
     monkeypatch.setattr(
         bilevel_module.RayRuntime,
         "ensure_initialized",
         classmethod(lambda cls, cfg: init_calls.append(cfg)),
     )
+
     world_handle = SimpleNamespace(kind="world")
     world_cls = StubActorClass(world_handle)
+
     monkeypatch.setattr(bilevel_module, "World", world_cls)
 
     return SimpleNamespace(
@@ -121,6 +126,7 @@ def make_config(society, regulator) -> BilevelConfig:
         .regulator(regulator)
         .reporter(RecordingReporterConfig(project="p"))
     )
+
     cfg.training(episodes=5)
 
     return cfg
@@ -145,7 +151,6 @@ class TestBuilders:
 
     def test_every_builder_returns_the_config(self):
         cfg = BilevelConfig()
-
         chained = (
             cfg.world(world_name="w")
             .ray(device="cpu")
@@ -158,7 +163,6 @@ class TestBuilders:
 
     def test_society_is_the_inner_level_and_regulator_the_outer_level(self):
         society, regulator = PPOptimizerConfig(), ESConfig()
-
         cfg = BilevelConfig().society(society).regulator(regulator)
 
         assert cfg.inner_cfg is society
@@ -169,7 +173,6 @@ class TestBuilders:
         cfg = BilevelConfig().society(society).regulator(regulator)
 
         cfg.society(None).regulator(None)
-
         assert cfg.inner_cfg is society
         assert cfg.outer_cfg is regulator
 
@@ -185,7 +188,6 @@ class TestBuilders:
         name = cfg.world_name
 
         cfg.world(world_name=None)
-
         assert cfg.world_name == name
 
     def test_the_world_builder_ignores_extra_keywords(self):
@@ -225,13 +227,16 @@ class TestBuilders:
 
     def test_the_config_can_be_frozen_and_copied(self):
         cfg = BilevelConfig()
+
         cfg.training(episodes=3)
 
         frozen = cfg.copy(copy_frozen=True)
 
         assert frozen.episodes == 3 and frozen._is_frozen
+
         with pytest.raises(AttributeError, match="frozen"):
             frozen.training(episodes=4)
+
         cfg.training(episodes=4)
         assert cfg.episodes == 4
 
@@ -244,7 +249,6 @@ class TestBuildOptimizer:
         cfg = make_config(StubLevelConfig(batch_capacity=2), StubLevelConfig())
 
         cfg.build_optimizer()
-
         assert len(patched_actors.init_calls) == 1
         assert isinstance(patched_actors.init_calls[0], RayRuntimeConfig)
         assert patched_actors.world_cls.options_kwargs == {"name": cfg.world_name}
@@ -255,18 +259,16 @@ class TestBuildOptimizer:
         )
 
         cfg.build_optimizer()
-
         assert patched_actors.init_calls == [cfg.ray_cfg]
 
     def test_both_levels_are_built_against_the_same_world(self, patched_actors):
         society = StubLevelConfig(batch_capacity=2)
         regulator = StubLevelConfig()
         cfg = make_config(society, regulator)
-
         opt = cfg.build_optimizer()
-
         (society_copy,) = society.copies
         (regulator_copy,) = regulator.copies
+
         assert society_copy.build_kwargs == {
             "world": patched_actors.world_handle,
             "world_name": cfg.world_name,
@@ -282,7 +284,6 @@ class TestBuildOptimizer:
         regulator = StubLevelConfig(agents_cfgs={"regulator": object()})
 
         make_config(society, regulator).build_optimizer()
-
         assert society.env_config == {} and regulator.env_config == {}
         assert society.reporter_cfg is None and regulator.reporter_cfg is None
 
@@ -291,7 +292,6 @@ class TestBuildOptimizer:
         regulator = StubLevelConfig()
 
         make_config(society, regulator).build_optimizer()
-
         assert regulator.copies[0].env_config["seeds"] == [1, 2]
 
     def test_no_seeds_are_forwarded_when_the_society_has_none(self, patched_actors):
@@ -299,7 +299,6 @@ class TestBuildOptimizer:
         regulator = StubLevelConfig()
 
         make_config(society, regulator).build_optimizer()
-
         assert "seeds" not in regulator.copies[0].env_config
 
     def test_the_bilevel_episodes_become_the_number_of_generations(
@@ -308,7 +307,6 @@ class TestBuildOptimizer:
         regulator = StubLevelConfig()
 
         make_config(StubLevelConfig(batch_capacity=2), regulator).build_optimizer()
-
         assert regulator.copies[0].episodes == 5
         assert regulator.episodes is None
 
@@ -318,7 +316,6 @@ class TestBuildOptimizer:
         regulator = StubLevelConfig(episodes=5)
 
         make_config(StubLevelConfig(batch_capacity=2), regulator).build_optimizer()
-
         assert regulator.copies[0].episodes == 5
 
     def test_the_regulator_episodes_are_kept_when_the_bilevel_has_none(
@@ -329,7 +326,6 @@ class TestBuildOptimizer:
         cfg.episodes = None
 
         cfg.build_optimizer()
-
         assert regulator.copies[0].episodes == 40
 
     def test_conflicting_generation_counts_are_rejected_before_ray_starts(
@@ -351,7 +347,6 @@ class TestBuildOptimizer:
         regulator = StubLevelConfig(agents_cfgs=leaders)
 
         make_config(society, regulator).build_optimizer()
-
         assert society.copies[0].env_config["leaders_cfg_dict"] is leaders
 
     def test_the_regulator_population_is_the_society_capacity(self, patched_actors):
@@ -359,7 +354,6 @@ class TestBuildOptimizer:
         regulator = StubLevelConfig()
 
         make_config(society, regulator).build_optimizer()
-
         assert regulator.built.batch_capacity == 6
 
     def test_the_reporter_config_is_stamped_and_copied_to_each_level(
@@ -368,25 +362,26 @@ class TestBuildOptimizer:
         society = StubLevelConfig(batch_capacity=2)
         regulator = StubLevelConfig()
         cfg = make_config(society, regulator)
-
         opt = cfg.build_optimizer()
 
         assert cfg.reporter_cfg.world == cfg.world_name
         assert opt.reporting.label == "bilevel"
         assert opt.reporting.world == cfg.world_name
+
         society_reporter = society.copies[0].reporter_cfg
         regulator_reporter = regulator.copies[0].reporter_cfg
+
         for level_reporter in (society_reporter, regulator_reporter):
             assert isinstance(level_reporter, RecordingReporterConfig)
             assert level_reporter is not cfg.reporter_cfg
             assert level_reporter.world == cfg.world_name
+
         assert society_reporter is not regulator_reporter
 
     def test_the_result_is_a_bilevel_optimizer_over_the_built_levels(
         self, patched_actors
     ):
         cfg = make_config(StubLevelConfig(batch_capacity=2), StubLevelConfig())
-
         opt = cfg.build_optimizer()
 
         assert isinstance(opt, BilevelOptimizer)

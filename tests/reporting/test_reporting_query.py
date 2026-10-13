@@ -17,7 +17,6 @@ from core.reporting.query import Query
 
 SERIES = ReduceProtocol.SERIES
 MEAN = ReduceProtocol.MEAN
-
 pytestmark = pytest.mark.unit
 
 

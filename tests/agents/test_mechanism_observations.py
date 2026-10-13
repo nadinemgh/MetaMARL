@@ -34,13 +34,13 @@ def make_regulator() -> Agent:
         mid: cls(aid="regulator", id=mid, action_space=BOX, acts_on=("fisherman", "h"))
         for mid, cls in (("silent", Silent), ("beacon", Beacon))
     }
+
     return Agent(id="regulator", policy_id="p", mechanisms=mechanisms)
 
 
 @pytest.mark.unit
 def test_observe_contributes_nothing_by_default():
     mechanism = Silent(aid="regulator", id="silent", action_space=BOX, acts_on=None)
-
     assert mechanism.observe(MDPState(aids={"fisherman:0"})).obs.data == {}
 
 
@@ -50,7 +50,6 @@ def test_mechanisms_the_agent_acts_with_contribute():
         aids={"fisherman:0"},
         actions={"regulator": {"silent": np.array([0.5]), "beacon": np.array([0.5])}},
     )
-
     contributions = make_regulator().mechanism_observations(mdp)
 
     assert [c.obs.data for c in contributions if c.obs.data] == [

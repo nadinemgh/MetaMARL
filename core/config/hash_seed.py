@@ -77,8 +77,10 @@ def ensure_hash_seed(default: str = DEFAULT_HASH_SEED) -> None:
             )
         else:
             logger.info("PYTHONHASHSEED=%s", value)
+
         return
 
     os.environ["PYTHONHASHSEED"] = default
+
     logger.info("PYTHONHASHSEED was unset; restarting with PYTHONHASHSEED=%s", default)
     os.execv(sys.executable, [sys.executable, *sys.orig_argv[1:]])

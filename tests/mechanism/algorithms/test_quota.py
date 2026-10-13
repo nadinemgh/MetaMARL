@@ -34,6 +34,7 @@ K = 5_000.0
 TEMPERATURE = 4.0
 QUOTA_WIDTH = 0.03
 USAGE_WIDTH = 0.005
+
 # Single-precision residuals: the mechanism stores the delivered action in a
 # float32 array.
 FLOAT32_ATOL = 1e-5
@@ -46,18 +47,22 @@ def logistic(x: float) -> float:
 
 def raw(fraction: float) -> np.ndarray:
     """Policy output ``z`` whose decoded fraction is ``fraction``."""
+
     z = TEMPERATURE * math.log(fraction / (1.0 - fraction))
+
     return np.array([z], dtype=np.float32)
 
 
 def allowed_fraction(level: float, quota: float, width: float = QUOTA_WIDTH) -> float:
     lower = logistic(-quota / width)
     upper = logistic((1.0 - quota) / width)
+
     return (logistic((level - quota) / width) - lower) / (upper - lower)
 
 
 def softplus0(x: float, width: float = USAGE_WIDTH) -> float:
     """Softplus of the given width, shifted to zero at the origin, floored at 0."""
+
     return max(0.0, width * (math.log1p(math.exp(x / width)) - math.log(2.0)))
 
 
@@ -70,6 +75,7 @@ def make(
 ) -> QuotaMechanism:
     if obs_map is None:
         obs_map = {"resource_level": "fish"}
+
     return Quota(
         id=mechanism_id,
         action_space=spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32),
@@ -83,6 +89,7 @@ def mdp_with(
     requests: dict[str, np.ndarray], level: float = 0.5, quota: float = 0.5
 ) -> MDPState:
     """State at ``t = 0``: stock at ``level`` of the capacity, quota held."""
+
     return MDPState(
         aids=set(requests),
         params={"K": K},
@@ -96,6 +103,7 @@ def mdp_with(
 
 def two_quota_regulator() -> Agent:
     """Regulator holding the quotas ``quota`` and ``strict`` on the same target."""
+
     return Agent(
         id=REGULATOR,
         policy_id="p",
@@ -108,6 +116,7 @@ def two_quota_mdp(z: np.ndarray) -> MDPState:
 
     Both quotas bind on a request of 0.9: they allow about 0.50 and 0.16.
     """
+
     return MDPState(
         aids={"fisherman:0"},
         params={"K": K},
@@ -129,11 +138,13 @@ def run(
     quota: float = 0.5,
 ) -> MDPState:
     mdp = mdp_with(requests, level=level, quota=quota)
+
     return mechanism(mdp, mdp.actions[REGULATOR]["quota"][0])
 
 
 def delivered_of(delta: MDPState, aid: str, z: np.ndarray) -> float:
     """Delivered fraction after the residual of ``delta`` is added to ``z``."""
+
     return logistic(float((z + delta.actions[aid]["harvest"][0]).item()) / TEMPERATURE)
 
 
@@ -155,9 +166,12 @@ class TestValidation:
         requests = {"fisherman:0": raw(0.5)}
         mechanism = make()
         mechanism.obs_map = None
+
         with pytest.raises(ValueError, match="resource_level"):
             run(mechanism, requests)
+
         mechanism.obs_map = {"stock": "fish"}
+
         with pytest.raises(ValueError, match="resource_level"):
             run(mechanism, requests)
 
@@ -200,16 +214,16 @@ class TestDecode:
         # keeps this property.
         mechanism = make()
         once = mechanism.decode(MDPState(), np.array([1.4]))
+
         assert mechanism.decode(MDPState(), once) == once
 
     def test_call_clips_the_quota_before_applying_it(self):
         # A quota of 1.4 behaves as a quota of 1: nothing binds above the stock.
         requests = {"fisherman:0": raw(0.9)}
         mdp = mdp_with(requests, level=0.5, quota=1.4)
-
         delta = make()(mdp, mdp.actions[REGULATOR]["quota"][0])
-
         expected = delivered_fraction(0.9, allowed_fraction(0.5, 1.0))
+
         assert delivered_of(delta, "fisherman:0", requests["fisherman:0"]) == (
             pytest.approx(expected, abs=FLOAT32_ATOL)
         )
@@ -218,7 +232,6 @@ class TestDecode:
         mdp = mdp_with({"fisherman:0": raw(0.5)}, quota=1.4)
 
         make()(mdp, mdp.actions[REGULATOR]["quota"][0])
-
         assert mdp.actions[REGULATOR]["quota"][0] == 1.0
 
 
@@ -250,10 +263,9 @@ class TestAllowedFraction:
     def test_delivery_follows_the_allowed_fraction(self, level, quota, width):
         z = raw(0.95)
         mechanism = make(quota_transition_width=width)
-
         delta = run(mechanism, {"fisherman:0": z}, level=level, quota=quota)
-
         expected = delivered_fraction(0.95, allowed_fraction(level, quota, width))
+
         assert delivered_of(delta, "fisherman:0", z) == pytest.approx(
             expected, abs=FLOAT32_ATOL
         )
@@ -263,7 +275,6 @@ class TestAllowedFraction:
         # a large request is cut to ``usage_width * ln 2``, the offset of the
         # shifted softplus.
         z = raw(0.9)
-
         delta = run(make(), {"fisherman:0": z}, level=0.0, quota=0.5)
 
         assert delivered_of(delta, "fisherman:0", z) == pytest.approx(
@@ -273,7 +284,6 @@ class TestAllowedFraction:
     def test_everything_is_allowed_when_the_stock_is_full(self):
         # ``b = 1`` gives ``current == upper``, hence an allowed fraction of 1.
         z = raw(0.9)
-
         delta = run(make(), {"fisherman:0": z}, level=1.0, quota=0.5)
 
         assert delivered_of(delta, "fisherman:0", z) == pytest.approx(
@@ -315,7 +325,6 @@ class TestAllowedFraction:
         mdp = mdp_with({"fisherman:0": z}, level=0.4)
         mdp.params["K"] = 2 * K
         mdp.state.data["fish"] = [0.4 * 2 * K]
-
         delta = make()(mdp, mdp.actions[REGULATOR]["quota"][0])
 
         assert delivered_of(delta, "fisherman:0", z) == pytest.approx(
@@ -337,10 +346,9 @@ class TestDelivery:
 
     def test_request_above_the_allowance_is_capped_and_lowered(self):
         z = raw(0.9)
-
         delta = run(make(), {"fisherman:0": z}, level=0.5)
-
         delivered = delivered_of(delta, "fisherman:0", z)
+
         assert delivered < 0.9
         assert delivered == pytest.approx(
             0.5 + USAGE_WIDTH * math.log(2.0), abs=FLOAT32_ATOL
@@ -363,10 +371,9 @@ class TestDelivery:
 
     def test_residual_keeps_the_shape_and_leaves_other_components_alone(self):
         z = np.array([raw(0.9)[0], 1.5, -2.0], dtype=np.float32)
-
         delta = run(make(), {"fisherman:0": z}, level=0.5)
-
         residual = delta.actions["fisherman:0"]["harvest"][0]
+
         assert residual.shape == z.shape
         assert residual[0] < 0
         np.testing.assert_array_equal(residual[1:], np.zeros(2, dtype=np.float32))
@@ -376,12 +383,10 @@ class TestDelivery:
         original = z.copy()
 
         run(make(), {"fisherman:0": z}, level=0.5)
-
         np.testing.assert_array_equal(z, original)
 
     def test_each_agent_is_capped_on_its_own_request(self):
         requests = {"fisherman:0": raw(0.2), "fisherman:1": raw(0.9)}
-
         delta = run(make(), requests, level=0.5)
 
         assert delivered_of(delta, "fisherman:0", requests["fisherman:0"]) == (
@@ -395,10 +400,9 @@ class TestDelivery:
         # A request of effectively zero is floored at 1e-6 before it is mapped
         # back to ``z``; the delivered fraction is that floor.
         z = np.array([-400.0], dtype=np.float32)
-
         delta = run(make(), {"fisherman:0": z}, level=0.5)
-
         delivered = z + delta.actions["fisherman:0"]["harvest"][0]
+
         assert logistic(float(delivered.item()) / TEMPERATURE) == pytest.approx(
             1e-6, rel=1e-3
         )
@@ -408,14 +412,12 @@ class TestDelivery:
 class TestTargeting:
     def test_only_agents_of_the_targeted_type_are_capped(self):
         requests = {"fisherman:0": raw(0.9), "farmer:0": raw(0.9)}
-
         delta = run(make(), requests, level=0.5)
 
         assert set(delta.actions.data) == {"fisherman:0"}
 
     def test_identifier_must_start_with_the_type_and_a_colon(self):
         requests = {"fisherman:0": raw(0.9), "fishermen:0": raw(0.9)}
-
         delta = run(make(), requests, level=0.5)
 
         assert set(delta.actions.data) == {"fisherman:0"}
@@ -428,7 +430,6 @@ class TestTargeting:
     def test_agents_without_the_targeted_mechanism_are_skipped(self):
         mdp = mdp_with({"fisherman:0": raw(0.9)})
         mdp.actions.data["fisherman:1"] = {"restore": raw(0.9)}
-
         delta = make()(mdp, mdp.actions[REGULATOR]["quota"][0])
 
         assert set(delta.actions.data) == {"fisherman:0"}
@@ -436,7 +437,6 @@ class TestTargeting:
     def test_the_targeted_mechanism_is_the_one_named(self):
         mdp = mdp_with({"fisherman:0": raw(0.9)})
         mdp.actions.data["fisherman:0"]["restore"] = raw(0.9)
-
         delta = make(acts_on=("fisherman", "restore"))(
             mdp, mdp.actions[REGULATOR]["quota"][0]
         )
@@ -463,7 +463,6 @@ class TestComposition:
         regulator = Agent(id=REGULATOR, policy_id="p", mechanisms={"quota": make()})
         z = raw(0.9)
         mdp = regulator.action(mdp_with({"fisherman:0": z}, level=0.5))
-
         capped = mdp.actions["fisherman:0"]["harvest"][0]
 
         assert logistic(float(capped.item()) / TEMPERATURE) == pytest.approx(
@@ -477,7 +476,6 @@ class TestComposition:
             state={"fish": 0.5 * K},
             actions={"fisherman:0": {"harvest": raw(0.9)}},
         )
-
         after = regulator.action(mdp)
 
         np.testing.assert_array_equal(
@@ -489,7 +487,6 @@ class TestComposition:
 class TestAllowedFractionEntry:
     def test_the_entry_holds_the_allowed_fraction_of_a_fresh_state(self):
         mdp = mdp_with({"fisherman:0": raw(0.9)}, level=0.4, quota=0.5)
-
         composed = mdp.add(make()(mdp, mdp.actions[REGULATOR]["quota"][0]))
 
         assert composed.state[ENTRY][0] == pytest.approx(allowed_fraction(0.4, 0.5))
@@ -497,7 +494,6 @@ class TestAllowedFractionEntry:
     def test_the_entry_replaces_the_value_already_in_the_state(self):
         mdp = mdp_with({"fisherman:0": raw(0.9)}, level=0.4, quota=0.5)
         mdp.state.data[ENTRY] = [0.7]
-
         composed = mdp.add(make()(mdp, mdp.actions[REGULATOR]["quota"][0]))
 
         assert composed.state[ENTRY][0] == pytest.approx(allowed_fraction(0.4, 0.5))
@@ -509,13 +505,15 @@ class TestAllowedFractionEntry:
         regulator = Agent(id=REGULATOR, policy_id="p", mechanisms={"quota": make()})
         levels = [0.8, 0.5, 0.2, 0.2]
         mdp = mdp_with({"fisherman:0": raw(0.9)}, level=levels[0], quota=0.5)
-
         recorded = []
+
         for step, level in enumerate(levels):
             if step:
                 mdp = mdp.advance(state={"fish": level * K})
                 mdp = mdp.update(actions={"fisherman:0": {"harvest": raw(0.9)}})
+
             mdp = regulator.action(mdp)
+
             recorded.append(mdp.state[ENTRY][mdp.t])
 
         assert recorded == pytest.approx(
@@ -540,15 +538,14 @@ class TestTwoQuotasOnOneTarget:
         z = raw(0.9)
         loose_alone = run(make(), {"fisherman:0": z}, level=0.5, quota=0.5)
         strict_alone = run(make(), {"fisherman:0": z}, level=0.5, quota=0.55)
-
         after = two_quota_regulator().action(two_quota_mdp(z))
-
         combined = after.actions["fisherman:0"]["harvest"][0]
         expected = (
             z
             + loose_alone.actions["fisherman:0"]["harvest"][0]
             + strict_alone.actions["fisherman:0"]["harvest"][0]
         )
+
         np.testing.assert_allclose(combined, expected, atol=FLOAT32_ATOL)
         assert logistic(float(combined.item()) / TEMPERATURE) < delivered_fraction(
             0.9, allowed_fraction(0.5, 0.55)

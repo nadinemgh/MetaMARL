@@ -20,7 +20,7 @@ def test_the_module_example_is_one_of_the_fishery_queries():
         if t.name == query_module.__name__
     ]
     runner = doctest.DocTestRunner()
-    runner.run(test, clear_globs=False)
 
+    runner.run(test, clear_globs=False)
     assert runner.failures == 0
     assert test.globs["query"] in INNER_QUERIES

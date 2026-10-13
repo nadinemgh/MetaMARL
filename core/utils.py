@@ -294,6 +294,7 @@ def sigmoid(x: float) -> float:
     >>> sigmoid(-1000.0)
     0.0
     """
+
     if x >= 0.0:
         z = np.exp(-x)
 

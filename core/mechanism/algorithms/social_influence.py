@@ -27,11 +27,10 @@ International Conference on Machine Learning, PMLR 97:3040-3049.
 arXiv:1810.08647.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 import numpy as np
-from gymnasium import Space
 
 from core.annotations import override
 from core.mechanism.base import ActType, MDPState, Mechanism
@@ -45,9 +44,12 @@ def _peer_order(aid: Any) -> tuple[int, int, str]:
     as strings would put ``"fisherman:10"`` before ``"fisherman:2"``, so the
     index is compared as an integer when it is one.
     """
+
     index = str(aid).rpartition(":")[2]
+
     if index.isdecimal():
         return (0, int(index), "")
+
     return (1, 0, str(aid))
 
 
@@ -108,11 +110,13 @@ class SocialInfluenceMechanism(Mechanism):
         self, *, obs_offset: int, influence_weight: float = 0.0, **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
+
         self.obs_offset = obs_offset
         self.influence_weight = influence_weight
 
         if self.obs_offset < 0:
             raise ValueError("obs_offset must be non-negative.")
+
         if self.influence_weight < 0.0:
             raise ValueError("influence_weight must be non-negative.")
 
@@ -140,6 +144,7 @@ class SocialInfluenceMechanism(Mechanism):
             If ``acts_on`` is missing or the reserved entries do not fit in an
             agent's observation.
         """
+
         if self.acts_on is None:
             raise ValueError("SocialInfluenceMechanism requires `acts_on`.")
 
@@ -159,7 +164,6 @@ class SocialInfluenceMechanism(Mechanism):
             )
             if str(aid).startswith(f"{target_agent}:") and target_mechanism in a
         }
-
         dobs = {}
 
         for aid in delivered:
@@ -184,6 +188,7 @@ class SocialInfluenceMechanism(Mechanism):
             dobs[aid] = contribution
 
         return MDPState(obs=dobs)
+
 
 @dataclass(frozen=True, kw_only=True)
 class SocialInfluence(MechanismConfig):

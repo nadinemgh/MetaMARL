@@ -56,7 +56,9 @@ class TestCandidatesHandedToTheEnvironment:
 
         population, _ = opt.population_history[0]
         (actions,) = opt.env.received
+
         assert len(actions) == 4
+
         for row, action in zip(population, actions):
             assert set(action) == {"quota", "subsidy"}
             np.testing.assert_array_equal(action["quota"], row[:2])
@@ -69,7 +71,6 @@ class TestCandidatesHandedToTheEnvironment:
         opt.env = scripted_env(quota_fitness(0.8))
 
         opt.train()
-
         assert opt.env.resets == 3
         assert len(opt.env.received) == 3
 
@@ -87,9 +88,10 @@ class TestCandidatesHandedToTheEnvironment:
         opt.env = scripted_env(fitness, steps=3)
 
         opt.train()
-
         assert len(opt.env.received) == 3
+
         _, kept = opt.population_history[0]
+
         np.testing.assert_array_equal(kept, [3.0, 3.0])
 
 
@@ -111,6 +113,7 @@ class TestGenerationNumerics:
             np.random.default_rng(SEED).standard_normal((1, 1), dtype=np.float32)[0, 0]
         )
         expected_population = sigmoid([sigma * z, -sigma * z])
+
         np.testing.assert_allclose(
             opt.population_history[0][0][:, 0], expected_population, atol=1e-6
         )
@@ -123,10 +126,10 @@ class TestGenerationNumerics:
     ):
         opt = es_factory(episodes=3, population=4)
         opt.env = scripted_env(quota_fitness(0.8))
-
         result = opt.train()
 
         assert len(result["population_history"]) == 3
+
         for population, fitness in result["population_history"]:
             assert population.shape == (4, 1)
             assert fitness.shape == (4,)
@@ -139,7 +142,6 @@ class TestGenerationNumerics:
             episodes=80, population=16, seed=0, sigma=0.3, mean_lr=0.1, sigma_lr=0.05
         )
         opt.env = scripted_env(quota_fitness(0.8))
-
         result = opt.train()
 
         assert abs(opt.mean[0] - 0.8) < 0.05
@@ -151,12 +153,13 @@ class TestGenerationNumerics:
     ):
         opt = es_factory(episodes=20, population=1, seed=3, sigma=0.3, sigma_lr=0.1)
         opt.env = scripted_env(quota_fitness(0.9))
-
         result = opt.train()
-
         first_population, _ = result["population_history"][0]
+
         np.testing.assert_array_equal(first_population, [[0.5]])
+
         fitness = np.array([f[0] for _, f in result["population_history"]])
+
         # The remembered parent is the best candidate seen so far.
         assert opt.fitness_baseline == pytest.approx(fitness.max())
         assert result["best_fitness"] == pytest.approx(fitness.max())
@@ -232,9 +235,10 @@ class TestMetricsReporting:
         opt.env = scripted_env(quota_fitness(0.8))
 
         opt.train()
-
         assert len(recording_reporting.reports) == 3
+
         last = recording_reporting.reports[-1]
+
         assert last.iter == [0, 1, 2]
         assert last.population_size == [4, 4, 4]
         assert len(last.by_mechanism) == 4
@@ -248,6 +252,7 @@ class TestMetricsReporting:
 
         logged = opt.logger.peek()
         fitness = [f for _, f in opt.population_history]
+
         np.testing.assert_allclose(
             logged.fitness_mean, [f.mean() for f in fitness], rtol=1e-6
         )
@@ -267,10 +272,13 @@ class TestMetricsReporting:
         opt.train()
 
         logged = opt.logger.peek()
+
         assert logged.sigma[0] == pytest.approx(0.3)
         assert logged.search_mean["quota"].value[0] == pytest.approx(0.5)
+
         # The second generation is drawn around the mean the first one produced.
         second_mean = logged.search_mean["quota"].value[1]
+
         assert second_mean != pytest.approx(0.5)
         assert logged.sigma == [pytest.approx(0.3), pytest.approx(0.3)]
 
@@ -285,6 +293,7 @@ class TestMetricsReporting:
         opt.train()
 
         logged = opt.logger.peek()
+
         assert isinstance(logged.inner, InnerMetrics)
         assert logged.inner.value == [7.0, 7.0]
 
@@ -298,6 +307,7 @@ class TestMetricsReporting:
         opt.train()
 
         inner = opt.logger.peek().inner
+
         assert type(inner) is MetricSchema
         assert inner.iter == []
 
@@ -319,6 +329,7 @@ class TestMetricsReporting:
 
 def flat_fitness(actions):
     """Same fitness for every candidate: no directional information."""
+
     return np.ones(len(actions), dtype=np.float32)
 
 
@@ -336,7 +347,6 @@ class TestConvergenceStop:
         # The stop is opt-in: a frozen mean does not end a default run early.
         opt = es_factory(episodes=12)
         opt.env = scripted_env(flat_fitness)
-
         result = opt.train()
 
         assert result["episodes"] == 12
@@ -355,6 +365,7 @@ class TestConvergenceStop:
         assert result["converged"] is True
         assert opt.env.resets == 3
         assert len(result["population_history"]) == 3
+
         assert "Converged | gen=2" in caplog.text
 
     def test_a_moving_mean_never_converges(self, es_factory, scripted_env):
@@ -362,7 +373,6 @@ class TestConvergenceStop:
             episodes=15, convergence_eps=1e-4, convergence_patience=2, mean_lr=0.5
         )
         opt.env = scripted_env(quota_fitness(0.9))
-
         result = opt.train()
 
         assert result["episodes"] == 15
@@ -371,7 +381,6 @@ class TestConvergenceStop:
     def test_zero_eps_disables_the_stop(self, es_factory, scripted_env):
         opt = es_factory(episodes=12, convergence_eps=0.0, convergence_patience=1)
         opt.env = scripted_env(flat_fitness)
-
         result = opt.train()
 
         assert result["episodes"] == 12
@@ -387,6 +396,7 @@ class TestConvergenceStop:
 
         # Each coordinate moves by 0.3: the norm is 0.424 and stays below eps.
         assert opt._update_convergence(np.array([0.2, 0.8], dtype=np.float32))
+
         # Each coordinate moves by 0.4: the norm is 0.566 and exceeds eps although
         # no single coordinate does.
         assert not opt._update_convergence(np.array([0.1, 0.9], dtype=np.float32))
@@ -414,7 +424,6 @@ class TestConvergenceStop:
             population=1, episodes=20, convergence_eps=1e-4, convergence_patience=4
         )
         opt.env = scripted_env(flat_fitness)
-
         result = opt.train()
 
         assert result["episodes"] == 4
@@ -429,7 +438,6 @@ class TestConvergenceStop:
             population=1, episodes=12, convergence_eps=1e-4, convergence_patience=3
         )
         opt.env = scripted_env(lambda actions: np.array([float(next(counter))]))
-
         result = opt.train()
 
         assert result["episodes"] == 12
@@ -444,7 +452,6 @@ class TestConvergenceStop:
             convergence_patience=2,
         )
         opt.env = scripted_env(lambda actions: np.array([1.0, 2.0]))
-
         result = opt.train()
 
         assert result["episodes"] == 12
@@ -466,15 +473,16 @@ def test_fixed_mode_generation_completes(es_factory, scripted_env):
     evaluated and reported; the payload of the generation must carry the
     fitness values and no parameter entries.
     """
+
     opt = es_factory({"penalty": unit_box(0)}, population=2)
     opt.env = scripted_env(lambda actions: np.array([1.0, 2.0]))
-
     result = opt.train()
 
     assert result["episodes"] == 1
     assert result["best_fitness"] == 2.0
 
     payload = opt.logger.peek()
+
     assert payload.fitness_mean == [1.5]
     assert payload.fitness_best == [2.0]
     assert payload.search_mean == {}

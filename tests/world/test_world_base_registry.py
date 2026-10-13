@@ -38,10 +38,9 @@ def test_copy_and_deepcopy_return_the_same_instance(world):
 @pytest.mark.unit
 def test_get_opt_ctx_ids_returns_a_copy(world, make_context, make_other):
     cid = world.append_context(make_context(make_other()))
-
     listing = world.get_opt_ctx_ids("opt")
-    listing.append("intruder")
 
+    listing.append("intruder")
     assert world.get_opt_ctx_ids("opt") == [cid]
 
 
@@ -55,7 +54,6 @@ def test_append_context_registers_mechanism_and_optimizer(
     world, make_context, make_mechanism
 ):
     ctx = make_context(make_mechanism(index=3, seed=7))
-
     cid = world.append_context(ctx)
 
     assert ctx.id == cid
@@ -73,8 +71,8 @@ def test_append_context_accepts_a_mechanism_without_env_id(
     world, make_context, make_mechanism
 ):
     """The regulator publishes candidates with ``env_id=None``."""
-    ctx = make_context(make_mechanism(env_id=None))
 
+    ctx = make_context(make_mechanism(env_id=None))
     cid = world.append_context(ctx)
 
     assert world.get_mechanism_registry() == {cid: ctx.payload}
@@ -85,7 +83,6 @@ def test_append_context_without_optimizer_and_with_plain_payload(
     world, make_context, make_other
 ):
     ctx = make_context(make_other(), opt_id=None)
-
     cid = world.append_context(ctx)
 
     assert world.get_context(cid) is ctx
@@ -98,7 +95,6 @@ def test_append_context_overwrites_a_caller_supplied_id(
     world, make_context, make_other
 ):
     ctx = make_context(make_other(), ctx_id="custom")
-
     cid = world.append_context(ctx)
 
     assert cid != "custom"
@@ -134,6 +130,7 @@ def test_append_context_singleton_is_enforced_per_payload_type(
 @pytest.mark.unit
 def test_singleton_check_compares_exact_payload_types(world, make_context, make_other):
     child_type = type("ChildSchema", (type(make_other()),), {})
+
     world.append_context(make_context(child_type()))
 
     # A parent schema is not considered present when only a child exists.
@@ -154,9 +151,7 @@ def test_set_new_opt_id_is_idempotent_and_keeps_existing_contexts(
 ):
     assert world._set_new_opt_id("reg") == "reg"
     assert world.get_opt_ctx_ids("reg") == []
-
     world.append_context(make_context(make_other(), opt_id="reg"))
-
     assert world._set_new_opt_id("reg") == "reg"
     assert len(world.get_opt_ctx_ids("reg")) == 1
 

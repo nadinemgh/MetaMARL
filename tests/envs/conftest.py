@@ -53,6 +53,7 @@ class ScriptedWorld:
 
     def _fetch(self, **kwargs):
         self.fetches.append(kwargs)
+
         return self.answers.pop(0) if self.answers else None
 
 
@@ -77,6 +78,7 @@ class Fee(Mechanism):
 
     def observe(self, mdp: MDPState) -> MDPState:
         fee = float(np.asarray(mdp.actions[self.aid][self.id][-1]).reshape(-1)[0])
+
         return MDPState(
             obs={aid: np.asarray([0.0, fee], dtype=np.float32) for aid in mdp.aids}
         )
@@ -87,6 +89,7 @@ class Fisher(Agent):
 
     def observation(self, mdp: MDPState) -> MDPState:
         stock = mdp.state["stock"][mdp.t]
+
         return MDPState(obs={self.id: np.asarray([stock, 0.0], dtype=np.float32)})
 
     def reward(self, mdp: MDPState) -> MDPState:
@@ -161,7 +164,9 @@ def fisher_configs(count: int = 2) -> dict[str, FisherConfig]:
 
 def regulator_configs(fee_default: float | None = None) -> dict[str, AgentConfig]:
     """The regulator leader; ``fee_default`` becomes the ``Fee`` default action."""
+
     default = None if fee_default is None else np.asarray([fee_default])
+
     return {
         "regulator": AgentConfig(
             id="regulator",
@@ -173,6 +178,7 @@ def regulator_configs(fee_default: float | None = None) -> dict[str, AgentConfig
 
 def candidate(fee: float) -> SimpleNamespace:
     """What ``World.get_mechanism_by_id`` returns for a published candidate."""
+
     return SimpleNamespace(mechanism={"fee": np.asarray([fee], dtype=np.float32)})
 
 
@@ -185,6 +191,7 @@ def make_toy_env(
     **overrides: Any,
 ) -> MultiAgentEnv:
     """Build ``env_cls`` with the toy agents; ``overrides`` replace any argument."""
+
     kwargs: dict[str, Any] = {
         "world": world,
         "mechanism_id": 0,
@@ -197,24 +204,29 @@ def make_toy_env(
         "reporter_cfg": RecordingReporterConfig(project="p"),
         "schema": EpisodeRolloutSchema,
     }
+
     kwargs.update(overrides)
+
     return env_cls(**kwargs)
 
 
 def harvest_actions(aids: list[str], amount: float) -> dict[str, dict[str, Any]]:
     """The action dictionary RLlib hands to the adapter, then to ``mdp.update``."""
+
     return {aid: {"harvest": np.asarray([amount], dtype=np.float32)} for aid in aids}
 
 
 @pytest.fixture
 def identity_ray_get(monkeypatch) -> None:
     """Make ``ray.get`` return its argument so no Ray runtime is needed."""
+
     monkeypatch.setattr(ray, "get", lambda ref, *args, **kwargs: ref)
 
 
 @pytest.fixture
 def toy() -> SimpleNamespace:
     """The toy benchmark as one namespace, so test modules need no conftest import."""
+
     return SimpleNamespace(
         ScriptedWorld=ScriptedWorld,
         ToyEnv=ToyEnv,

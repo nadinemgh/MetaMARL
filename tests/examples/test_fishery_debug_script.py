@@ -84,7 +84,6 @@ def test_importing_an_environment_leaves_the_root_logger_alone(module):
             "print(root.handlers, root.level)",
         ]
     )
-
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )

@@ -23,7 +23,6 @@ from core.reporting.tensor_board import TensorBoardConfig, TensorBoardReporter
 
 SERIES = ReduceProtocol.SERIES
 MEAN = ReduceProtocol.MEAN
-
 pytestmark = pytest.mark.unit
 
 
@@ -58,6 +57,7 @@ def read_scalars(log_dir) -> dict[str, list[tuple[int, float]]]:
     from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
     accumulator = EventAccumulator(str(log_dir))
+
     accumulator.Reload()
 
     return {
@@ -70,14 +70,13 @@ class TestConfig:
     def test_build_nests_project_and_world_label(self, tmp_path):
         config = TensorBoardConfig(project="proj", log_dir=str(tmp_path))
         config.world = "w"
-
         assert config.build(label="env0").log_dir == tmp_path / "proj" / "w-env0"
+
         assert config.build().log_dir == tmp_path / "proj" / "w"
 
     def test_building_is_lazy(self, tmp_path):
         config = TensorBoardConfig(project="proj", log_dir=str(tmp_path / "runs"))
         config.world = "w"
-
         reporter = config.build(label="a")
 
         assert isinstance(reporter, TensorBoardReporter)
@@ -91,10 +90,9 @@ class TestConfig:
 class TestScalarsWithAFakeWriter:
     def test_static_series_tag_value_and_step(self, fake_reporter, reporting_metrics):
         reporter, writer = fake_reporter
+
         reporter.add_query(Query(title="Loss curve", x=("iter",), y=("loss",)))
-
         reporter.report(reporting_metrics)
-
         assert writer.scalars == [
             ("Loss_curve/loss", 3.0, 0),
             ("Loss_curve/loss", 2.0, 1),
@@ -104,15 +102,17 @@ class TestScalarsWithAFakeWriter:
 
     def test_dynamic_groups_get_one_tag_each(self, fake_reporter, reporting_metrics):
         reporter, writer = fake_reporter
+
         reporter.add_query(
             Query(title="Fit", x=("iter",), y=("by_mech", SERIES, "fitness"))
         )
-
         reporter.report(reporting_metrics)
 
         by_tag = {}
+
         for tag, value, step in writer.scalars:
             by_tag.setdefault(tag, []).append((step, value))
+
         assert by_tag == {
             "Fit/by_mech_fitness_by_mech_m0_": [(0, 10.0), (1, 11.0), (2, 12.0)],
             "Fit/by_mech_fitness_by_mech_m1_": [(0, 20.0), (1, 21.0), (2, 22.0)],
@@ -120,6 +120,7 @@ class TestScalarsWithAFakeWriter:
 
     def test_legend_labels_name_the_tags(self, fake_reporter, reporting_metrics):
         reporter, writer = fake_reporter
+
         reporter.add_query(
             Query(
                 title="T",
@@ -128,13 +129,12 @@ class TestScalarsWithAFakeWriter:
                 legend_labels=("my loss", "my fitness"),
             )
         )
-
         reporter.report(reporting_metrics)
-
         assert {tag for tag, _, _ in writer.scalars} == {"T/my_loss", "T/my_fitness"}
 
     def test_std_is_logged_under_a_std_suffix(self, fake_reporter, reporting_metrics):
         reporter, writer = fake_reporter
+
         reporter.add_query(
             Query(
                 title="Mean",
@@ -144,9 +144,7 @@ class TestScalarsWithAFakeWriter:
                 error_path=("by_mech",),
             )
         )
-
         reporter.report(reporting_metrics)
-
         assert writer.scalars == [
             ("Mean/by_mech_fitness", 15.0, 0),
             ("Mean/by_mech_fitness", 16.0, 1),
@@ -162,7 +160,6 @@ class TestScalarsWithAFakeWriter:
         group = (("d", "a"),)
 
         reporter._report(query, {group: [4, 5]}, [{group: [1.0, 2.0]}], [{}], None)
-
         assert [step for _, _, step in writer.scalars] == [4, 5]
 
     def test_missing_x_group_is_an_error(self, fake_reporter):
@@ -179,7 +176,6 @@ class TestScalarsWithAFakeWriter:
         query = Query(title="t", x=("x",), y=("y",))
 
         reporter._report(query, {(): [0]}, [{}], [{}], None)
-
         assert reporter._writer is None
         assert not (tmp_path / "tb").exists()
 
@@ -187,6 +183,7 @@ class TestScalarsWithAFakeWriter:
         self, fake_reporter, reporting_metrics, caplog
     ):
         reporter, writer = fake_reporter
+
         reporter.add_query(
             Query(title="Colored", x=("iter",), y=("loss",), color=("iter",))
         )
@@ -202,14 +199,12 @@ class TestScalarsWithAFakeWriter:
 
         reporter.close()
         reporter.close()
-
         assert writer.closed and reporter._writer is None
 
     def test_close_without_a_writer_is_a_no_op(self, tmp_path):
         reporter = TensorBoardReporter(log_dir=tmp_path / "tb")
 
         reporter.close()
-
         assert reporter._writer is None and not (tmp_path / "tb").exists()
 
 
@@ -229,12 +224,13 @@ class TestEachPointIsWrittenOnce:
         self, fake_reporter, history
     ):
         reporter, writer = fake_reporter
+
         reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
+
         metrics = history([3.0, 2.0, 1.0])
 
         reporter.report(metrics)
         reporter.report(metrics)
-
         assert writer.scalars == [
             ("L/loss", 3.0, 0),
             ("L/loss", 2.0, 1),
@@ -243,12 +239,11 @@ class TestEachPointIsWrittenOnce:
 
     def test_a_growing_history_writes_only_the_new_points(self, fake_reporter, history):
         reporter, writer = fake_reporter
-        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
 
+        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
         reporter.report(history([3.0, 2.0]))
         reporter.report(history([3.0, 2.0, 1.0]))
         reporter.report(history([3.0, 2.0, 1.0, 0.5]))
-
         assert writer.scalars == [
             ("L/loss", 3.0, 0),
             ("L/loss", 2.0, 1),
@@ -260,12 +255,11 @@ class TestEachPointIsWrittenOnce:
         self, fake_reporter, history
     ):
         reporter, writer = fake_reporter
-        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
 
+        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
         reporter.report(history([3.0, 2.0]))
         reporter.report(history([7.0, 6.0]))  # same length, new values
         reporter.report(history([5.0]))  # shorter
-
         assert writer.scalars == [
             ("L/loss", 3.0, 0),
             ("L/loss", 2.0, 1),
@@ -276,18 +270,20 @@ class TestEachPointIsWrittenOnce:
 
     def test_nan_points_are_not_rewritten(self, fake_reporter, history):
         reporter, writer = fake_reporter
+
         reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
+
         metrics = history([float("nan"), 1.0])
 
         reporter.report(metrics)
         reporter.report(metrics)
-
         assert len(writer.scalars) == 2
 
     def test_each_group_and_the_std_series_are_tracked_separately(
         self, fake_reporter, reporting_metrics
     ):
         reporter, writer = fake_reporter
+
         reporter.add_query(
             Query(
                 title="Mean",
@@ -298,23 +294,26 @@ class TestEachPointIsWrittenOnce:
             ),
             Query(title="Fit", x=("iter",), y=("by_mech", SERIES, "fitness")),
         )
-
         reporter.report(reporting_metrics)
+
         written = len(writer.scalars)
-        reporter.report(reporting_metrics)
 
+        reporter.report(reporting_metrics)
         assert written == 3 + 3 + 3 + 3 and len(writer.scalars) == written
 
     def test_the_state_survives_close(self, fake_reporter, history):
         reporter, writer = fake_reporter
+
         reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
+
         metrics = history([3.0, 2.0])
 
         reporter.report(metrics)
         reporter.close()
-        reporter._writer = writer  # stands for the writer created by the next report
-        reporter.report(metrics)
 
+        reporter._writer = writer  # stands for the writer created by the next report
+
+        reporter.report(metrics)
         assert len(writer.scalars) == 2
 
     def test_a_rejected_x_writes_no_partial_series(self, fake_reporter):
@@ -328,13 +327,12 @@ class TestEachPointIsWrittenOnce:
 
     def test_event_files_hold_each_step_once(self, tmp_path, history):
         reporter = TensorBoardReporter(log_dir=tmp_path / "tb")
-        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
 
+        reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
         reporter.report(history([3.0, 2.0]))
         reporter.report(history([3.0, 2.0, 1.0]))
         reporter.report(history([3.0, 2.0, 1.0]))
         reporter.close()
-
         assert read_scalars(tmp_path / "tb")["L/loss"] == [(0, 3.0), (1, 2.0), (2, 1.0)]
 
 
@@ -365,6 +363,7 @@ class TestRealEventFiles:
         config = TensorBoardConfig(project="p", log_dir=str(tmp_path))
         config.world = "w"
         reporter = config.build(label="x")
+
         reporter.add_query(
             Query(
                 title="Mean",
@@ -374,35 +373,35 @@ class TestRealEventFiles:
                 error_path=("by_mech",),
             )
         )
-
         reporter.report(reporting_metrics)
         reporter.close()
 
         scalars = read_scalars(tmp_path / "p" / "w-x")
+
         assert scalars["Mean/by_mech_fitness"] == [(0, 15.0), (1, 16.0), (2, 17.0)]
         assert scalars["Mean/by_mech_fitness/std"] == [(0, 5.0), (1, 5.0), (2, 5.0)]
 
     def test_writer_is_created_once_and_reused(self, tmp_path, reporting_metrics):
         reporter = TensorBoardReporter(log_dir=tmp_path / "tb")
+
         reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
-
         reporter.report(reporting_metrics)
+
         writer = reporter._writer
-        reporter.report(reporting_metrics)
 
+        reporter.report(reporting_metrics)
         assert writer is not None and reporter._writer is writer
         reporter.close()
         assert reporter._writer is None
 
     def test_a_new_writer_is_created_after_close(self, tmp_path, reporting_metrics):
         reporter = TensorBoardReporter(log_dir=tmp_path / "tb")
+
         reporter.add_query(Query(title="L", x=("iter",), y=("loss",)))
-
         reporter.report(reporting_metrics)
         reporter.close()
         reporter.report(reporting_metrics)
         reporter.close()
-
         assert len(list((tmp_path / "tb").glob("events.out.tfevents.*"))) >= 1
         assert read_scalars(tmp_path / "tb")["L/loss"][0] == (0, 3.0)
 
@@ -410,6 +409,7 @@ class TestRealEventFiles:
         self, tmp_path, monkeypatch
     ):
         monkeypatch.setitem(sys.modules, "torch.utils.tensorboard", None)
+
         reporter = TensorBoardReporter(log_dir=tmp_path / "tb")
 
         with pytest.raises(ImportError, match="uv sync --extra tensorboard"):

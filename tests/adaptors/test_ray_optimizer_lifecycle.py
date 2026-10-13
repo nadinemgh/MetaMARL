@@ -75,6 +75,7 @@ class StubPolicyActorClass:
 
     def remote(self, algo_config):
         actor = StubPolicyActor(algo_config, self.train_results, self.eval_result)
+
         self.instances.append(actor)
 
         return actor
@@ -101,6 +102,7 @@ def make_config(
     policies=(),
 ):
     """Namespace carrying the attributes ``RayOptimizer`` reads from its config."""
+
     rllib_cfg = SimpleNamespace(
         evaluation_duration=evaluation_duration,
         evaluation_config={"rollout_fragment_length": rollout_fragment_length},
@@ -115,6 +117,7 @@ def make_config(
 
 def train_result(*, return_mean=1.5, iteration=7, steps=100, lifetime=700, loss=0.25):
     """Minimal new-API-stack ``Algorithm.train()`` result with one episode."""
+
     return {
         "training_iteration": iteration,
         "env_runners": {
@@ -135,7 +138,9 @@ def train_result(*, return_mean=1.5, iteration=7, steps=100, lifetime=700, loss=
 @pytest.fixture
 def actors(monkeypatch) -> StubPolicyActorClass:
     """Patch ``PolicyActor`` (imported lazily in ``__init__``) and ``ray.get``."""
+
     stub = StubPolicyActorClass()
+
     monkeypatch.setattr(policy_actor_module, "PolicyActor", stub)
     monkeypatch.setattr(ray, "get", lambda ref, *args, **kwargs: ref)
 
@@ -151,7 +156,6 @@ def make_optimizer(**config_kwargs) -> tuple[RayOptimizer, FakeWorld]:
 @pytest.mark.unit
 def test_init_spawns_the_actor_from_the_rllib_config(actors):
     cfg = make_config(evaluation_duration=10, rollout_fragment_length=5)
-
     opt = RayOptimizer(config=cfg)
 
     assert actors.instances == [opt.policy_actor]
@@ -170,6 +174,7 @@ def test_training_logs_learner_statistics_for_every_declared_module(actors):
     assert opt._module_ids == ("fisher_m0_s1", "fisher_m1_s1")
 
     by_mechanism = opt._to_logger_payload(train_result()).train.learner.by_mechanism
+
     assert by_mechanism["0"].by_seed["1"].by_policy["fisher"].policy_loss == 0.25
     assert np.isnan(by_mechanism["1"].by_seed["1"].by_policy["fisher"].policy_loss)
 
@@ -216,7 +221,9 @@ def test_train_runs_every_inner_iteration_then_evaluates(actors, caplog):
         for r in caplog.records
         if "Training step completed" in r.getMessage()
     ]
+
     assert len(lines) == 2
+
     assert "inner_iter=0" in lines[0] and "rllib_iter_lifetime=7" in lines[0]
     assert "inner_iter=1" in lines[1] and "rllib_iter_lifetime=8" in lines[1]
     assert "ep_return=3.0000" in lines[1] and "env_steps_lifetime=200" in lines[1]
@@ -238,11 +245,12 @@ def test_train_reports_the_metrics_once_after_the_evaluation(actors):
     actors.eval_result = {"env_runners": {"episode_return_mean": 9.0}}
     reporter = MagicMock(name="reporter")
     opt = RayOptimizer(config=make_config(), world=FakeWorld(), reporting=reporter)
-
     returned = opt.train()
 
     reporter.report.assert_called_once()
+
     (reported,) = reporter.report.call_args.args
+
     assert isinstance(reported, RaySchema)
     assert reported.iter == returned.iter == [0]
     assert reported.train.rollout.aggregate.reward_mean == [1.5]
@@ -270,7 +278,6 @@ def test_train_logs_the_nested_evaluation_block_of_a_result(actors):
     actors.train_results = [result]
     actors.eval_result = {"env_runners": {"episode_return_mean": 9.0}}
     opt, _ = make_optimizer()
-
     returned = opt.train()
 
     # First the block nested in the training result, then the explicit pass.
@@ -295,6 +302,7 @@ def test_evaluate_forwards_to_the_actor_logs_the_eval_branch_and_flushes(
     assert world.flushed == [MechanismStatus.eval]
 
     reduced = opt.logger.reduce()
+
     assert reduced.eval.rollout.aggregate.reward_mean == 4.0
     assert reduced.eval.performance.env_steps_this_iter == 12.0
     assert reduced.train.rollout.aggregate.reward_mean is None
@@ -304,17 +312,17 @@ def test_evaluate_forwards_to_the_actor_logs_the_eval_branch_and_flushes(
 def test_reset_clears_the_logger_and_counts_the_round(actors):
     actors.train_results = [train_result(return_mean=2.0)]
     opt, _ = make_optimizer()
+
     opt.train()
     assert opt.logger.peek().train is not None
-
     opt.reset()
-
     assert opt.policy_actor.calls[-1] == "reset"
     assert opt._es_round == 1
+
     reduced = opt.logger.reduce()
+
     assert reduced.iter is None
     assert reduced.train.rollout.aggregate.reward_mean is None
-
     opt.reset()
     assert opt._es_round == 2
 
@@ -326,6 +334,7 @@ def test_stop_stops_the_actor_and_returns_the_metrics_reduced_over_the_run(actor
         train_result(return_mean=3.0),
     ]
     opt, _ = make_optimizer()
+
     opt.train()
     opt.train()
 
@@ -333,6 +342,7 @@ def test_stop_stops_the_actor_and_returns_the_metrics_reduced_over_the_run(actor
 
     assert opt.policy_actor.calls[-1] == "stop"
     assert isinstance(reduced, RaySchema)
+
     # ``RaySchema.train`` is reduced with ``subtree_reduce=LAST``: the run's
     # summary is the last iteration, not the mean over iterations.
     assert reduced.train.rollout.aggregate.reward_mean == 3.0
@@ -352,6 +362,7 @@ def test_every_lifecycle_message_names_the_ray_optimizer(actors, caplog):
         opt.stop()
 
     messages = [r.getMessage() for r in caplog.records]
+
     assert len(messages) >= 6
     assert all(m.startswith("[Ray] ") for m in messages), messages
 
@@ -361,4 +372,5 @@ def test_save_is_a_stub_returning_none(actors):
     opt, _ = make_optimizer()
 
     assert opt.save() is None
+
     assert opt.save(checkpoint_dir="/nowhere") is None

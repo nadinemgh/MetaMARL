@@ -37,6 +37,7 @@ class Builder:
 
     def add(self, *args, **kwargs):
         self.calls.append(("add", args, kwargs))
+
         return self
 
     def note(self, **kwargs):
@@ -51,7 +52,9 @@ class Builder:
 
 def write(tmp_path, text: str, name: str = "config.yaml"):
     path = tmp_path / name
+
     path.write_text(textwrap.dedent(text))
+
     return path
 
 
@@ -125,7 +128,6 @@ def test_resolve_rejects_symbol_siblings_with_their_path():
 @pytest.mark.unit
 def test_resolve_instantiates_a_target_with_args_and_kwargs():
     value = {"_target_": f"{HERE}.Builder", "_args_": [1, 2], "name": "n", "k": [3]}
-
     built = resolve(value)
 
     assert isinstance(built, Builder)
@@ -141,7 +143,6 @@ def test_resolve_resolves_the_arguments_of_a_target_recursively():
         "dtype": {"_symbol_": "fractions.Fraction"},
         "pair": {"_tuple_": [1, 2]},
     }
-
     built = resolve(value)
 
     assert built.args == (fractions.Fraction(1, 4),)
@@ -174,7 +175,6 @@ def test_resolve_applies_the_calls_of_a_target_in_order():
             {"add": None},
         ],
     }
-
     built = resolve(value)
 
     assert built.calls == [
@@ -243,6 +243,7 @@ def test_load_yaml_reads_a_mapping(tmp_path):
 @pytest.mark.unit
 def test_load_yaml_expands_environment_variables(tmp_path, monkeypatch):
     monkeypatch.setenv("METAMARL_TEST_VALUE", "42")
+
     path = write(tmp_path, "a: $METAMARL_TEST_VALUE\nb: ${METAMARL_TEST_VALUE}0\n")
 
     assert load_yaml(path) == {"a": 42, "b": 420}
@@ -357,7 +358,6 @@ def test_run_experiment_applies_the_run_section_to_the_experiment(tmp_path):
           - add: {{_args_: [2]}}
         """,
     )
-
     experiment = run_experiment(path)
 
     assert [call[1] for call in experiment.calls] == [(1,), (2,)]

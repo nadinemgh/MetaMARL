@@ -37,6 +37,7 @@ def _same_point(
     """Return whether two ``(step, value)`` points are equal, NaN included."""
 
     (step_a, value_a), (step_b, value_b) = first, second
+
     # ``x != x`` is true only for NaN, which never equals itself.
     both_nan = value_a != value_a and value_b != value_b
 
@@ -159,6 +160,7 @@ class TensorBoardReporter(Reporter):
     def __init__(self, *, log_dir: Path) -> None:
         self._log_dir = Path(log_dir)
         self._writer: SummaryWriter | None = None
+
         # Points already written, per tag, as (step, value) pairs.
         self._written: dict[str, list[tuple[int, PrimitiveType]]] = {}
 
@@ -224,7 +226,6 @@ class TensorBoardReporter(Reporter):
             for x_value, y_value in zip(x_values, y_values, strict=True)
         ]
         written = self._written.get(tag, [])
-
         continues = len(written) <= len(points) and all(
             _same_point(old, new) for old, new in zip(written, points)
         )

@@ -91,22 +91,26 @@ class SubtreeRootSchema(MetricSchema):
 @pytest.fixture
 def metric_schemas():
     """Return ``(LeafSchema, RichLeafSchema, GroupSchema, RootSchema)``."""
+
     return LeafSchema, RichLeafSchema, GroupSchema, RootSchema
 
 
 @pytest.fixture
 def logger():
     """Return a fresh logger over ``RootSchema``."""
+
     return MetricLogger.from_schema(RootSchema)
 
 
 @pytest.fixture
 def subtree_schemas():
     """Return ``(SubtreeLeafSchema, SubtreeRootSchema)``."""
+
     return SubtreeLeafSchema, SubtreeRootSchema
 
 
 @pytest.fixture
 def subtree_logger():
     """Return a fresh logger over ``SubtreeRootSchema``."""
+
     return MetricLogger.from_schema(SubtreeRootSchema)

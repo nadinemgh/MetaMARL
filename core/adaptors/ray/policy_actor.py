@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import logging
 
-from core.metrics.schemas import MetricSchema
-
 import numpy as np
 import ray
 from ray.rllib.algorithms.algorithm import Algorithm
@@ -122,11 +120,7 @@ class PolicyActor:
 
         return self.algo.evaluate()
 
-    def compute_actions(
-        self,
-        policy_id: str,
-        obs_batch: np.ndarray,
-    ) -> np.ndarray:
+    def compute_actions(self, policy_id: str, obs_batch: np.ndarray) -> np.ndarray:
         """Sample actions for a batch of observations from one RLModule.
 
         Parameters
@@ -190,10 +184,7 @@ class PolicyActor:
 
         weights = self.algo.get_weights()
 
-        logger.info(
-            "[Ray] Initial policy weight hash: %s",
-            hash_weights(weights),
-        )
+        logger.info("[Ray] Initial policy weight hash: %s", hash_weights(weights))
 
     def stop(self) -> None:
         """Stop the owned ``Algorithm`` and release its workers.

@@ -463,13 +463,10 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
             ),
         )
         num_episodes = env_runner_results[NUM_EPISODES]
-        eval_results = {
-            ENV_RUNNER_RESULTS: env_runner_results,
-        }
+        eval_results = {ENV_RUNNER_RESULTS: env_runner_results}
     else:
         algo.metrics.aggregate(
-            all_metrics,
-            key=(EVALUATION_RESULTS, ENV_RUNNER_RESULTS),
+            all_metrics, key=(EVALUATION_RESULTS, ENV_RUNNER_RESULTS)
         )
 
         num_episodes = algo.metrics.peek(
@@ -480,9 +477,7 @@ def _evaluate_with_fixed_duration_once(algo, eval_env_runner_group):
 
         # CHANGED:
         eval_results = algo.metrics.peek(
-            EVALUATION_RESULTS,
-            default={},
-            latest_merged_only=True,
+            EVALUATION_RESULTS, default={}, latest_merged_only=True
         )
 
     # Warn if results are empty, it could be that this is because the eval timesteps

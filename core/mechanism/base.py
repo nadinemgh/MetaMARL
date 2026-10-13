@@ -32,7 +32,10 @@ from dataclasses import field
 
 from core.types import AgentID, MechanismID
 
+
 # TODO fix type annotations
+
+
 @dataclass
 class MDPState:
     """Snapshot of an episode: parameters, time and the four trajectories.
@@ -153,6 +156,7 @@ class MDPState:
             If a residual holds a value for a trajectory that has not reached
             step ``t - 1``: a step cannot be skipped, as in :meth:`update`.
         """
+
         if isinstance(ds, MDPState):
             ds = [ds]
 
@@ -208,8 +212,12 @@ class MDPState:
             t=self.t + 1,
             state=(self.state.append(state) if state is not None else self.state),
             obs=(self.obs.append(obs) if obs is not None else self.obs),
-            actions=(self.actions.append(actions) if actions is not None else self.actions),
-            rewards=(self.rewards.append(rewards) if rewards is not None else self.rewards),
+            actions=(
+                self.actions.append(actions) if actions is not None else self.actions
+            ),
+            rewards=(
+                self.rewards.append(rewards) if rewards is not None else self.rewards
+            ),
         )
 
     def update(
@@ -241,16 +249,21 @@ class MDPState:
         MDPState
             This state, after the update.
         """
+
         t = self.t if t is None else t
 
         if state is not None:
             self.state = self.state.update(t, state)
+
         if obs is not None:
             self.obs = self.obs.update(t, obs)
+
         if actions is not None:
             self.actions = self.actions.update(t, actions)
+
         if rewards is not None:
             self.rewards = self.rewards.update(t, rewards)
+
         return self
 
 
@@ -348,12 +361,8 @@ class Mechanism(ABC):
         self._u = default
 
     def __call__(
-            self, 
-            mdp: MDPState, 
-            action: Optional[ActType] = None, 
-            *, 
-            reset: bool = False
-        ) -> MDPState:
+        self, mdp: MDPState, action: Optional[ActType] = None, *, reset: bool = False
+    ) -> MDPState:
         """Decode ``action``, record it in ``mdp`` and return the residual.
 
         The decoded action is written, in place, at step ``mdp.t`` of
@@ -370,7 +379,7 @@ class Mechanism(ABC):
             Raw action for this mechanism, as held by ``mdp.raw_actions`` at the
             current step. :meth:`core.agents.base.Agent.action` passes it.
         reset : bool, optional
-            During reset, invoke ``on_reset`` with the decoded action, or ``None`` when 
+            During reset, invoke ``on_reset`` with the decoded action, or ``None`` when
             no action is available. Otherwise, invoke ``apply``.
 
         Returns
@@ -378,7 +387,10 @@ class Mechanism(ABC):
         MDPState
             Residual of the transition, as returned by :meth:`apply`.
         """
-        if reset: return self.on_reset(mdp, action)
+
+        if reset:
+            return self.on_reset(mdp, action)
+
         return self.apply(mdp, action)
 
     def decode(self, mdp: MDPState, action: ActType) -> ActType:
@@ -401,12 +413,13 @@ class Mechanism(ABC):
         ActType
             Action in the mechanism's own coordinates.
         """
+
         return action
 
     def on_reset(self, mdp: MDPState, action: Optional[ActType] = None) -> MDPState:
         """Return this mechanism's initial contribution to the MDP.
 
-        Called during environment reset, before initial observations are constructed. 
+        Called during environment reset, before initial observations are constructed.
         Mechanisms without initialization effects return an empty residual.
 
         Parameters
@@ -421,6 +434,7 @@ class Mechanism(ABC):
         MDPState
             Residual holding only the fields the mechanism initializes.
         """
+
         return MDPState()
 
     @abstractmethod
@@ -445,4 +459,5 @@ class Mechanism(ABC):
         NotImplementedError
             Always, in the base class; the method is abstract.
         """
+
         raise NotImplementedError

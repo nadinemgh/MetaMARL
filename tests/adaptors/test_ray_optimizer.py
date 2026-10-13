@@ -12,6 +12,7 @@ def _config(evaluation_config):
     rllib_cfg = SimpleNamespace(
         evaluation_duration=4, evaluation_config=evaluation_config
     )
+
     return SimpleNamespace(episodes=1, env=None, rllib_cfg=rllib_cfg)
 
 
@@ -36,12 +37,14 @@ class RecordingActorMethod:
 
     def remote(self) -> str:
         self.calls += 1
+
         return "object-ref"
 
 
 @pytest.mark.unit
 def test_stop_stops_the_policy_actor_and_returns_the_reduced_metrics(monkeypatch):
     monkeypatch.setattr(optimizer_module.ray, "get", lambda ref: ref)
+
     stop = RecordingActorMethod()
     opt = SimpleNamespace(
         policy_actor=SimpleNamespace(stop=stop),

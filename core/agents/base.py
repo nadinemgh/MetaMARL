@@ -8,15 +8,19 @@ leaders (the regulator whose mechanisms the outer optimizer searches).
 configurations store these recipes and the environments build the agents from
 them.
 """
-from dataclasses import dataclass, fields
+
+from dataclasses import dataclass
 from typing import ClassVar, Optional
-from gymnasium.core import ActType
-from gymnasium import Space
+
 import numpy as np
-from core.mechanism.base import Mechanism, MDPState
+from gymnasium import Space
+from gymnasium.core import ActType
+
+from core.mechanism.base import MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
 from core.types import AgentID, MechanismID, PolicyID
 from core.utils import sigmoid
+
 
 class Agent:
     _action: ClassVar[str | None] = None
@@ -83,37 +87,40 @@ class Agent:
         observation_space: Space | None = None,
     ):
         """Store the identity, the mechanisms and the observation space."""
+
         self.id = id
         self.policy_id = policy_id
         self.mechanisms = mechanisms
         self.observation_space = observation_space
 
-    def __init_subclass__(
-            cls,
-            **kwargs,
-        ):
+    def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
 
         for name, func in tuple(cls.__dict__.items()):
             # TODO (nadine) only reset, transition and state space belong to env
-            if getattr(func, "action", False): cls._action = name
-            if getattr(func, "reward", False): cls._reward = name
-            if getattr(func, "observation", False): cls._observation = name  # o_i = O_i(S_t)
-            if getattr(func, "observation_spaces", False): cls._observation_spaces = name
-    
+            if getattr(func, "action", False):
+                cls._action = name
+
+            if getattr(func, "reward", False):
+                cls._reward = name
+
+            if getattr(func, "observation", False):
+                cls._observation = name  # o_i = O_i(S_t)
+
+            if getattr(func, "observation_spaces", False):
+                cls._observation_spaces = name
+
     # TODO move this to Agent
     # TODO make this configurable in future
-    def _normalize_action(
-        self,
-        action: ActType,
-    ) -> np.ndarray:
+    def _normalize_action(self, action: ActType) -> np.ndarray:
         z = np.asarray(action, dtype=np.float32).reshape(-1)
         temperature = 4.0
-        return np.asarray([sigmoid(float(value) / temperature) for value in z], dtype=np.float32)
 
+        return np.asarray(
+            [sigmoid(float(value) / temperature) for value in z], dtype=np.float32
+        )
 
     # TODO (nadine) MDPState should be EnvState payload to replace MDPState
-
 
     def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
         """Apply this agent's mechanisms to the shared MDP state.
@@ -145,18 +152,27 @@ class Agent:
             action for this agent (or an empty one), ``mdp`` itself is
             returned unchanged.
         """
-        acts = mdp.actions.data.get(self.id) or {}
-        if not acts and not reset: return MDPState()
-        return MDPState().add([
-            self.mechanisms[mid](mdp, action, reset=reset) for mid in self.mechanisms
-            if (action := acts[mid][-1 if reset else mdp.t] 
-                if mid in acts and len(acts[mid]) > (0 if reset else mdp.t) else None) is not None or reset
-            ])
 
-    def observation(
-            self,
-            mdp: MDPState,
-    ) -> MDPState:
+        acts = mdp.actions.data.get(self.id) or {}
+
+        if not acts and not reset:
+            return MDPState()
+
+        return MDPState().add(
+            [
+                self.mechanisms[mid](mdp, action, reset=reset)
+                for mid in self.mechanisms
+                if (
+                    action := acts[mid][-1 if reset else mdp.t]
+                    if mid in acts and len(acts[mid]) > (0 if reset else mdp.t)
+                    else None
+                )
+                is not None
+                or reset
+            ]
+        )
+
+    def observation(self, mdp: MDPState) -> MDPState:
         # [self.logger.push(key=("by_agent", aid, "observation"), value=o) for aid, o in observations]
         return MDPState()
 
@@ -177,6 +193,7 @@ class Agent:
         MDPState
             An empty state in the base class.
         """
+
         return MDPState()
 
 
@@ -253,12 +270,15 @@ class AgentConfig:
     observation_space: Optional[Space] = None
     agent_cls: ClassVar[type[Agent]] = Agent
 
-
     def __post_init__(self) -> None:
         if self.count < 1:
             raise ValueError("count must be at least 1.")
 
-        mechanisms = (self.mechanisms if isinstance(self.mechanisms, tuple) else (self.mechanisms,))
+        mechanisms = (
+            self.mechanisms
+            if isinstance(self.mechanisms, tuple)
+            else (self.mechanisms,)
+        )
 
         if not mechanisms:
             raise ValueError("mechanisms cannot be empty.")
@@ -281,7 +301,9 @@ class AgentConfig:
             An instance of ``agent_cls`` carrying ``id``, ``policy_id``, the
             built mechanisms and ``observation_space``.
         """
+
         mechanisms = {cfg.id: cfg.build(self.id) for cfg in self.mechanisms}
+
         return self.agent_cls(
             id=self.id,
             policy_id=self.policy_id,

@@ -59,6 +59,7 @@ def test_episode_return_prefers_new_stack_key():
         "env_runners": {"episode_return_mean": np.float32(1.5)},
         "episode_reward_mean": 99.0,
     }
+
     assert get_episode_return_mean(result) == 1.5
 
 
@@ -66,6 +67,7 @@ def test_episode_return_prefers_new_stack_key():
 def test_episode_return_new_stack_zero_is_kept():
     # A genuine zero return must not fall through to the legacy key.
     result = {"env_runners": {"episode_return_mean": 0.0}, "episode_reward_mean": 9.0}
+
     assert get_episode_return_mean(result) == 0.0
 
 
@@ -78,6 +80,7 @@ def test_episode_return_legacy_top_level():
 def test_episode_return_legacy_top_level_zero_is_kept():
     # A genuine zero at the top level must not fall through to the nested key.
     result = {"episode_reward_mean": 0.0, "env_runners": {"episode_reward_mean": 9.0}}
+
     assert get_episode_return_mean(result) == 0.0
 
 
@@ -89,7 +92,9 @@ def test_episode_return_legacy_inside_env_runners():
 @pytest.mark.unit
 def test_episode_return_defaults_to_zero():
     assert get_episode_return_mean({}) == 0.0
+
     result = {"env_runners": {"episode_return_mean": "not a number"}}
+
     assert get_episode_return_mean(result) == 0.0
 
 
@@ -111,18 +116,21 @@ def test_env_steps_new_stack():
             "num_env_steps_sampled_lifetime": np.int64(4000),
         }
     }
+
     assert get_env_steps(result) == (200, 4000)
 
 
 @pytest.mark.unit
 def test_env_steps_legacy_fallback():
     result = {"timesteps_this_iter": 10.0, "timesteps_total": "30"}
+
     assert get_env_steps(result) == (10, 30)
 
 
 @pytest.mark.unit
 def test_env_steps_mixed_and_missing():
     result = {"env_runners": {"num_env_steps_sampled": 5}, "timesteps_total": 50}
+
     assert get_env_steps(result) == (5, 50)
     assert get_env_steps({}) == (0, 0)
     assert get_env_steps({"env_runners": {"num_env_steps_sampled": "x"}}) == (0, 0)
@@ -140,12 +148,14 @@ def test_env_steps_new_stack_zero_is_kept():
         "timesteps_this_iter": 8,
         "timesteps_total": 80,
     }
+
     assert get_env_steps(result) == (0, 0)
 
 
 @pytest.mark.unit
 def test_env_steps_truncates_floats():
     result = {"timesteps_this_iter": 7.9, "timesteps_total": 12.1}
+
     assert get_env_steps(result) == (7, 12)
 
 
@@ -163,6 +173,7 @@ def test_policy_loss_new_stack_averages_modules_and_skips_the_aggregate():
             "__all_modules__": {"policy_loss": 100.0},
         }
     }
+
     assert get_policy_loss_if_present(result) == 2.0
 
 
@@ -179,6 +190,7 @@ def test_policy_loss_new_stack_skips_non_finite_and_malformed_modules():
             "e": "not a dict",
         }
     }
+
     assert get_policy_loss_if_present(result) == 0.5
 
 
@@ -188,6 +200,7 @@ def test_policy_loss_new_stack_wins_over_classic_layout():
         "learners": {"m": {"policy_loss": 0.25}},
         "info": {"learner": {"p": {"learner_stats": {"policy_loss": 9.0}}}},
     }
+
     assert get_policy_loss_if_present(result) == 0.25
 
 
@@ -197,6 +210,7 @@ def test_policy_loss_all_nan_new_stack_falls_back_to_classic_layout():
         "learners": {"m": {"policy_loss": float("nan")}},
         "info": {"learner": {"p": {"learner_stats": {"policy_loss": 4.0}}}},
     }
+
     assert get_policy_loss_if_present(result) == 4.0
 
 
@@ -214,6 +228,7 @@ def test_policy_loss_classic_layout_averages_across_policies():
             }
         }
     }
+
     assert get_policy_loss_if_present(result) == 2.0
 
 
@@ -228,6 +243,7 @@ def test_policy_loss_classic_layout_skips_non_finite_losses():
             }
         }
     }
+
     assert get_policy_loss_if_present(result) == 0.5
 
 
@@ -236,6 +252,7 @@ def test_policy_loss_classic_layout_with_only_non_finite_losses_is_nan():
     result = {
         "info": {"learner": {"p0": {"learner_stats": {"policy_loss": float("nan")}}}}
     }
+
     assert math.isnan(get_policy_loss_if_present(result))
 
 
@@ -277,6 +294,7 @@ def _weights(scale: float = 1.0) -> dict:
 def test_hash_weights_is_deterministic_hex_sha256():
     h1 = hash_weights(_weights())
     h2 = hash_weights(_weights())
+
     assert h1 == h2
     assert len(h1) == 64
     int(h1, 16)
@@ -286,6 +304,7 @@ def test_hash_weights_is_deterministic_hex_sha256():
 def test_hash_weights_independent_of_dict_insertion_order():
     a = {"x": np.ones(2), "y": np.zeros(2)}
     b = {"y": np.zeros(2), "x": np.ones(2)}
+
     assert hash_weights(a) == hash_weights(b)
 
 
@@ -295,6 +314,7 @@ def test_hash_weights_changes_with_values_and_keys():
     assert hash_weights(_weights(scale=2.0)) != base
     renamed = _weights()
     renamed["policy"]["fc.w"] = renamed["policy"].pop("fc.weight")
+
     assert hash_weights(renamed) != base
 
 
@@ -302,10 +322,13 @@ def test_hash_weights_changes_with_values_and_keys():
 def test_hash_weights_tensor_and_equivalent_array_hash_alike():
     t = torch.tensor([1.0, 2.0], dtype=torch.float64)
     a = np.array([1.0, 2.0], dtype=np.float64)
+
     assert hash_weights(t) == hash_weights(a)
+
     # Non-contiguous inputs are made contiguous before hashing.
     t2 = torch.arange(4, dtype=torch.float64).reshape(2, 2).t()
     a2 = np.arange(4, dtype=np.float64).reshape(2, 2).T
+
     assert hash_weights(t2) == hash_weights(a2)
     assert hash_weights(t2) != hash_weights(
         torch.arange(4, dtype=torch.float64).reshape(2, 2)
@@ -315,6 +338,7 @@ def test_hash_weights_tensor_and_equivalent_array_hash_alike():
 @pytest.mark.unit
 def test_hash_weights_tensor_requiring_grad_hashes_like_its_values():
     t = torch.tensor([1.0, 2.0], requires_grad=True)
+
     assert hash_weights(t) == hash_weights(np.array([1.0, 2.0], dtype=np.float32))
 
 
@@ -353,5 +377,6 @@ def test_parse_learner_id_rejects_malformed_ids(learner_id):
         parse_learner_id(learner_id)
 
     assert repr(learner_id) in str(info.value)
+
     # The unpacking error is replaced, not chained.
     assert info.value.__cause__ is None

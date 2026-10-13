@@ -17,12 +17,14 @@ from core.mechanism.types import FlowTrajectory, Trajectory
 
 def _at(mdp: MDPState, t: int) -> MDPState:
     mdp.t = t
+
     return mdp
 
 
 @pytest.mark.unit
 def test_reward_of_a_step_does_not_include_earlier_steps():
     mdp = MDPState()
+
     for t, harvest in enumerate([0.5, 0.25, 0.75]):
         mdp = _at(mdp, t).add(MDPState(rewards={"a": harvest}))
 
@@ -45,10 +47,12 @@ def test_unwritten_reward_steps_are_zero():
     # zero when it is written again.
     rewards = {"a": [2.0, 3.0, 4.0], "b": 1.0}
     mdp = _at(MDPState(rewards=rewards), 2).add(MDPState(rewards={"b": 5.0}))
+
     assert mdp.rewards["b"] == [1.0, 0, 5.0]
     assert mdp.rewards["a"] == [2.0, 3.0, 4.0]
 
     advanced = MDPState(rewards={"a": 2.0}).advance(rewards={})
+
     assert advanced.rewards["a"] == [2.0, 0]
 
 
@@ -67,14 +71,17 @@ def test_mdp_state_wraps_each_field_in_its_trajectory_type():
     assert type(mdp.actions) is Trajectory
     assert type(mdp.rewards) is FlowTrajectory
     assert type(mdp.obs) is FlowTrajectory
+
     assert type(mdp.add(MDPState(rewards={"a": 1.0})).rewards) is FlowTrajectory
     assert type(mdp.add(MDPState(obs={"a": 1.0})).obs) is FlowTrajectory
+
     assert type(MDPState().obs) is FlowTrajectory
 
 
 @pytest.mark.unit
 def test_observation_of_a_step_does_not_include_earlier_steps():
     mdp = MDPState()
+
     for t, fish_norm in enumerate([0.8, 0.7, 0.6]):
         mdp = _at(mdp, t).add(MDPState(obs={"a": np.array([fish_norm, 0.0])}))
 
@@ -85,7 +92,6 @@ def test_observation_of_a_step_does_not_include_earlier_steps():
 def test_observation_contributions_at_the_same_step_are_summed():
     own = MDPState(obs={"a": np.array([0.8, 0.0])})
     from_mechanism = MDPState(obs={"a": np.array([0.0, 0.3])})
-
     mdp = _at(MDPState().add(own), 1).add([own, from_mechanism])
 
     np.testing.assert_allclose(mdp.obs["a"][1], [0.8, 0.3])

@@ -30,6 +30,7 @@ class ConstantRewardAgent:
 
 def make_env(rewards: dict[str, float]):
     """Stand-in ``self`` exposing what ``MultiAgentEnv.step`` touches."""
+
     followers = {aid: ConstantRewardAgent(aid, r) for aid, r in rewards.items()}
     env = SimpleNamespace(
         agents=dict(followers),
@@ -40,6 +41,7 @@ def make_env(rewards: dict[str, float]):
     )
     env.transition = lambda mdp: dataclasses.replace(mdp, t=mdp.t + 1)
     env.termination = lambda mdp: MultiAgentEnv.termination(env, mdp)
+
     return env
 
 
@@ -53,6 +55,7 @@ def test_step_logs_the_mean_follower_reward():
 
     # Each step's reward is the mean of the two fishermen's rewards, 2.0.
     reduced = env.logger.reduce()
+
     assert reduced.reward_mean == pytest.approx(2.0)
     assert reduced.reward_total == pytest.approx(6.0)
     assert reduced.reward_min == reduced.reward_max == pytest.approx(2.0)

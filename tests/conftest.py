@@ -28,6 +28,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     process today, so the hook is a guard for the first one that does; it also
     reports unit failures before the slow child-process runs begin.
     """
+
     ray_items = [
         item
         for item in items

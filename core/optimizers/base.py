@@ -17,6 +17,7 @@ from typing import Any, Optional
 # TODO move ray dependencies out of ray optimizer
 import gymnasium as gym
 from ray.actor import ActorHandle
+
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.optimizers.config import OptimizerConfig

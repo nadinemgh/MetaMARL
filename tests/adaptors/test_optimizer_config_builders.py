@@ -33,8 +33,6 @@ from core.optimizers.ppo.config import PPOptimizerConfig
 from core.reporting.query import Query
 
 BOX = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
-
-
 QUERY = Query(title="opt", x=("iter",), y=("iter",))
 
 
@@ -98,12 +96,13 @@ def test_a_builder_records_a_deferred_call_that_replays_on_the_rllib_config(
     builder, rllib_method, op_key
 ):
     cfg = PPOptimizerConfig()
-
     returned = getattr(cfg, builder)(opt=1)
 
     assert returned is cfg
     assert list(cfg._cfg_ops) == [op_key]
+
     op = cfg._cfg_ops[op_key]
+
     assert isinstance(op, RLlibConfigOp)
     assert op.args == () and op.kwargs == {"opt": 1}
 
@@ -138,19 +137,18 @@ def test_a_builder_called_twice_keeps_only_its_last_call():
 @pytest.mark.unit
 def test_ops_replay_in_the_order_the_builders_were_first_called():
     cfg = PPOptimizerConfig().resources(num_gpus=0).framework(framework="torch")
-    cfg.resources(num_gpus=2)
 
+    cfg.resources(num_gpus=2)
     assert list(cfg._cfg_ops) == ["resources", "framework"]
 
 
 @pytest.mark.unit
 def test_model_merges_its_kwargs_into_the_rllib_model_dict():
     cfg = PPOptimizerConfig()
-
     assert cfg.model(fcnet_hiddens=[8, 8]) is cfg
-
     rllib_cfg = MagicMock(name="AlgorithmConfig")
     rllib_cfg.model = {"existing": True}
+
     assert cfg._cfg_ops["model"](rllib_cfg) is rllib_cfg
     assert rllib_cfg.model == {"existing": True, "fcnet_hiddens": [8, 8]}
 
@@ -158,7 +156,6 @@ def test_model_merges_its_kwargs_into_the_rllib_model_dict():
 @pytest.mark.unit
 def test_training_stores_episodes_and_forwards_only_the_rllib_hyperparameters():
     cfg = PPOptimizerConfig()
-
     assert cfg.training(episodes=3, lr=1e-3, gamma=0.9) is cfg
 
     assert cfg.episodes == 3
@@ -177,9 +174,9 @@ def test_freeze_freezes_this_config_and_records_nothing_for_rllib():
     cfg = PPOptimizerConfig()
 
     cfg.freeze()
-
     assert cfg._is_frozen is True
     assert "freeze" not in cfg._cfg_ops
+
     with pytest.raises(AttributeError, match="frozen"):
         cfg.episodes = 99
 
@@ -187,11 +184,11 @@ def test_freeze_freezes_this_config_and_records_nothing_for_rllib():
 @pytest.mark.unit
 def test_copy_with_copy_frozen_returns_a_frozen_copy_and_leaves_the_original():
     cfg = PPOptimizerConfig().resources(num_gpus=0)
-
     frozen = cfg.copy(copy_frozen=True)
 
     assert frozen._is_frozen is True and cfg._is_frozen is False
     assert list(frozen._cfg_ops) == ["resources"]
+
     with pytest.raises(AttributeError, match="frozen"):
         frozen.episodes = 99
 
@@ -199,9 +196,11 @@ def test_copy_with_copy_frozen_returns_a_frozen_copy_and_leaves_the_original():
 @pytest.mark.unit
 def test_env_runners_records_the_mechanism_count_and_defaults_it_to_one():
     cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
+
     assert cfg.num_mechanisms == 4
 
     cfg = PPOptimizerConfig().env_runners(num_env_runners=2)
+
     assert cfg.num_mechanisms == 1
     assert cfg._cfg_ops["_env_runners"].kwargs == {"num_env_runners": 2}
 
@@ -209,12 +208,13 @@ def test_env_runners_records_the_mechanism_count_and_defaults_it_to_one():
 @pytest.mark.unit
 def test_reporting_stores_the_declaration_and_defers_the_rllib_kwargs():
     cfg = PPOptimizerConfig()
-
     returned = cfg.reporting(queries=(QUERY,), metrics_num_episodes_for_smoothing=5)
 
     assert returned is cfg
     assert cfg._reporting_queries == (QUERY,)
+
     op = cfg._cfg_ops["_reporting_rllib"]
+
     assert op.kwargs == {"metrics_num_episodes_for_smoothing": 5}
 
 
@@ -223,21 +223,21 @@ def test_reporting_with_none_keeps_the_previous_declaration():
     cfg = PPOptimizerConfig().reporting(queries=(QUERY,))
 
     cfg.reporting(queries=None)
-
     assert cfg._reporting_queries == (QUERY,)
 
 
 @pytest.mark.unit
 def test_evaluation_with_explicit_seeds_forces_manual_evaluation():
     cfg = PPOptimizerConfig()
-
     returned = cfg.evaluation(
         seeds=[3, "4"], evaluation_config={"env_config": {"x": 1}}
     )
 
     assert returned is cfg
     assert cfg.eval_seeds == [3, 4]
+
     kwargs = cfg._cfg_ops["_evaluation_rllib"].kwargs
+
     assert kwargs["evaluation_interval"] is None
     assert kwargs["evaluation_parallel_to_training"] is False
     assert kwargs["evaluation_config"]["env_config"] == {"x": 1, "mode": "eval"}
@@ -260,7 +260,9 @@ def test_evaluation_derives_the_seeds_from_the_base_seed():
 
     assert seeds == expected
     assert len(set(seeds)) == 3
+
     assert PPOptimizerConfig().evaluation(base_seed=43, num_seeds=3).eval_seeds != seeds
+
     # ``num_seeds`` defaults to one.
     assert len(PPOptimizerConfig().evaluation(base_seed=1).eval_seeds) == 1
 
@@ -270,7 +272,9 @@ def test_evaluation_without_seeds_leaves_them_unset_but_still_marks_eval_envs():
     cfg = PPOptimizerConfig().evaluation(evaluation_duration=3)
 
     assert cfg.eval_seeds is None
+
     kwargs = cfg._cfg_ops["_evaluation_rllib"].kwargs
+
     assert kwargs["evaluation_config"] == {"env_config": {"mode": "eval"}}
     assert kwargs["evaluation_duration"] == 3
 
@@ -292,7 +296,6 @@ def test_evaluation_rejects_inconsistent_seed_arguments(kwargs, message):
 @pytest.mark.unit
 def test_debugging_derives_training_seeds_and_scales_the_env_count():
     cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
-
     returned = cfg.debugging(seed=7, num_seeds=3, log_level="ERROR")
 
     assert returned is cfg
@@ -302,6 +305,7 @@ def test_debugging_derives_training_seeds_and_scales_the_env_count():
     assert cfg._cfg_ops["_debugging_rllib"].kwargs == {"seed": 7, "log_level": "ERROR"}
 
     rllib_cfg = MagicMock(name="AlgorithmConfig")
+
     cfg._cfg_ops["_debugging_rllib"](rllib_cfg)
     rllib_cfg.debugging.assert_called_once_with(seed=7, log_level="ERROR")
 
@@ -309,8 +313,8 @@ def test_debugging_derives_training_seeds_and_scales_the_env_count():
 @pytest.mark.unit
 def test_debugging_before_env_runners_scales_the_env_count_all_the_same():
     cfg = PPOptimizerConfig().debugging(seed=7, num_seeds=2)
-    cfg.env_runners(num_envs_per_env_runner=5)
 
+    cfg.env_runners(num_envs_per_env_runner=5)
     assert len(cfg.seeds) == 2
     assert cfg.num_mechanisms == 5
     assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 10
@@ -332,7 +336,6 @@ def test_calling_debugging_twice_does_not_compound_the_scaling():
     cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
 
     cfg.debugging(seed=7, num_seeds=3).debugging(seed=7, num_seeds=3)
-
     assert cfg.num_mechanisms == 4
     assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 12
 
@@ -342,7 +345,6 @@ def test_a_later_debugging_rescales_from_the_mechanism_count():
     cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
 
     cfg.debugging(seed=7, num_seeds=3).debugging(seed=7, num_seeds=2)
-
     assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 8
 
 
@@ -351,7 +353,6 @@ def test_calling_env_runners_again_rescales_from_the_new_mechanism_count():
     cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
 
     cfg.debugging(seed=7, num_seeds=3).env_runners(num_envs_per_env_runner=2)
-
     assert cfg.num_mechanisms == 2
     assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 6
 
@@ -361,7 +362,6 @@ def test_debugging_without_a_seed_after_a_seeded_one_restores_the_mechanism_coun
     cfg = PPOptimizerConfig().env_runners(num_envs_per_env_runner=4)
 
     cfg.debugging(seed=7, num_seeds=3).debugging()
-
     assert cfg.seeds == []
     assert cfg._cfg_ops["_env_runners"].kwargs["num_envs_per_env_runner"] == 4
 
@@ -393,7 +393,6 @@ def test_an_empty_agents_tuple_is_rejected():
 @pytest.mark.unit
 def test_episode_identity_is_parsed_into_string_fields():
     cfg = PPOptimizerConfig()
-
     identity = cfg._parse_episode_identity("env=3|m=1|ps=101|ss=202|raw=a=b|junk")
 
     # Segments without ``=`` are ignored and only the first ``=`` splits.
@@ -414,6 +413,7 @@ def test_an_untagged_episode_id_names_the_missing_keys(episode_id, missing):
         PPOptimizerConfig()._parse_episode_identity(episode_id)
 
     message = str(raised.value)
+
     assert episode_id in message
     assert all(key in message for key in missing)
 
@@ -429,8 +429,10 @@ def test_the_seeded_initializer_is_reproducible_per_layer_and_spares_the_global_
     init_a, init_b, init_c = (cfg._seeded_xavier_uniform(s) for s in (123, 123, 124))
 
     torch.manual_seed(0)
+
     state_before = torch.random.get_rng_state()
     a1, a2, b1, b2, c1 = (torch.empty(4, 3) for _ in range(5))
+
     init_a(a1)
     init_a(a2)
     init_b(b1)
@@ -445,6 +447,7 @@ def test_the_seeded_initializer_is_reproducible_per_layer_and_spares_the_global_
     assert torch.equal(torch.random.get_rng_state(), state_before)
 
     expected = torch.empty(4, 3)
+
     torch.manual_seed(123)
     torch.nn.init.xavier_uniform_(expected)
     assert torch.equal(a1, expected)

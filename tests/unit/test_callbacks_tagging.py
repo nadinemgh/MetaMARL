@@ -33,7 +33,9 @@ class FakeSubEnv:
 
 def make_runner(*sub_envs):
     """Build ``env_runner.env.envs[i].unwrapped`` around the given sub-envs."""
+
     wrapped = [SimpleNamespace(unwrapped=sub_env) for sub_env in sub_envs]
+
     return SimpleNamespace(env=SimpleNamespace(envs=wrapped))
 
 
@@ -49,7 +51,6 @@ def test_tag_rewrites_episode_id_and_sets_env_id():
     episode = SimpleNamespace(id_="abc123")
 
     tag(episode, make_runner(FakeSubEnv(), sub_env), env_index=1)
-
     assert episode.id_ == "env=1|m=2|ps=11|ss=7|raw=abc123"
     assert sub_env.env_id == 1
 
@@ -60,7 +61,6 @@ def test_tag_leaves_already_tagged_ids_untouched():
     episode = SimpleNamespace(id_="env=0|m=0|ps=1|ss=1|raw=x")
 
     tag(episode, make_runner(sub_env), env_index=0)
-
     assert episode.id_ == "env=0|m=0|ps=1|ss=1|raw=x"
 
 
@@ -79,6 +79,7 @@ def test_tag_accepts_same_env_id_on_later_episodes():
 def test_tag_raises_when_env_id_changes():
     sub_env = FakeSubEnv(env_id=0)
     runner = make_runner(FakeSubEnv(), sub_env)
+
     with pytest.raises(RuntimeError, match="Immutable env_id changed"):
         tag(SimpleNamespace(id_="raw"), runner, env_index=1)
 
@@ -86,6 +87,7 @@ def test_tag_raises_when_env_id_changes():
 @pytest.mark.unit
 def test_tag_raises_without_mechanism_id():
     sub_env = FakeSubEnv(mechanism_id=None)
+
     with pytest.raises(RuntimeError, match="no mechanism_id"):
         tag(SimpleNamespace(id_="raw"), make_runner(sub_env), env_index=0)
 
@@ -93,5 +95,6 @@ def test_tag_raises_without_mechanism_id():
 @pytest.mark.unit
 def test_tag_raises_without_seed():
     sub_env = FakeSubEnv(seed=None)
+
     with pytest.raises(RuntimeError, match="no seed"):
         tag(SimpleNamespace(id_="raw"), make_runner(sub_env), env_index=0)

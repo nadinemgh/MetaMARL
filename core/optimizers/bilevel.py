@@ -312,15 +312,11 @@ class BilevelConfig(OptimizerConfig):
         # Assign see to outer cfg for looping
         if inner_cfg.seeds is not None:
             outer_cfg._merge_env_config({"seeds": inner_cfg.seeds})
+
         inner_cfg._merge_env_config({"leaders_cfg_dict": outer_cfg.agents_cfgs})
-        inner_opt = inner_cfg.build_optimizer(
-            world=world,
-            world_name=self.world_name,
-        )
-        outer_opt = outer_cfg.build_optimizer(
-            world=world,
-            inner_opt=inner_opt,
-        )
+
+        inner_opt = inner_cfg.build_optimizer(world=world, world_name=self.world_name)
+        outer_opt = outer_cfg.build_optimizer(world=world, inner_opt=inner_opt)
 
         # what if outer_opt does not have that property ??
         # override outer_opt population size with inner_opt batch_size
@@ -454,4 +450,5 @@ class BilevelOptimizer(Optimizer):
             result["best_mechanism"],
             result["best_fitness"],
         )
+
         return result

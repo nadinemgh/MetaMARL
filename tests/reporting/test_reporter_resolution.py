@@ -23,7 +23,6 @@ from core.reporting.query import Query
 
 SERIES = ReduceProtocol.SERIES
 MEAN = ReduceProtocol.MEAN
-
 M0 = (("by_mech", "m0"),)
 M1 = (("by_mech", "m1"),)
 M0_S1 = (("by_mech", "m0"), ("by_seed", "s1"))
@@ -51,6 +50,7 @@ class TestSeriesLabels:
         assert (
             Reporter._series_label(("a", "b"), group) == "a/b [by_mech=m0, by_seed=s1]"
         )
+
         assert Reporter._series_label(("a", "b"), group, label="L") == (
             "L [by_mech=m0, by_seed=s1]"
         )
@@ -73,7 +73,6 @@ class TestQueryRegistry:
 
         backendless_reporter.add_query(first)
         backendless_reporter.add_query(second, first)
-
         assert backendless_reporter.queries == (first, second, first)
 
     def test_queries_are_not_shared_between_reporters(self, backendless_reporter):
@@ -168,7 +167,6 @@ class TestResolvePathSeries:
         self, backendless_reporter, reporting_metrics
     ):
         reporting_metrics.by_mech = dict(reversed(reporting_metrics.by_mech.items()))
-
         result = backendless_reporter._resolve_path(
             ("by_mech", SERIES, "fitness"), reporting_metrics
         )
@@ -179,7 +177,6 @@ class TestResolvePathSeries:
         self, backendless_reporter, reporting_metrics
     ):
         reporting_metrics.by_mech = {}
-
         result = backendless_reporter._resolve_path(
             ("by_mech", SERIES, "fitness"), reporting_metrics
         )
@@ -250,7 +247,6 @@ class TestResolvePathMean:
         self, backendless_reporter, reporting_metrics
     ):
         reporting_metrics.by_mech = {}
-
         result = backendless_reporter._resolve_path(
             ("by_mech", MEAN, "fitness"), reporting_metrics
         )
@@ -270,7 +266,6 @@ class TestResolvePathMean:
                 for seed in ("s1", "s2")
             }
         }
-
         result = backendless_reporter._resolve_path(
             ("by_seed", MEAN, "by_policy", SERIES, "v"), metrics
         )
@@ -302,7 +297,6 @@ class TestResolvePathMean:
     ):
         # A gap (None) is a push in which the logger had no value for that id.
         reporting_metrics.by_mech["m0"].fitness = [10.0, None, 12.0]
-
         result = backendless_reporter._resolve_path(
             ("by_mech", MEAN, "fitness"),
             reporting_metrics,
@@ -318,15 +312,14 @@ class TestResolvePathMean:
     ):
         reporting_metrics.by_mech["m0"].fitness = [10.0, None, 12.0]
         reporting_metrics.by_mech["m1"].fitness = [20.0, None, 22.0]
-
         result = backendless_reporter._resolve_path(
             ("by_mech", MEAN, "fitness"),
             reporting_metrics,
             error="std",
             error_path=("by_mech",),
         )
-
         mean, std = result.values[()], result.errors[()]
+
         assert (mean[0], mean[2]) == (15.0, 17.0) and math.isnan(mean[1])
         assert (std[0], std[2]) == (5.0, 5.0) and math.isnan(std[1])
 
@@ -335,7 +328,6 @@ class TestResolvePathMean:
     ):
         # NaN is a value (a statistic RLlib did not report), not a gap.
         reporting_metrics.by_mech["m0"].fitness = [10.0, float("nan"), 12.0]
-
         result = backendless_reporter._resolve_path(
             ("by_mech", MEAN, "fitness"), reporting_metrics
         )
@@ -362,7 +354,6 @@ class TestResolveQuery:
         query = Query(
             title="t", x=("iter",), y=(("loss",), ("by_mech", "m0", "fitness"))
         )
-
         xs, yss, error_yss, colors = backendless_reporter._resolve_query(
             reporting_metrics, query
         )
@@ -378,7 +369,6 @@ class TestResolveQuery:
         query = Query(
             title="t", x=("by_mech", SERIES, "param"), y=("by_mech", SERIES, "fitness")
         )
-
         xs, yss, _, _ = backendless_reporter._resolve_query(reporting_metrics, query)
 
         assert xs == {M0: [0.1, 0.2, 0.3], M1: [0.4, 0.5, 0.6]}
@@ -394,7 +384,6 @@ class TestResolveQuery:
             error="std",
             error_path=("by_mech",),
         )
-
         _, yss, error_yss, _ = backendless_reporter._resolve_query(
             reporting_metrics, query
         )
@@ -414,7 +403,6 @@ class TestResolveQuery:
             y=("by_mech", SERIES, "fitness"),
             color=("by_mech", SERIES, "param"),
         )
-
         *_, shared_colors = backendless_reporter._resolve_query(
             reporting_metrics, shared
         )
@@ -429,6 +417,7 @@ class TestResolveQuery:
         self, backendless_reporter, reporting_metrics
     ):
         reporting_metrics.by_mech["m1"].fitness.append(23.0)
+
         query = Query(title="t", x=("iter",), y=("by_mech", SERIES, "fitness"))
 
         with pytest.raises(ValueError, match="must have equal length") as exc:
@@ -452,6 +441,7 @@ class TestResolveQuery:
         self, backendless_reporter, reporting_metrics
     ):
         reporting_metrics.by_mech["m0"].param.append(0.4)
+
         query = Query(
             title="t", x=("by_mech", SERIES, "param"), y=("by_mech", SERIES, "fitness")
         )
@@ -463,6 +453,7 @@ class TestResolveQuery:
 
     def test_color_length_mismatch(self, backendless_reporter, reporting_metrics):
         reporting_metrics.loss.pop()
+
         query = Query(
             title="t", x=("iter",), y=("by_mech", SERIES, "fitness"), color=("loss",)
         )
@@ -529,13 +520,14 @@ class TestReport:
             error="std",
             error_path=("by_mech",),
         )
-        backendless_reporter.add_query(first, second)
 
+        backendless_reporter.add_query(first, second)
         backendless_reporter.report(reporting_metrics)
 
         (q1, x1, ys1, errors1, colors1), (q2, _, ys2, errors2, _) = (
             backendless_reporter.calls
         )
+
         assert (q1, q2) == (first, second)
         assert x1 == {(): [0, 1, 2]}
         assert ys1 == [{(): [3.0, 2.0, 1.0]}] and errors1 == [{}] and colors1 is None
@@ -546,19 +538,17 @@ class TestReport:
         self, backendless_reporter, reporting_metrics
     ):
         before = reporting_metrics.model_dump()
+
         backendless_reporter.add_query(
             Query(title="a", x=("iter",), y=("by_mech", MEAN, "fitness"))
         )
-
         backendless_reporter.report(reporting_metrics)
-
         assert reporting_metrics.model_dump() == before
 
     def test_no_query_means_no_backend_call(
         self, backendless_reporter, reporting_metrics
     ):
         backendless_reporter.report(reporting_metrics)
-
         assert backendless_reporter.calls == []
 
     def test_a_failing_query_is_logged_and_the_others_are_rendered(
@@ -567,6 +557,7 @@ class TestReport:
         # Reporting runs at the end of every training iteration: a stale query
         # must not abort the run nor hide the queries that come after it.
         good = Query(title="good", x=("iter",), y=("loss",))
+
         backendless_reporter.add_query(
             Query(title="bad", x=("iter",), y=("nope",)), good
         )
@@ -575,7 +566,9 @@ class TestReport:
             backendless_reporter.report(reporting_metrics)
 
         assert [call[0] for call in backendless_reporter.calls] == [good]
+
         (record,) = caplog.records
+
         assert "'bad'" in record.getMessage()
         assert record.exc_info is not None
         assert "Unknown metric path" in str(record.exc_info[1])
@@ -585,12 +578,15 @@ class TestReport:
     ):
         first = Query(title="first", x=("iter",), y=("loss",))
         second = Query(title="second", x=("iter",), y=("loss",))
+
         backendless_reporter.add_query(first, second)
+
         rendered = []
 
         def flaky_report(query, *args):
             if query is first:
                 raise OSError("disk full")
+
             rendered.append(query)
 
         monkeypatch.setattr(backendless_reporter, "_report", flaky_report)
@@ -599,7 +595,9 @@ class TestReport:
             backendless_reporter.report(reporting_metrics)
 
         assert rendered == [second]
+
         (record,) = caplog.records
+
         assert "'first'" in record.getMessage()
         assert isinstance(record.exc_info[1], OSError)
 

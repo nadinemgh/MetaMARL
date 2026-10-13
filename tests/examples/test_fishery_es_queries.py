@@ -42,12 +42,13 @@ def fishery_es() -> ESOptimizer:
     outer_cfg = load_experiment(CONFIG).outer_cfg
     opt = ESOptimizer(outer_cfg)
     opt.batch_capacity = POPULATION_SIZE
-
     rng = np.random.default_rng(0)
+
     for generation in range(GENERATIONS):
         population = rng.uniform(size=(POPULATION_SIZE, opt.dimension))
         fitness = rng.normal(size=POPULATION_SIZE)
         opt.best_candidate = population[int(np.argmax(fitness))]
+
         opt.logger.push_data(
             opt._to_logger_payload(
                 generation=generation,

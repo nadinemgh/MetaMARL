@@ -26,6 +26,7 @@ class Hooked(Leaf):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
         self.seen = []
 
     def _on_env_init(self, env):
@@ -34,6 +35,7 @@ class Hooked(Leaf):
 
 def config_with(**attributes) -> OptimizerConfig:
     cfg = OptimizerConfig(opt_class=Leaf)
+
     for name, value in attributes.items():
         setattr(cfg, name, value)
 
@@ -48,17 +50,19 @@ class TestIdentity:
 
     def test_the_id_can_be_assigned_once(self):
         opt = Leaf()
-
         opt.id = "a"
 
         assert opt.id == "a"
         assert opt.opt_id == "a"
+
         with pytest.raises(RuntimeError, match="Optimizer ID already set"):
             opt.id = "b"
+
         assert opt.id == "a"
 
     def test_the_string_form_names_the_class_and_the_id(self):
         opt = Leaf()
+
         assert str(opt) == "Leaf(id=None)"
 
         opt.id = "x1"
@@ -71,7 +75,6 @@ class TestConstruction:
     def test_episodes_and_environment_come_from_the_config(self):
         env_class = object
         cfg = config_with(episodes=12, env=env_class)
-
         opt = Leaf(cfg)
 
         assert opt.config is cfg
@@ -90,7 +93,6 @@ class TestConstruction:
 
     def test_from_config_builds_the_class_with_that_config(self):
         cfg = config_with(episodes=3)
-
         opt = Leaf.from_config(cfg)
 
         assert isinstance(opt, Leaf)
@@ -104,7 +106,6 @@ class TestGraph:
 
         outer.set_downstream(inner)
         inner.set_upstream(outer)
-
         assert outer._downstream == {inner}
         assert inner._upstream == {outer}
         assert outer._upstream == set() and inner._downstream == set()
@@ -114,7 +115,6 @@ class TestGraph:
 
         outer.set_downstream(inner)
         outer.set_downstream(inner)
-
         assert len(outer._downstream) == 1
 
 
@@ -122,7 +122,6 @@ class TestGraph:
 class TestEnvironmentHook:
     def test_attaching_an_environment_fires_the_hook(self):
         opt = Hooked()
-
         opt.env = "env"
 
         assert opt.env == "env"
@@ -131,7 +130,6 @@ class TestEnvironmentHook:
     def test_detaching_the_environment_does_not_fire_the_hook(self):
         opt = Hooked()
         opt.env = "env"
-
         opt.env = None
 
         assert opt.env is None
@@ -139,7 +137,6 @@ class TestEnvironmentHook:
 
     def test_the_default_hook_is_a_no_op(self):
         opt = Leaf()
-
         opt.env = "env"
 
         assert opt.env == "env"
@@ -207,7 +204,6 @@ class TestMetricHelpers:
         opt.reporting = None
 
         opt.report_metrics()
-
         assert calls == []
 
     def test_reduce_returns_what_the_logger_reduces(self):
@@ -219,12 +215,10 @@ class TestMetricHelpers:
         opt, calls = self.make()
 
         opt.flush_metrics()
-
         assert calls == ["reset"]
 
     def test_report_renders_a_peek_not_a_reduction(self):
         opt, calls = self.make()
 
         opt.report_metrics()
-
         assert calls == [("report", "peeked")]

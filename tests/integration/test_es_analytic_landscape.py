@@ -37,7 +37,9 @@ class AnalyticRegulatorEnv:
             [[a[mid][0] for mid in MECHANISM_IDS] for a in actions], dtype=np.float32
         )
         fitness = -np.sum((candidates - OPTIMUM) ** 2, axis=1)
+
         self.fitness_calls.append(fitness)
+
         return None, fitness, True, False, {}
 
 
@@ -70,6 +72,7 @@ def make_optimizer() -> ESOptimizer:
     optimizer = ESOptimizer(cfg)
     optimizer.batch_capacity = POPULATION
     optimizer.env = AnalyticRegulatorEnv()
+
     return optimizer
 
 
@@ -77,10 +80,9 @@ def make_optimizer() -> ESOptimizer:
 def test_the_search_mean_moves_towards_the_optimum():
     optimizer = make_optimizer()
     initial_distance = np.linalg.norm(optimizer.mean - OPTIMUM)
-
     result = optimizer.train()
-
     final_distance = np.linalg.norm(optimizer.mean - OPTIMUM)
+
     assert result["episodes"] == GENERATIONS
     assert final_distance < 0.5 * initial_distance
 
@@ -90,9 +92,9 @@ def test_every_generation_evaluates_the_whole_population():
     optimizer = make_optimizer()
 
     optimizer.train()
-
     assert len(optimizer.env.fitness_calls) == GENERATIONS
     assert len(optimizer.population_history) == GENERATIONS
+
     for population, fitness in optimizer.population_history:
         assert population.shape == (POPULATION, 3)
         assert fitness.shape == (POPULATION,)
@@ -101,10 +103,9 @@ def test_every_generation_evaluates_the_whole_population():
 @pytest.mark.unit
 def test_the_best_candidate_found_beats_the_first_generation():
     optimizer = make_optimizer()
-
     result = optimizer.train()
-
     first_generation = optimizer.population_history[0][1]
+
     assert result["best_fitness"] >= first_generation.max()
     assert result["best_fitness"] > -0.05
     assert np.linalg.norm(result["best_mechanism"] - OPTIMUM) < 0.25

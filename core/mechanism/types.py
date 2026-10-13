@@ -3,10 +3,12 @@
 A Trajectory stores histories of states, actions, rewards, observations,
 and mechanism residuals as nested dictionaries of timestep-indexed lists.
 """
+
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
 T = TypeVar("T")
+
 
 @dataclass
 class Trajectory(Generic[T]):
@@ -188,6 +190,7 @@ class Trajectory(Generic[T]):
         The lists are copied, so appending to the copy leaves the original
         alone. The values inside the lists, such as NumPy arrays, are shared.
         """
+
         return type(self)(self._copy_tree(self.data))
 
     @property
@@ -196,6 +199,7 @@ class Trajectory(Generic[T]):
 
         An empty trajectory has length ``0``.
         """
+
         return self._length(self.data)
 
     def add(self, t: int, deltas: list["Trajectory[T]"]) -> "Trajectory[T]":
@@ -230,6 +234,7 @@ class Trajectory(Generic[T]):
         Trajectory
             New trajectory of the same type as this one.
         """
+
         result = self.copy()
 
         for delta in deltas:
@@ -243,6 +248,7 @@ class Trajectory(Generic[T]):
         Equivalent to :meth:`update` at step :attr:`length`. Leaves that
         ``values`` does not mention receive their fill value for the new step.
         """
+
         return self.update(self.length, values)
 
     def update(self, t: int, values: dict[Any, Any]) -> "Trajectory[T]":
@@ -275,6 +281,7 @@ class Trajectory(Generic[T]):
         TypeError
             If a path is a leaf in one tree and a branch in the other.
         """
+
         result = self.copy()
 
         if t < 0:
