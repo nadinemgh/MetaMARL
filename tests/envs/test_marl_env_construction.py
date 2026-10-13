@@ -16,6 +16,8 @@ from core.metrics.logger import MetricLogger
 from core.reporting.query import Query
 from core.world.context import MechanismStatus
 
+AIDS = {"f0", "f1"}
+
 
 @pytest.mark.unit
 def test_agents_are_built_from_their_configurations_leaders_first(toy):
@@ -38,7 +40,7 @@ def test_agents_are_built_from_their_configurations_leaders_first(toy):
 
 
 @pytest.mark.unit
-def test_identity_and_seeding_attributes(toy):
+def test_identity_and_seeding_attributes(toy, identity_ray_get):
     env = toy.make_env(
         toy.ScriptedWorld(), mode="eval", seed=11, policy_seed=4, horizon=7
     )
@@ -47,6 +49,9 @@ def test_identity_and_seeding_attributes(toy):
     assert env.mode is MechanismStatus.eval
     assert env.mechanism_id == 0
     assert env.m is None and env.m_ctx is None
+    # The generator is created at reset, not at construction.
+    assert not hasattr(env, "rng")
+    env.reset(MDPState(aids=AIDS))
     assert env.rng.random() == np.random.default_rng(11).random()
 
 

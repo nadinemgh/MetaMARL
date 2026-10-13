@@ -52,13 +52,19 @@ def test_reset_logs_the_episode_identity_and_no_step(toy, identity_ray_get):
 
 
 @pytest.mark.unit
-def test_reset_does_not_reseed_the_environment(toy, identity_ray_get):
+def test_reset_creates_the_generator_from_the_environment_seed(toy, identity_ray_get):
     env = toy.make_env(toy.ScriptedWorld(), seed=3)
-    state_before = env.rng.bit_generator.state
+    expected = np.random.default_rng(3).bit_generator.state
 
     env.reset(MDPState(aids=AIDS))
     assert env.seed == 3
-    assert env.rng.bit_generator.state == state_before
+    assert env.rng.bit_generator.state == expected
+
+    # Every episode restarts the stream from the same seed.
+    env.rng.random()
+    env.reset(MDPState(aids=AIDS))
+    assert env.seed == 3
+    assert env.rng.bit_generator.state == expected
 
 
 @pytest.mark.unit
