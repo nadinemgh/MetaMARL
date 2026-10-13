@@ -316,7 +316,7 @@ class RegulatorEnv(gym.Env):
             self.logger.push(key=("iter",), value=self._t)
 
         truncated = False
-        terminated = self.horizon is not None and (self._t + 1) >= self.horizon
+        terminated = self.horizon is not None and self._t >= self.horizon
 
         return obs, reward, terminated, truncated, info
 
