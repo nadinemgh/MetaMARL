@@ -41,9 +41,9 @@ dependencies = [
 metamarl = "core.config.cli:entry"
 
 [project.urls]
-Homepage = "https://github.com/deep-introspection/MetaMARL"
-Repository = "https://github.com/deep-introspection/MetaMARL"
-Issues = "https://github.com/deep-introspection/MetaMARL/issues"
+Homepage = "https://github.com/nadinemgh/MetaMARL"
+Repository = "https://github.com/nadinemgh/MetaMARL"
+Issues = "https://github.com/nadinemgh/MetaMARL/issues"
 
 [project.optional-dependencies]
 tensorboard = ["tensorboard>=2.16"]
