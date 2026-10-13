@@ -46,10 +46,6 @@ from core.types import AgentID, MechanismID, OptimizerID
 from core.world.base import World
 from core.world.context import MechanismContext, MechanismStatus
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-
 logger = logging.getLogger(__name__)
 
 
