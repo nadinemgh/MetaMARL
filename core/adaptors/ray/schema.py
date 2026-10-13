@@ -74,7 +74,7 @@ class PolicyLearnerSchema(MetricSchema):
     (0.25, None)
     """
 
-    batch_size: Optional[int] = Field(
+    batch_size: Optional[float] = Field(
         default=None, json_schema_extra={"reduce": ReduceProtocol.MEAN}
     )
 
