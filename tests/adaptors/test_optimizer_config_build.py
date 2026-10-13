@@ -26,6 +26,7 @@ from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 import core.adaptors.ray.optimizer_config as optimizer_config_module
 import core.adaptors.ray.policy_actor as policy_actor_module
 from core.adaptors.ray.optimizer import RayOptimizer
+from core.adaptors.ray.schema import RaySchema
 from core.agents.base import AgentConfig
 from core.callbacks import _evaluate_with_fixed_duration_once
 from core.mechanism.config import MechanismConfig
@@ -342,7 +343,7 @@ def society(
         )
 
     if reporting:
-        cfg.reporting(queries=(OPT_QUERY,))
+        cfg.reporting(queries=(OPT_QUERY,), schema=RaySchema)
 
     if reporter:
         cfg.reporter_cfg = RecordingReporterConfig(project="unit")

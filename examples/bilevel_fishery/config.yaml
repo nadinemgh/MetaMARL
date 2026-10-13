@@ -93,6 +93,8 @@ experiment:
             - reporting:
                 queries:
                   _symbol_: examples.bilevel_fishery.queries.ES_QUERIES
+                schema:
+                  _symbol_: core.optimizers.es.schema.ESSchema
 
     - society:
         cfg:
@@ -238,6 +240,8 @@ experiment:
 
                 queries:
                   _symbol_: examples.bilevel_fishery.queries.INNER_QUERIES
+                schema:
+                  _symbol_: core.adaptors.ray.schema.RaySchema
 
 run:
   - build_optimizer: {}

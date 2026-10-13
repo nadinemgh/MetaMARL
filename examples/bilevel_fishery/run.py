@@ -45,6 +45,7 @@ import numpy as np
 import ray
 from gymnasium import spaces
 
+from core.adaptors.ray.schema import RaySchema
 from core.agents.base import AgentConfig
 from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
 from core.config.hash_seed import ensure_hash_seed
@@ -52,6 +53,7 @@ from core.mechanism.algorithms.quota import Quota
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
+from core.optimizers.es.schema import ESSchema
 from core.reporting.config import ReporterConfig
 from core.reporting.csv import CSVConfig
 from core.reporting.wandb import WandbConfig
@@ -235,7 +237,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 },
             )
             .debugging(seed=42)
-            .reporting(queries=ES_QUERIES)
+            .reporting(queries=ES_QUERIES, schema=ESSchema)
         )
         .society(
             APPOptimizerConfig()
@@ -344,6 +346,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 min_sample_timesteps_per_iteration=0,
                 min_train_timesteps_per_iteration=0,
                 queries=INNER_QUERIES,
+                schema=RaySchema,
             )
         )
     )

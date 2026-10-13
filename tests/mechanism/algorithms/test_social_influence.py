@@ -75,9 +75,7 @@ class TestValidation:
 @pytest.mark.unit
 class TestFixedRule:
     def test_default_action_space_is_empty(self):
-        config = SocialInfluence(
-            id="social", action_space=NO_PARAMETER, obs_offset=0
-        )
+        config = SocialInfluence(id="social", action_space=NO_PARAMETER, obs_offset=0)
 
         assert config.action_space.shape == (0,)
         assert config.build(REGULATOR).action_space.shape == (0,)
@@ -115,7 +113,8 @@ class TestObservationResidual:
     def test_peers_follow_the_numeric_order_of_their_index(self):
         # String order would put "fisherman:10" before "fisherman:2".
         delivered = {"fisherman:2": [2.0], "fisherman:10": [10.0], "fisherman:1": [1.0]}
-        delta = make(obs_offset=0).apply(mdp_after_a_step(delivered, obs_size=2), NO_ACTION)
+        mdp = mdp_after_a_step(delivered, obs_size=2)
+        delta = make(obs_offset=0).apply(mdp, NO_ACTION)
 
         np.testing.assert_allclose(delta.obs["fisherman:1"][0], [2, 10])
         np.testing.assert_allclose(delta.obs["fisherman:10"][0], [1, 2])
@@ -127,7 +126,8 @@ class TestObservationResidual:
             "fisherman:a": [-1.0],
             "fisherman:9": [9.0],
         }
-        delta = make(obs_offset=0).apply(mdp_after_a_step(delivered, obs_size=3), NO_ACTION)
+        mdp = mdp_after_a_step(delivered, obs_size=3)
+        delta = make(obs_offset=0).apply(mdp, NO_ACTION)
 
         np.testing.assert_allclose(delta.obs["fisherman:b"][0], [9, 10, -1])
 

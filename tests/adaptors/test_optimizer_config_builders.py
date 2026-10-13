@@ -26,6 +26,7 @@ from gymnasium import spaces
 
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.adaptors.ray.optimizer_config import RayOptimizerConfig, RLlibConfigOp
+from core.adaptors.ray.schema import RaySchema
 from core.agents.base import AgentConfig
 from core.mechanism.config import MechanismConfig
 from core.optimizers.appo.config import APPOptimizerConfig
@@ -208,7 +209,9 @@ def test_env_runners_records_the_mechanism_count_and_defaults_it_to_one():
 @pytest.mark.unit
 def test_reporting_stores_the_declaration_and_defers_the_rllib_kwargs():
     cfg = PPOptimizerConfig()
-    returned = cfg.reporting(queries=(QUERY,), metrics_num_episodes_for_smoothing=5)
+    returned = cfg.reporting(
+        queries=(QUERY,), schema=RaySchema, metrics_num_episodes_for_smoothing=5
+    )
 
     assert returned is cfg
     assert cfg._reporting_queries == (QUERY,)
@@ -220,9 +223,9 @@ def test_reporting_stores_the_declaration_and_defers_the_rllib_kwargs():
 
 @pytest.mark.unit
 def test_reporting_with_none_keeps_the_previous_declaration():
-    cfg = PPOptimizerConfig().reporting(queries=(QUERY,))
+    cfg = PPOptimizerConfig().reporting(queries=(QUERY,), schema=RaySchema)
 
-    cfg.reporting(queries=None)
+    cfg.reporting(queries=None, schema=RaySchema)
     assert cfg._reporting_queries == (QUERY,)
 
 
