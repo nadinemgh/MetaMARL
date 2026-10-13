@@ -12,13 +12,10 @@ contributor; the design rationale lives in `docs/ARCHITECTURE.md`.
 
 Start with `README.md` for the scientific picture and `QUICKSTART.md` for a first
 run that finishes in about fifteen seconds. Then read `docs/ARCHITECTURE.md` for how
-the two levels, the `World` actor and the metric pipeline fit together, and
-`docs/MERGE_NOTES.md` for what the latest cleanup pass changed and what it left open.
+the two levels, the `World` actor and the metric pipeline fit together.
 `TODO.md` holds the maintainer's open plan, two handoff checklists ranked P0 to P2,
 and in its last section the in-code TODO notes that the cleanup pass archived, some
 marked as resolved; check an item against the code before acting on it.
-`docs/REPRISE.md` is the status board of the cleanup pass and is only needed to
-resume that work.
 
 ## Module map
 

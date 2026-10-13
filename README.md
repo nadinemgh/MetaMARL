@@ -122,7 +122,7 @@ The `tutorials/` directory also provides notebooks for exploring framework abstr
 | `tutorials/` | Notebooks on framework abstractions, environment construction, mechanisms, and visualization |
 | `docs/` | Architecture documentation and maintainer notes |
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how these pieces work together during a run, and [AGENTS.md](AGENTS.md) is the guide for anyone, human or coding agent, about to change the code. [docs/MERGE_NOTES.md](docs/MERGE_NOTES.md) records what the latest cleanup pass changed and what it left open, and [TODO.md](TODO.md) holds the maintainer's plan and the archived in-code notes.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how these pieces work together during a run, and [AGENTS.md](AGENTS.md) is the guide for anyone, human or coding agent, about to change the code. [TODO.md](TODO.md) holds the maintainer's plan and the archived in-code notes.
 
 ## Tests and lint
 
