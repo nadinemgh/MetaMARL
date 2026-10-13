@@ -1113,7 +1113,7 @@ class RayOptimizerConfig(OptimizerConfig):
                 **dict(env_ctx),
             )
 
-            return RLlibMultiAgentEnvAdapter(env)
+            return RLlibMultiAgentEnvAdapter(env, worker_index=env_ctx.worker_index)
 
         register_env(env_name, env_creator)
 

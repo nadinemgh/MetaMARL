@@ -128,10 +128,11 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     _env: MultiAgentEnv
     _mdp: MDPState
 
-    def __init__(self, env: MultiAgentEnv, **kwargs):
+    def __init__(self, env: MultiAgentEnv, worker_index: int = 0, **kwargs):
         super().__init__(**kwargs)
 
         self.env = env
+        self.worker_index = int(worker_index)
 
         # env identity
         self.mechanism_id = env.mechanism_id
