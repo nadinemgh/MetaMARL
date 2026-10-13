@@ -7,7 +7,8 @@ values (``FlowTrajectory``): each step's entry holds what was earned or
 observed at that step only, never a running sum.
 
 The tests drive the environment the way the RLlib adapter does: the actions of
-the step are written with ``mdp.update(actions=...)`` before ``step`` is called.
+the step are decoded, then written with ``mdp.update(actions=...)`` before
+``step`` is called.
 """
 
 import numpy as np
@@ -26,7 +27,15 @@ def run_episode(env, toy, harvests):
     states = [mdp]
 
     for amount in harvests:
-        mdp.update(actions=toy.harvest_actions(FOLLOWERS, amount))
+        raw_actions = toy.harvest_actions(FOLLOWERS, amount)
+        decoded = {
+            aid: {
+                mid: env.followers[aid].mechanisms[mid].decode(mdp, action)
+                for mid, action in acts.items()
+            }
+            for aid, acts in raw_actions.items()
+        }
+        mdp.update(actions=decoded)
 
         mdp = env.step(mdp)
 

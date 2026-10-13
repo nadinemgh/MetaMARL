@@ -110,9 +110,9 @@ def test_leaders_hold_the_candidate_as_their_first_action(toy, identity_ray_get)
     assert list(mdp.actions.data) == ["regulator"]
     np.testing.assert_allclose(mdp.actions["regulator"]["fee"][0], [0.25])
 
-    # The Fee mechanism writes the fee it holds into the second entry.
+    # Fee has no initialization hook, so the initial signal remains zero.
     for aid in AIDS:
-        np.testing.assert_allclose(mdp.obs[aid][0], [toy.initial_stock, 0.25])
+        np.testing.assert_allclose(mdp.obs[aid][0], [toy.initial_stock, 0.0])
 
 
 @pytest.mark.unit
@@ -141,7 +141,7 @@ def test_leaders_hold_their_mechanism_defaults_before_a_candidate(
     np.testing.assert_allclose(mdp.actions["regulator"]["fee"][0], [0.4])
 
     for aid in AIDS:
-        np.testing.assert_allclose(mdp.obs[aid][0], [toy.initial_stock, 0.4])
+        np.testing.assert_allclose(mdp.obs[aid][0], [toy.initial_stock, 0.0])
 
     # A default is not a published candidate.
     assert not env.published_mechanism_assigned
@@ -155,7 +155,7 @@ def test_a_fetched_candidate_replaces_the_mechanism_defaults(toy, identity_ray_g
         leaders_cfg_dict=toy.regulator_configs(fee_default=0.4),
     )
     fees = [
-        float(env.reset(MDPState(aids=AIDS)).actions["regulator"]["fee"][0][0])
+        float(env.reset(MDPState(aids=AIDS)).actions["regulator"]["fee"][0])
         for _ in range(3)
     ]
 
