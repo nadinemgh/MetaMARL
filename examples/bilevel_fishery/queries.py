@@ -22,9 +22,9 @@ pushes at every step.
 Examples
 --------
 >>> len(ES_QUERIES), len(INNER_QUERIES), len(FISHERY_ENV_QUERIES)
-(7, 9, 1)
+(10, 11, 3)
 >>> [q.title for q in ES_QUERIES if q.y_paths[0][0] != "inner"]
-['Fitness over outer optimization iterations', 'Candidate fitness vs quota']
+['Fitness over outer optimization iterations', 'Candidate fitness vs quota', 'Restoration subsidy vs quota']
 """
 
 from core.metrics.enums import ReduceProtocol

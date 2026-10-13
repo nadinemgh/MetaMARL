@@ -260,7 +260,7 @@ class Fishing(Mechanism):
     ...     params={"unregulated_f_multiplier": 2.0, "F_msy": 0.15},
     ...     aids={"fisherman:0", "fisherman:1"},
     ... )
-    >>> fishing.apply(mdp, 0.5).state["catch_request"]["fisherman:0"]
+    >>> fishing.apply(mdp, 0.5).state["harvest"]
     [60.0]
     """
 
@@ -301,9 +301,10 @@ class Fishing(Mechanism):
         Returns
         -------
         MDPState
-            A residual whose ``state["catch_request"][aid]`` is the requested
-            catch (biomass units, ``aid`` being the owning fisher). The stock
-            is left untouched.
+            A residual whose ``state["harvest"]`` is the catch this fisher
+            takes (biomass units) and whose ``state["fish"]`` is the same
+            amount with a negative sign, so that the shared state removes it
+            from the stock.
         """
 
         fish = mdp.state["fish"][mdp.t]
@@ -342,11 +343,11 @@ class Restore(Mechanism):
     >>> box = spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float32)
     >>> restore = RestoreConfig(action_space=box, id="restore").build("fisherman:0")
     >>> mdp = MDPState(
-    ...     params={"restoration_effectiveness": 0.01, "K": 1000.0},
+    ...     params={"K": 1000.0},
     ...     aids={"fisherman:0", "fisherman:1"},
     ... )
-    >>> restore.apply(mdp, 1.0).state["restoration"]
-    [5.0]
+    >>> restore.apply(mdp, 1.0).state["restore"]
+    [25.0]
     """
 
     def __init__(self, *, restoration_cost: float, restoration_power: float, **kwargs):
@@ -389,9 +390,10 @@ class Restore(Mechanism):
         Returns
         -------
         MDPState
-            A residual whose ``state["restoration"]`` is the restored biomass
-            (biomass units), summed over the fishers by the shared state and
-            added to the stock by the transition.
+            A residual whose ``state["restore"]`` is the restored biomass
+            (biomass units) and whose ``state["fish"]`` adds the same amount
+            to the stock; ``rewards`` holds the quadratic restoration cost of
+            the owning fisher.
         """
 
         n_fishers = len(mdp.aids)
