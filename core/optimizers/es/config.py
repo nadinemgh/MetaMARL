@@ -83,7 +83,7 @@ class ESConfig(OptimizerConfig):
         self.min_sigma: float = 1e-3
         self.max_sigma: float = 0.5
         self.break_symmetry: bool = False
-        self.convergence_eps: float = 1e-4
+        self.convergence_eps: float = 0.0
         self.convergence_patience: int = 10
         self.initial_mean: Optional[list[float]] = None
 
