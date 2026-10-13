@@ -378,9 +378,6 @@ class Mechanism(ABC):
         MDPState
             Residual of the transition, as returned by :meth:`apply`.
         """
-        if action is None: return self.on_reset(mdp, None)
-        action = self.decode(mdp, action)
-        mdp.actions[self.aid][self.id][mdp.t] = action
         if reset: return self.on_reset(mdp, action)
         return self.apply(mdp, action)
 

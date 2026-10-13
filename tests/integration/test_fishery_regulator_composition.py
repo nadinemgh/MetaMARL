@@ -27,7 +27,7 @@ from gymnasium import spaces
 from core.mechanism.algorithms.penalty import ThresholdPenalty
 from core.mechanism.algorithms.quota import Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
-from core.mechanism.algorithms.subsidy import MAX_SUBSIDY, Subsidy
+from core.mechanism.algorithms.incentive import MAX_SUBSIDY, Subsidy
 
 CAPACITY = 5_000.0
 HORIZON = 20

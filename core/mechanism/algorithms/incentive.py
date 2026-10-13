@@ -147,17 +147,14 @@ class IncentiveMechanism(Mechanism):
             raise ValueError("QuotaMechanism requires `acts_on`.")
 
         # TODO (nadine) temp legacy attributes
-        obs = {aid: np.asarray([
-            0.0, # fish_norm
-            0.0, # effective_quota
-            0.0, # tot_usage_norm
-            0.0, # fixed_quota
-            0.0, # max_demand_frac
-            0.0, # fine_amount
-            0.0, # risk_penalty_scale
-            0.0, # risk_penalty_power
-            action,
-        ]) for aid in mdp.aids if str(aid).startswith(f"{self.acts_on[0]}:")}
+        obs = {}
+        for aid in mdp.aids:
+            if not str(aid).startswith(f"{self.acts_on[0]}:"): continue
+            history = mdp.obs.data.get(aid, [])
+            current = (np.asarray(history[-1], dtype=np.float32) if history else np.zeros(9, dtype=np.float32))
+            delta = np.zeros(9, dtype=np.float32)
+            delta[8] = np.float32(action) - current[8]
+            obs[aid] = delta
         return MDPState(obs=obs)
 
     @override(Mechanism)
@@ -209,10 +206,8 @@ class IncentiveMechanism(Mechanism):
             if target_mechanism not in a:
                 continue
 
-            a = np.asarray(a[target_mechanism][mdp.t], dtype=np.float32)
-            z = float(a.reshape(-1)[0])
-            effort = sigmoid(z / ACTION_TEMPERATURE)
-            dr[aid] = action * effort * MAX
+            effort = float(np.asarray(a[target_mechanism][mdp.t]).item())
+            dr[aid] = float(action) * effort * MAX
 
         return MDPState(rewards=dr)
 

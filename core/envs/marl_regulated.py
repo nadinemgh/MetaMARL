@@ -35,7 +35,7 @@ import numpy as np
 import gymnasium as gym
 from core.agents.base import AgentConfig
 from core.annotations import override
-from core.mechanism.base import MDPState, Mechanism, StateType
+from core.mechanism.base import ActType, MDPState, Mechanism, StateType
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
 from core.reporting.base import Reporter
@@ -261,7 +261,7 @@ class MultiAgentEnv(ABC):
         # Mechanism
         self.mechanism_id = mechanism_id
         self.m_ctx: MechanismContext = None
-        self.m: Mechanism = None
+        self.m: dict[MechanismID, ActType] = None
         self._using_default_mechanism = True
 
         # Bilevel Multi-agent environment
@@ -338,7 +338,7 @@ class MultiAgentEnv(ABC):
         ``None`` until an identifier is given at construction or assigned to the
         property.
         """
-        return self.opt_id
+        return self._opt_id
 
     @opt_id.setter
     def opt_id(self, opt_id: Optional[OptimizerID]) -> None:
@@ -432,13 +432,23 @@ class MultiAgentEnv(ABC):
                 ) from e
 
             if new_ctx is not None:
-                # persist action to leaders
-                mdp = mdp.add(MDPState(actions={lid: new_ctx.mechanism for lid in self.lids}))
-            # TODO raising error if training started and default mechanism is still on - leads to silent error
+                self.m_ctx = new_ctx
+                self.m = new_ctx.mechanism
+                self._using_default_mechanism = False
 
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:
             mdp: MDPState = mdp.add(getattr(self, self._reset)(mdp))
+
+        # persist action to leaders
+        decoded = {
+            lid: {mid: mech.decode(mdp, raw) for mid, mech in leader.mechanisms.items()
+            if (raw := self.m.get(mid) if self.m is not None else mech._u) is not None} 
+            for lid, leader in self.leaders.items()}
+        decoded = {lid: actions for lid, actions in decoded.items() if actions}
+        if decoded: mdp = mdp.add(MDPState(actions=decoded))
+        # TODO raising error if training started and default mechanism is still on - leads to silent error
+        
         mdp: MDPState = mdp.add([agent.action(mdp, reset=True) for agent in self.agents.values()])
         return mdp.add([agent.observation(mdp) for agent in self.followers.values()])
 
@@ -536,6 +546,7 @@ class MultiAgentEnv(ABC):
         mdp.update(rewards={aid: 0.0 for aid in mdp.rewards.data})
         mdp = self.termination(mdp)
         self.logger.push(key=("iter",), value=mdp.t)
+        mdp = mdp.add([agent.action(mdp, reset=True) for agent in self.agents.values()])
         mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])
         self._t += 1
         return mdp

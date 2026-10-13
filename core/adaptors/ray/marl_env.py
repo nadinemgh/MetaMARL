@@ -246,7 +246,9 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
             Always empty.
         """
 
-        self._mdp.update(actions=action_dict)
+        decode = {aid: {mid: self.env.followers[aid].mechanisms[mid].decode(self._mdp, a)
+            for mid, a in acts.items()} for aid, acts in action_dict.items()}
+        self._mdp.update(actions=decode)
         m: MDPState = self.env.step(self._mdp)
         aids = self.possible_agents
         obs = {aid: m.obs[aid][m.t] for aid in aids}

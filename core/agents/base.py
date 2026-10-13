@@ -149,7 +149,8 @@ class Agent:
         if not acts and not reset: return MDPState()
         return MDPState().add([
             self.mechanisms[mid](mdp, action, reset=reset) for mid in self.mechanisms
-            if (action := acts[mid][mdp.t] if mid in acts else None) is not None or reset
+            if (action := acts[mid][-1 if reset else mdp.t] 
+                if mid in acts and len(acts[mid]) > (0 if reset else mdp.t) else None) is not None or reset
             ])
 
     def observation(

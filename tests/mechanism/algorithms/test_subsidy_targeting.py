@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from gymnasium import spaces
 
-from core.mechanism.algorithms.subsidy import MAX_SUBSIDY, Subsidy
+from core.mechanism.algorithms.incentive import MAX_SUBSIDY, Subsidy
 from core.mechanism.base import MDPState
 
 REGULATOR = "regulator"

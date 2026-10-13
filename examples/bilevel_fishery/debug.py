@@ -117,7 +117,7 @@ bilevel_opt_cfg: BilevelConfig = (
                         id = "restoration_subsidy",
                         action_space=spaces.Box(
                             low=0,
-                            high=0.5,
+                            high=1.0, # TODO (nadine) temp val / max_subsidy for migration set to 0.5 later
                             shape=(1,), # TODO maybe constrain this to always be (1,)
                             dtype=np.float32,
                         ),
@@ -264,7 +264,7 @@ bilevel_opt_cfg: BilevelConfig = (
                         dtype=np.float32,
                         ),
                         restoration_cost=0.25,
-                        restoration_power=0.05,
+                        restoration_power=0.02,
                     )
                 ),
                 count = 10,

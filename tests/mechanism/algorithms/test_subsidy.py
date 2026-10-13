@@ -12,7 +12,7 @@ import pytest
 from gymnasium import spaces
 
 from core.agents.base import Agent
-from core.mechanism.algorithms.subsidy import MAX_SUBSIDY, Subsidy, SubsidyMechanism
+from core.mechanism.algorithms.incentive import MAX_SUBSIDY, Subsidy, SubsidyMechanism
 from core.mechanism.base import MDPState
 from core.utils import ACTION_TEMPERATURE
 

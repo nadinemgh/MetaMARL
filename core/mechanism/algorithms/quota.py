@@ -33,7 +33,10 @@ from core.utils import (
     smooth_positive_zero_at_origin,
 )
 
-
+RISK_PENALTY_SCALE = 0.0
+RISK_PENALTY_POWER = 1.0
+FINE_AMOUNT = 0.2
+MAX_DEMAND_FRAC = 1.0
 EPS = 1e-8
 
 # TODO what if two mechanisms interfere by requiring context from each other ? 
@@ -183,19 +186,30 @@ class QuotaMechanism(Mechanism):
         current = sigmoid((resource_level - action) / width)
         allowed_frac = (current - lower) / max(upper - lower, EPS)
 
-        # TDO (nadine) Allowed frac should be added to value AFTER transition
+        # TODO (nadine) Allowed frac should be added to value AFTER transition
         # TODO (nadine) temp legacy attributes
-        obs = {aid: np.asarray([
-            0.0, # fish_norm
+        target = np.asarray([
+            0.0,          # fish_norm
             allowed_frac, # effective_quota
-            0.0, # tot_usage_norm
-            action, # fixed_quota
-            1.0, # max_demand_frac
-            0.2, # fine_amount
-            0.0, # risk_penalty_scale
-            0.0, # risk_penalty_power
-            0.0,
-        ]) for aid in mdp.aids if str(aid).startswith(f"{self.acts_on[0]}:")}
+            0.0,          # tot_usage_norm
+            action,       # fixed_quota
+            MAX_DEMAND_FRAC,
+            FINE_AMOUNT,
+            RISK_PENALTY_SCALE,
+            0.0,          # risk_penalty_power
+            0.0,          # restoration_subsidy
+        ], dtype=np.float32)
+
+        indices = [1, 3, 4, 5, 6, 7]
+
+        obs = {}
+        for aid in mdp.aids:
+            if not str(aid).startswith(f"{self.acts_on[0]}:"): continue
+            history = mdp.obs.data.get(aid, [])
+            existing = (np.asarray(history[-1], dtype=np.float32) if history else np.zeros_like(target))
+            delta = np.zeros_like(target)
+            delta[indices] = target[indices] - existing[indices]
+            obs[aid] = delta
         return MDPState(obs=obs)
 
     @override(Mechanism)
@@ -247,6 +261,7 @@ class QuotaMechanism(Mechanism):
 
         da = {}
         do = {}
+        dr = {}
 
         for aid, a in (mdp.actions.data or {}).items():
             if not str(aid).startswith(f"{target_agent}:"):
@@ -255,21 +270,16 @@ class QuotaMechanism(Mechanism):
             if target_mechanism not in a:
                 continue
 
-            requested = np.asarray(a[target_mechanism][mdp.t], dtype=np.float32)
-            z = float(requested.reshape(-1)[0])
-            requested_frac = sigmoid(z / ACTION_TEMPERATURE)
+            harvest = float(np.asarray(a[target_mechanism][mdp.t]).item())
+            e = smooth_positive_zero_at_origin(harvest - allowed_frac, self.usage_transition_width)
+            da[aid] = {target_mechanism: -float(e)} # TODO (nadine) apply dr not da
 
-            excess = smooth_positive_zero_at_origin(
-                requested_frac - allowed_frac,
-                self.usage_transition_width,
-            )
-            delivered_frac = float(np.clip(requested_frac - excess, 1e-6, 1.0 - 1e-6))
-            delivered_z = ACTION_TEMPERATURE * np.log(delivered_frac / (1.0 - delivered_frac))
-            delivered = requested.copy().reshape(-1)
-            delivered[0] = delivered_z
-            delivered = delivered.reshape(requested.shape)
-            # TODO (nadine) for now we apply a da, but should switch to dr, no da
-            da[aid] = {target_mechanism: delivered - requested}
+            # quota-violation penalty
+            violation_frac = smooth_positive_zero_at_origin(harvest - allowed_frac, self.violation_transition_width)
+            quota_penalty = min(1.0, FINE_AMOUNT * violation_frac)
+            delivered_frac = float(np.clip(harvest - e, 0.0, 1.0))
+            risk_penalty = (RISK_PENALTY_SCALE * max(0.0, 1.0 - resource_level) * delivered_frac ** RISK_PENALTY_POWER)
+            dr[aid] = -min(1.0, quota_penalty + risk_penalty)
 
             # Observation residual - Assuming obs the same for all target agents
             current_obs = np.asarray(mdp.obs[aid][mdp.t], dtype=np.float32)
@@ -278,7 +288,7 @@ class QuotaMechanism(Mechanism):
             o[3] = action - current_obs[3]
             do[aid] = o
 
-        return MDPState(actions=da, obs=do)
+        return MDPState(actions=da, obs=do, rewards=dr)
 
 @dataclass(frozen=True, kw_only=True)
 class Quota(MechanismConfig):

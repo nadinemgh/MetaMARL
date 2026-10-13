@@ -23,7 +23,7 @@ from core.agents.base import Agent
 from core.mechanism.algorithms.penalty import ThresholdPenalty
 from core.mechanism.algorithms.quota import Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
-from core.mechanism.algorithms.subsidy import Subsidy
+from core.mechanism.algorithms.incentive import Subsidy
 from core.mechanism.base import MDPState, Mechanism
 
 REGULATOR = "regulator"

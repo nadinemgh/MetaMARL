@@ -172,8 +172,8 @@ class Fisherman(Agent):
         MDPState
             An MDP whose ``rewards`` hold this agent's reward.
         """
-
-        return MDPState(rewards={self.id: mdp.actions[self.id]["harvest"][mdp.t]})
+        harvest = mdp.actions[self.id]["harvest"][mdp.t]
+        return MDPState(rewards={self.id: float(np.asarray(harvest).item())})
 
 class FishermanConfig(AgentConfig):
     """Configuration that builds ``Fisherman`` agents.
@@ -708,6 +708,12 @@ class FisheryRegulatedEnv(MultiAgentEnv):
 
         H_realized = min(H, available)
         fish_next = np.float64(np.clip(available - H_realized, 0.0, self.K))
+
+        # TODO (nadine): Refactor collapse penalty into a state-dependent
+        # incentive mechanism evaluated after the environment transition.
+        fish_norm_next = float(fish_next / self.K)
+        collapse_penalty = 0.1 / (1.0 + np.exp(np.clip((fish_norm_next - 0.20) / 0.03, -60.0, 60.0)))
+        mdp = mdp.add(MDPState(rewards={ aid: -float(collapse_penalty) for aid in self.followers}))
 
         self.logger.push(key=("B_msy",), value=mdp.params["B_msy"])
         self.logger.push(key=("MSY",), value=mdp.params["MSY"])
