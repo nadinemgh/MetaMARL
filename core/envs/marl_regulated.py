@@ -422,37 +422,34 @@ class MultiAgentEnv(ABC):
             self.logger.push(key=("policy_seed",), value=self.policy_seed)
 
         # Get regulator Agent
-        # Try to fetch a new mechanism if one is available (published)
-        # Otherwise keep the current mechanism for subsequent episodes
         if self.mechanism_id is None:
             raise RuntimeError(
                 "RegulatedEnv has no mechanism_id. "
                 "mechanism_id must be injected at env creation."
             )
 
-        if not self.published_mechanism_assigned:
-            try:
-                new_ctx: MechanismContext = ray.get(
-                    self.world.get_mechanism_by_id.remote(
-                        mechanism_id=self.mechanism_id,
-                        seed=self.policy_seed,
-                        mode=self.mode,
-                    )
+        # The World hands a training candidate out only on its first fetch and
+        # returns None afterwards. Fetch at every reset, so that a newly
+        # published candidate replaces the kept one (an environment outlives a
+        # publication when the inner policy persists across regulator
+        # episodes), and keep the current one otherwise.
+        try:
+            new_ctx: MechanismContext = ray.get(
+                self.world.get_mechanism_by_id.remote(
+                    mechanism_id=self.mechanism_id,
+                    seed=self.policy_seed,
+                    mode=self.mode,
                 )
-            except Exception as e:
-                self._debug_remote(
-                    "pre_reset_fetch_failed",
-                    {"error_type": type(e).__name__, "error_repr": repr(e)},
-                )
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not fetch mechanism_id={self.mechanism_id} from World."
+            ) from e
 
-                raise RuntimeError(
-                    f"Could not fetch mechanism_id={self.mechanism_id} from World."
-                ) from e
-
-            if new_ctx is not None:
-                self.m_ctx = new_ctx
-                self.m = new_ctx.mechanism
-                self._using_default_mechanism = False
+        if new_ctx is not None:
+            self.m_ctx = new_ctx
+            self.m = new_ctx.mechanism
+            self._using_default_mechanism = False
 
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:
