@@ -350,12 +350,13 @@ class Mechanism(ABC):
     def __call__(
         self, mdp: MDPState, action: Optional[ActType] = None, *, reset: bool = False
     ) -> MDPState:
-        """Decode ``action``, record it in ``mdp`` and return the residual.
+        """Apply an already decoded action and return its residual.
 
-        The environment decodes the actions with :meth:`decode` and writes the
-        decoded values into ``mdp.actions`` before the agents act, so ``action``
-        is already in the mechanism's own coordinates. With ``reset=False`` the
-        residual is the one returned by :meth:`apply`.
+        The RLlib adapter decodes follower actions before storing them in
+        ``mdp.actions``. The environment decodes leader candidates and defaults
+        during reset. This call passes that decoded value to :meth:`apply`, or
+        to :meth:`on_reset` during initialization, without decoding it again
+        or writing it into the action trajectory.
 
         Parameters
         ----------
@@ -371,7 +372,8 @@ class Mechanism(ABC):
         Returns
         -------
         MDPState
-            Residual of the transition, as returned by :meth:`apply`.
+            Residual returned by :meth:`apply`, or by :meth:`on_reset` when
+            ``reset`` is true. The caller composes it with the shared state.
         """
 
         if reset:
