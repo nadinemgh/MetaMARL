@@ -211,7 +211,7 @@ class MetricLogger(ABC):
         if _token is not cls._TOKEN:
             raise TypeError(
                 "MetricLogger cannot be instantiated directly. "
-                "Use MetricLogger.from_schema(schema)"
+                + "Use MetricLogger.from_schema(schema)"
             )
 
         return super().__new__(cls)
@@ -220,7 +220,7 @@ class MetricLogger(ABC):
         if _token is not self._TOKEN:
             raise TypeError(
                 "MetricLogger cannot be instantiated directly. "
-                "Use MetricLogger.from_schema(schema)"
+                + "Use MetricLogger.from_schema(schema)"
             )
 
     @classmethod
@@ -313,7 +313,7 @@ class MetricLogger(ABC):
                 ):
                     raise TypeError(
                         f"{schema.__name__}.{field_name} must be "
-                        f"dict[ID, MetricSchema], got {ann!r}"
+                        + f"dict[ID, MetricSchema], got {ann!r}"
                     )
 
                 node[field_name] = Node(
@@ -509,7 +509,7 @@ class MetricLogger(ABC):
                     if not issubclass(runtime_schema, declared_schema):
                         raise TypeError(
                             f"{runtime_schema.__name__} is not a subclass of "
-                            f"{declared_schema.__name__} at {path}."
+                            + f"{declared_schema.__name__} at {path}."
                         )
 
                     child_node = self._specialise(
@@ -536,7 +536,7 @@ class MetricLogger(ABC):
                     ):  # TODO only verify it is a metric schema not that its env
                         raise TypeError(
                             f"Expected MetricSchema at {path + (dynamic_id,)}, "
-                            f"got {type(dynamic_child).__name__}."
+                            + f"got {type(dynamic_child).__name__}."
                         )
 
                     runtime_schema = type(dynamic_child)
@@ -544,7 +544,7 @@ class MetricLogger(ABC):
                     if not issubclass(runtime_schema, declared_schema):
                         raise TypeError(
                             f"{runtime_schema.__name__} is not a subclass of "
-                            f"{declared_schema.__name__} at {path}."
+                            + f"{declared_schema.__name__} at {path}."
                         )
 
                     runtime_path = path + (dynamic_id,)
@@ -566,12 +566,12 @@ class MetricLogger(ABC):
                     elif not isinstance(runtime_node, Node):
                         raise TypeError(
                             f"Expected runtime Node at {runtime_path}, got "
-                            f"{type(runtime_node).__name__}."
+                            + f"{type(runtime_node).__name__}."
                         )
                     elif runtime_node.schema is not runtime_schema:
                         raise TypeError(
                             f"Runtime schema changed at {runtime_path}: "
-                            f"{runtime_node.schema.__name__} -> {runtime_schema.__name__}."
+                            + f"{runtime_node.schema.__name__} -> {runtime_schema.__name__}."
                         )
 
                     self.push_data(

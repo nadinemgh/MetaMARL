@@ -121,8 +121,8 @@ class RayOptimizer(Optimizer):
         if fragment_length is None:
             raise ValueError(
                 "RayOptimizer needs an evaluation setup: call "
-                ".evaluation(evaluation_config={'rollout_fragment_length': ...}) "
-                "on the society optimizer config."
+                + ".evaluation(evaluation_config={'rollout_fragment_length': ...}) "
+                + "on the society optimizer config."
             )
 
         self.eval_episodes = config.rllib_cfg.evaluation_duration // fragment_length
@@ -300,9 +300,9 @@ class RayOptimizer(Optimizer):
             self._training_losses.append(policy_loss)
             logger.info(
                 "[Ray] Training step completed | "
-                "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
-                "ep_return=%.4f | env_steps_iter=%d | "
-                "env_steps_lifetime=%d | policy_loss=%s",
+                + "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
+                + "ep_return=%.4f | env_steps_iter=%d | "
+                + "env_steps_lifetime=%d | policy_loss=%s",
                 self._es_round,
                 episode,
                 rllib_training_iteration,

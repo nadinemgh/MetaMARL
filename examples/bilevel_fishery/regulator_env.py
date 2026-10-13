@@ -374,9 +374,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         logger.info(
             "[Regulator][summary] "
-            "mean_obj=%.4f | best_obj=%.4f (θ=%d) | "
-            "worst_obj=%.4f (θ=%d) | "
-            "collapse(mean=%.3f max=%.3f)",
+            + "mean_obj=%.4f | best_obj=%.4f (θ=%d) | "
+            + "worst_obj=%.4f (θ=%d) | "
+            + "collapse(mean=%.3f max=%.3f)",
             float(objectives.mean()),
             best["objective"],
             int(best["idx"]),

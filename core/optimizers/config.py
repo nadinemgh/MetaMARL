@@ -195,7 +195,7 @@ class OptimizerConfig(_Config, ABC):
             if name not in ["_is_frozen"]:
                 raise AttributeError(
                     f"Cannot set attribute ({name}) of an already frozen "
-                    "OptimizerConfig!"
+                    + "OptimizerConfig!"
                 )
 
         super().__setattr__(name, value)

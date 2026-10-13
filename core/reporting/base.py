@@ -315,7 +315,7 @@ class Reporter(ABC):
                 if not capture_error and any(branch.errors for branch in branches):
                     raise ValueError(
                         "error_path is nested below another MEAN reduction. Error propagation "
-                        "through additional reductions is not defined."
+                        + "through additional reductions is not defined."
                     )
 
                 reduced: Resolved = {}
@@ -330,7 +330,7 @@ class Reporter(ABC):
                     if len(lengths) != 1:
                         raise ValueError(
                             "Cannot compute pointwise mean over series with different lengths: "
-                            f"{sorted(lengths)}."
+                            + f"{sorted(lengths)}."
                         )
 
                     # A gap (None) is a push in which the logger had no value for
@@ -439,20 +439,20 @@ class Reporter(ABC):
                     if len(x) != len(y):
                         raise ValueError(
                             f"Query series must have equal length: x={query.x} ({len(x)}), "
-                            f"y={path}, group={group} ({len(y)})."
+                            + f"y={path}, group={group} ({len(y)})."
                         )
             else:
                 if set(xs) != set(ys):
                     raise ValueError(
                         "Dynamic x and y groups do not match: "
-                        f"x={set(xs)}, y={set(ys)}."
+                        + f"x={set(xs)}, y={set(ys)}."
                     )
 
                 for group in xs:
                     if len(xs[group]) != len(ys[group]):
                         raise ValueError(
                             "Query series must have equal "
-                            f"length for group {group}: x={len(xs[group])}, y={len(ys[group])}."
+                            + f"length for group {group}: x={len(xs[group])}, y={len(ys[group])}."
                         )
 
             for group, values in errors.items():
@@ -481,7 +481,7 @@ class Reporter(ABC):
                     if len(color_values) != len(y):
                         raise ValueError(
                             f"Color series must have the same length as y for group {group}: "
-                            f"color={len(color_values)}, y={len(y)}."
+                            + f"color={len(color_values)}, y={len(y)}."
                         )
 
         return (xs, yss, error_yss, colors)

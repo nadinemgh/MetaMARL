@@ -169,7 +169,7 @@ def read_hydrograph_series(output_dir: str, column_name: str) -> dict[str, float
                 if match is None:
                     raise KeyError(
                         f"Column '{column_name}' not found in {csv_path}. "
-                        f"Available columns: {list(row.keys())}"
+                        + f"Available columns: {list(row.keys())}"
                     )
 
                 column_name = match

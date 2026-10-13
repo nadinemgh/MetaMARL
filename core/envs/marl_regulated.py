@@ -274,10 +274,10 @@ class MultiAgentEnv(ABC):
         # reporter
         reporting_env_id = (
             f"{env_name}"
-            f"|mode={mode}"
-            f"{f'|m={self.mechanism_id}' if self.mechanism_id is not None else ''}"
-            f"|ps={policy_seed}"
-            f"|ss={self.seed}"
+            + f"|mode={mode}"
+            + f"{f'|m={self.mechanism_id}' if self.mechanism_id is not None else ''}"
+            + f"|ps={policy_seed}"
+            + f"|ss={self.seed}"
         )
         self.reporter: Optional[Reporter] = None
 
@@ -425,7 +425,7 @@ class MultiAgentEnv(ABC):
         if self.mechanism_id is None:
             raise RuntimeError(
                 "RegulatedEnv has no mechanism_id. "
-                "mechanism_id must be injected at env creation."
+                + "mechanism_id must be injected at env creation."
             )
 
         # The World hands a training candidate out only on its first fetch and

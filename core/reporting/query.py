@@ -202,7 +202,7 @@ class Query:
         if not any(path[: len(target)] == target for path in self.y_paths):
             raise ValueError(
                 f"error_path {self.error_path} must be followed by ReduceProtocol.MEAN in one "
-                "of the query's y paths."
+                + "of the query's y paths."
             )
 
     @property
