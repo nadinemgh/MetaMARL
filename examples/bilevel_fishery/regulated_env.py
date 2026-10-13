@@ -696,8 +696,11 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         restoration and noise), ``growth_noise``, ``H_attempted`` (the total
         request), ``H_realized`` (the catch) and ``H_realized_series``, and
         ``total_usage_norm`` (the catch over ``K``) into the environment's
-        metric logger, when it has one; without a schema it only advances the
-        stock.
+        metric logger, when it has one. For each follower it also pushes
+        ``by_agent[aid].requested_harvest`` (the fraction it played times its
+        catch capacity on ``B``) and ``by_agent[aid].delivered_harvest`` (that
+        request, or its pro-rata share of ``H_realized`` when the cap binds).
+        Without a schema it only advances the stock.
 
         Parameters
         ----------
@@ -802,6 +805,36 @@ class FisheryRegulatedEnv(MultiAgentEnv):
             self.logger.push(
                 key=("total_usage_norm",), value=H_realized / max(EPS, self.K)
             )
+
+            # The shared state only holds the sum of the requests, so each
+            # fisher's own request is rebuilt from the fraction it played,
+            # which already carries the leaders' regulation, with the same
+            # capacity ``Fishing.apply`` used on the stock B of this step.
+            catch_capacity = (
+                mdp.params["unregulated_f_multiplier"]
+                * mdp.params["F_msy"]
+                * B
+                / max(len(mdp.aids), 1)
+            )
+            # Pro-rata rationing: when the cap binds every fisher receives the
+            # same fraction of its request, otherwise the request is delivered.
+            delivered_share = H_realized / H if H_realized < H else 1.0
+
+            for aid in self.followers:
+                fractions = mdp.actions.data.get(aid, {}).get("harvest", [])
+
+                if len(fractions) <= mdp.t:
+                    continue
+
+                request = float(np.asarray(fractions[mdp.t]).item()) * catch_capacity
+
+                self.logger.push(
+                    key=("by_agent", aid, "requested_harvest"), value=request
+                )
+                self.logger.push(
+                    key=("by_agent", aid, "delivered_harvest"),
+                    value=request * delivered_share,
+                )
 
         # TODO (nadine) add observation
         return mdp.advance(state={"fish": fish_next, "harvest": 0.0, "restore": 0.0})
