@@ -28,6 +28,7 @@ creator with ``ray.tune`` and returns a ``RayOptimizer``; the ``Algorithm``
 itself is only built later, inside the ``PolicyActor``.
 """
 
+import functools
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
@@ -220,6 +221,7 @@ class RayOptimizerConfig(OptimizerConfig):
             ``self``.
         """
 
+        @functools.wraps(fn)
         def wrapper(self: Self, *args: P.args, **kwargs: P.kwargs) -> Self:
             """Record the call and return ``self`` for chaining."""
 
