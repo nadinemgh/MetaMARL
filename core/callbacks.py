@@ -217,7 +217,8 @@ def log_and_report_episode_metrics(
 
     metrics = env.logger.peek()
 
-    env.reporter.report(metrics)
+    if env.reporter is not None:
+        env.reporter.report(metrics)
 
     reduced = env.logger.reduce()
     episode_id = episode.id_.partition("|raw=")[0]
