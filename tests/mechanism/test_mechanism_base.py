@@ -87,14 +87,16 @@ class TestCall:
         assert mechanism.received == [0.5]
         assert residual.rewards["fisherman:0"] == [0.5]
 
-    def test_call_writes_the_decoded_action_back_at_the_current_step(self):
+    def test_call_leaves_the_action_trajectory_alone(self):
+        # Decoding moved to the adapter and to ``env.reset``: the call uses the
+        # action it is given and no longer writes it back at the current step.
         mechanism = Recorder(aid="regulator", id="quota")
         mdp = MDPState(actions={"regulator": {"quota": [0.0, 0.0]}}, t=1)
 
         mechanism(mdp, 0.25)
-        assert mdp.actions["regulator"]["quota"] == [0.0, 0.5]
+        assert mdp.actions["regulator"]["quota"] == [0.0, 0.0]
 
-    def test_call_does_not_reach_a_state_that_shares_the_action_list(self):
+    def test_call_does_not_modify_a_state_that_shares_the_action_list(self):
         mechanism = Recorder(aid="regulator", id="quota")
         before = MDPState(
             state={"fish": [1.0, 1.0]},
@@ -106,8 +108,8 @@ class TestCall:
         after = before.add(MDPState(state={"fish": -0.5}))
 
         assert after.actions["regulator"] is before.actions["regulator"]
-        mechanism(after, 0.25)
-        assert after.actions["regulator"]["quota"] == [0.0, 0.5]
+        mechanism(after, 0.5)
+        assert after.actions["regulator"]["quota"] == [0.0, 0.25]
         assert before.actions["regulator"]["quota"] == [0.0, 0.25]
 
 
