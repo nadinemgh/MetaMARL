@@ -445,14 +445,16 @@ class ESOptimizer(Optimizer):
             ``(batch_capacity, dimension)`` and values in ``(0, 1)``.
         """
 
-        if self.fixed_mode:
-            return np.empty((self._batch_capacity, 0), dtype=np.float32)
+        capacity = self.batch_capacity
 
-        if self._batch_capacity == 1 and self.fitness_baseline is None:
+        if self.fixed_mode:
+            return np.empty((capacity, 0), dtype=np.float32)
+
+        if capacity == 1 and self.fitness_baseline is None:
             return self.mean[None, :].copy()
 
-        half_pop = self._batch_capacity // 2
-        remaining = self._batch_capacity - (2 * half_pop)
+        half_pop = capacity // 2
+        remaining = capacity - (2 * half_pop)
         noise_half = self.rng.standard_normal(
             (half_pop, self.dimension), dtype=np.float32
         )
@@ -470,7 +472,7 @@ class ESOptimizer(Optimizer):
 
         # When requested, replace one mirrored sample with an independent
         # sample so the population is no longer strictly antithetic.
-        if self.break_symmetry and self._batch_capacity % 2 == 0 and half_pop > 0:
+        if self.break_symmetry and capacity % 2 == 0 and half_pop > 0:
             noise_matrix[-1] = self.rng.standard_normal(
                 self.dimension, dtype=np.float32
             )
