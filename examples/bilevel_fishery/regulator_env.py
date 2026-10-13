@@ -295,6 +295,13 @@ class FisheryRegulatorEnv(RegulatorEnv):
                             }
                         )
 
+        if not metrics_by_mechanism:
+            raise ValueError(
+                f"No rollout found for the {self.aggregation_status.value!r} "
+                + "split: the inner optimizer logged no mechanism, seed and "
+                + "episode to score."
+            )
+
         max_idx = max(metrics_by_mechanism)
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
 
