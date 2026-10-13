@@ -42,6 +42,7 @@ from typing import Any, Optional, Self
 
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
+from core.mechanism.base import Mechanism
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 from core.reporting.base import Reporter
