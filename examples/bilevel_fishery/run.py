@@ -1,14 +1,18 @@
 """Bilevel fishery experiment: an ES regulator over a quota, APPO fishers inside.
 
 This script builds the experiment in Python and runs it; it is the programmatic
-counterpart of ``config.yaml``. The outer Evolution Strategies optimizer
-searches one parameter, the ``quota`` mechanism of ``core.mechanism.algorithms``
-(a value in ``[0, 1]`` acting on the fishers' ``harvest``, started from 0.56224),
-with a constant search spread of 0.15. The inner APPO optimizer trains ten
-fishers by default against each candidate, on ``FisheryRegulatedEnv`` with a
-carrying capacity of 5000. Every level logs a typed ``MetricSchema`` and
-renders the queries of :mod:`examples.bilevel_fishery.queries` through the
-configured reporter (Weights & Biases by default, CSV with ``--reporter csv``).
+counterpart of ``config.yaml``, and both describe the same experiment as
+``debug.py``. The outer Evolution Strategies optimizer searches two parameters,
+both mechanisms of ``core.mechanism.algorithms``: the ``quota`` (a value in
+``[0, 1]`` acting on the fishers' ``harvest``, started from 0.56224, with a
+transition width of 0.05) and the ``restoration_subsidy`` (a value in ``[0, 1]``
+acting on the fishers' ``restore``, started from 0.10), with a constant search
+spread of 0.15. The inner APPO optimizer trains ten fishers by default against
+each candidate, on ``FisheryRegulatedEnv`` with a carrying capacity of 5000, a
+restoration cost of 0.25 and a restoration power of 0.02. Every level logs a
+typed ``MetricSchema`` and renders the queries of
+:mod:`examples.bilevel_fishery.queries` through the configured reporter (Weights
+& Biases by default, CSV with ``--reporter csv``).
 
 Nothing runs at import. :func:`main` configures the logging, calls
 ``ensure_hash_seed()`` (which may restart the process, before Ray starts),
@@ -39,7 +43,7 @@ Full configuration: the defaults.
 import argparse
 import logging
 from collections.abc import Sequence
-from typing import Optional
+from typing import Optional, TypeAlias
 
 import numpy as np
 import ray
@@ -49,6 +53,7 @@ from core.adaptors.ray.schema import RaySchema
 from core.agents.base import AgentConfig
 from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
 from core.config.hash_seed import ensure_hash_seed
+from core.mechanism.algorithms.incentive import Incentive
 from core.mechanism.algorithms.quota import Quota
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
@@ -68,6 +73,8 @@ from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulated_env import FishingConfig as Fishing
 from examples.bilevel_fishery.regulated_env import RestoreConfig as Restore
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
+
+FisheriesRegulator: TypeAlias = AgentConfig
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -210,7 +217,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 episodes=args.outer_iters,
             )
             .agents(
-                AgentConfig(
+                FisheriesRegulator(
                     id="fisheries_regulator",
                     policy_id="quota_policy",
                     mechanisms=(
@@ -222,6 +229,15 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                             acts_on=("fisherman", "harvest"),
                             obs_map={"resource_level": "fish"},
                             default=np.asarray(0.56224),
+                            quota_transition_width=0.05,
+                        ),
+                        Incentive(
+                            id="restoration_subsidy",
+                            action_space=spaces.Box(
+                                low=0, high=1.0, shape=(1,), dtype=np.float32
+                            ),
+                            acts_on=("fisherman", "restore"),
+                            default=np.asarray(0.10),
                         ),
                     ),
                 )
@@ -237,7 +253,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                     }
                 },
             )
-            .debugging(seed=42)
+            .debugging(seed=42, num_seeds=1)
             .reporting(queries=ES_QUERIES, schema=ESSchema)
         )
         .society(
@@ -332,11 +348,13 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                             action_space=spaces.Box(
                                 low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
                             ),
+                            restoration_cost=0.25,
+                            restoration_power=0.02,
                         ),
                     ),
                     count=args.num_agents,
                     observation_space=spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32
+                        low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32
                     ),
                 )
             )
