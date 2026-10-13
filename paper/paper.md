@@ -11,15 +11,15 @@ tags:
 
 authors:
   - name: Nadine Mohamed
-    affiliation: 1,2
+    affiliation: "1, 2"
   - name: Elise Devoie
-    affiliation: 3
+    affiliation: "3"
   - name: Benjamin Rosman
-    affiliation: 4
+    affiliation: "4"
   - name: Christof Brandtner
-    affiliation: 5
+    affiliation: "5"
   - name: Guillaume Dumas
-    affiliation: 1,2
+    affiliation: "1, 2"
 
 affiliations:
   - name: Mila - Quebec AI Institute, Université de Montréal, Canada
@@ -33,7 +33,7 @@ affiliations:
   - name: EM Lyon Business School, Lyon, France
     index: 5
 
-date: 2026
+date: 13 October 2026
 
 bibliography: paper.bib
 
@@ -59,7 +59,7 @@ class of adaptive governance problems in which institutional rules themselves
 become optimization variables.
 
 
-# Statement of Need
+# Statement of need
 
 Most reinforcement learning software focuses on learning optimal agent policies
 within fixed environments. Libraries such as RLlib [@liang2018rllib] and
@@ -86,9 +86,8 @@ outer-loop optimization methods. The framework enables researchers to rapidly
 prototype new regulatory mechanisms while reusing existing learning algorithms
 and experimental infrastructure.
 
----
 
-# State of the Field
+# State of the field
 
 Several mature reinforcement learning frameworks provide scalable
 implementations of modern policy optimization algorithms.
@@ -111,9 +110,8 @@ allows researchers to study adaptive governance problems where both policies and
 institutional rules evolve together.
 
 Related work in computational mechanism design includes the AI Economist [@zheng2022ai], which investigates the joint adaptation of economic agents and a regulatory planner through two-level reinforcement learning. MetaMARL addresses a complementary software-engineering objective: providing reusable abstractions for agents, mechanisms, environment dynamics, and interchangeable optimization interfaces across different application domains. Rather than prescribing a particular economic simulation or regulatory learning algorithm, the framework emphasizes compositional experiment construction and the systematic evaluation of alternative mechanism designs.
----
 
-# Software Design
+# Software design
 
 The framework follows a modular architecture composed of four primary
 components.
@@ -146,8 +144,7 @@ training pipelines for each application.
 **Composable residual mechanisms.** 
 A central design choice in MetaMARL is to represent the effects of agents and mechanisms as structured residuals over a shared Markov decision process state. Each mechanism independently maps actions and environmental information to state-update contributions. These residuals are composed through vectorized operations: additive quantities are accumulated, while applicable constraints are combined by intersection. This separates the definition of individual interventions from their composition, allowing users to construct complex regulatory environments from reusable mechanisms. The abstraction supports heterogeneous agents, configurable leader–follower interactions, and extensions involving additional learning or optimization algorithms.
 
----
-# Research Impact
+# Research impact statement
 
 `MetaMARL` has been developed as research infrastructure for investigating mechanism design in adaptive multi-agent systems. Its common-pool fishery benchmark provides an executable research workflow in which learning agents interact with a renewable resource under configurable regulatory interventions. Researchers can compare mechanism configurations, train agent policies using PPO or APPO, and evaluate the resulting behavior using economic, ecological, and optimization metrics.
 
@@ -165,7 +162,6 @@ By separating reinforcement learning algorithms from mechanism optimization, the
 framework enables researchers to investigate new classes of adaptive governance
 problems while leveraging existing reinforcement learning ecosystems.
 
----
 
 # Acknowledgements
 
@@ -177,8 +173,9 @@ project, as well as workshop participants in Lausanne (2025) and Toronto
 (2026), for valuable discussions that contributed to the development of this
 software.
 
----
 
-# AI Usage Disclosure
+# AI usage disclosure
 
 Generative AI tools, including OpenAI ChatGPT (GPT-6), were used to assist with manuscript drafting and editing, documentation, and technical discussion. The human authors are responsible for the framework's research objectives, architectural decisions, scientific methodology, and final implementation. All AI-assisted materials were reviewed and edited by the authors, and the software was validated using the project's automated testing and reproducible experiment workflows.
+
+# References
