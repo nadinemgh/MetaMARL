@@ -263,6 +263,7 @@ class MultiAgentEnv(ABC):
 
         # Bilevel Multi-agent environment
         self.followers = {aid: cfg.build() for aid, cfg in agents_cfg_dict.items()}
+        leaders_cfg_dict = leaders_cfg_dict or {}
         self.leaders = {aid: cfg.build() for aid, cfg in leaders_cfg_dict.items()}
         self.lids = set(leaders_cfg_dict.keys())
         self.agents = {**self.leaders, **self.followers}
@@ -280,10 +281,13 @@ class MultiAgentEnv(ABC):
             f"|ps={policy_seed}"
             f"|ss={self.seed}"
         )
-        self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
-        self.reporter.schema = schema
+        self.reporter: Optional[Reporter] = None
 
-        self.reporter.add_query(*(queries or ()))
+        if reporter_cfg is not None:
+            self.reporter = reporter_cfg.build(label=reporting_env_id)
+            self.reporter.schema = schema
+
+            self.reporter.add_query(*(queries or ()))
 
     def __init_subclass__(cls, **kwargs):
         """Record the names of the methods marked with a hook decorator.
@@ -575,7 +579,8 @@ class MultiAgentEnv(ABC):
 
         mdp = self.termination(mdp)
 
-        self.logger.push(key=("iter",), value=mdp.t)
+        if self.logger is not None:
+            self.logger.push(key=("iter",), value=mdp.t)
 
         mdp = mdp.add([agent.action(mdp, reset=True) for agent in self.agents.values()])
         mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])

@@ -1147,11 +1147,14 @@ class RayOptimizerConfig(OptimizerConfig):
         )
         cfg = self.copy(copy_frozen=True)
 
-        # Build reporter
-        reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
-        reporting.schema = self._reporting_schema
+        # Build reporter; reporting is optional
+        reporting = None
 
-        reporting.add_query(*(self._reporting_queries or ()))
+        if self._reporter_cfg is not None:
+            reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
+            reporting.schema = self._reporting_schema
+
+            reporting.add_query(*(self._reporting_queries or ()))
 
         opt = RayOptimizer(world=world, reporting=reporting, config=cfg)
 

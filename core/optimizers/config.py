@@ -168,7 +168,7 @@ class OptimizerConfig(_Config, ABC):
 
     @property
     def reporter_cfg(self) -> Optional[ReporterConfig]:
-        """Reporter configuration used by ``_build_reporter``.
+        """Reporter configuration from which ``build_optimizer`` builds the reporter.
 
         ``None`` disables reporting.
         """
@@ -377,11 +377,14 @@ class OptimizerConfig(_Config, ABC):
         if cfg.opt_class is None:
             raise ValueError("OptimizerConfig has no opt_class")
 
-        # Build reporter
-        reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
-        reporting.schema = self._reporting_schema
+        # Build reporter; reporting is optional
+        reporting = None
 
-        reporting.add_query(*(self._reporting_queries or ()))
+        if self._reporter_cfg is not None:
+            reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
+            reporting.schema = self._reporting_schema
+
+            reporting.add_query(*(self._reporting_queries or ()))
 
         opt: Optimizer = cfg.opt_class(world=world, reporting=reporting, config=cfg)
 
