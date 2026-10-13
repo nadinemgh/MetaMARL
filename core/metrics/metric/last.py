@@ -48,10 +48,12 @@ class LastMetric(SeriesMetric):
         if not compile:
             return list(self.values)
 
-        if not self.values:
+        present = self.present_values()
+
+        if not present:
             return None
 
-        return self.values[-1]
+        return present[-1]
 
     # (nadine) TODO move to base cls
     def reduce(self, compile: bool = True) -> PrimitiveType | LastMetric | None:

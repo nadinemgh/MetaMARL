@@ -85,6 +85,7 @@ class Node(dict[str, "Node | Metric"]):
     schema: type[MetricSchema] | None
     dynamic: bool = False
     subtree_reduce: ReduceProtocol | None = None
+    pushes: int = 0
 
     def __init__(
         self,
@@ -99,6 +100,7 @@ class Node(dict[str, "Node | Metric"]):
         self.schema = schema
         self.dynamic = dynamic
         self.subtree_reduce = subtree_reduce
+        self.pushes = 0
 
     def construct(self, data: dict[str, Any]) -> MetricSchema | dict[str, Any]:
         """Rebuild a schema instance from values laid out like this node.
@@ -382,6 +384,54 @@ class MetricLogger(ABC):
             node=child, path=path, index=index + 1, prefix=child_path
         )
 
+    def _specialise(
+        self, node: Node, field_name: str, schema: type[MetricSchema], path: Path
+    ) -> Node:
+        """Replace a nested node by the sub-tree of a subclass of its schema.
+
+        The new sub-tree is built from ``schema`` and takes the place of
+        ``node[field_name]``. Every value already held under ``path`` is pushed
+        again into the matching metric of the new sub-tree, in its original
+        order, creating the dynamic ids that were already bound, so that
+        nothing pushed before the specialisation is lost. Gaps are carried as
+        gaps, and the push counts of the dynamic nodes are carried over.
+        """
+
+        old_node = node[field_name]
+        carried = {
+            key: metric
+            for key, metric in self._refs.items()
+            if key[: len(path)] == path
+        }
+
+        new_node, refs = self._build_from_schema(
+            schema, prefix=path, subtree_reduce=old_node.subtree_reduce
+        )
+        node[field_name] = new_node
+
+        for key in carried:
+            del self._refs[key]
+
+        self._refs.update(refs)
+
+        for key, old_metric in carried.items():
+            new_metric = self._refs.get(key)
+
+            if new_metric is None:
+                new_metric = self._resolve_path(
+                    path=key, node=self._tree, index=0, prefix=()
+                )
+
+            for value in old_metric.peek(compile=False):
+                if value is None:
+                    new_metric.push_gap()
+                else:
+                    new_metric.push(value)
+
+        self._copy_pushes(old_node, new_node)
+
+        return new_node
+
     # TODO refactor into one push function
     def push_data(
         self, data: MetricSchema, prefix: Path = (), node: Node | None = None
@@ -462,13 +512,9 @@ class MetricLogger(ABC):
                             f"{declared_schema.__name__} at {path}."
                         )
 
-                    subtree_reduce = child_node.subtree_reduce
-                    child_node, refs = self._build_from_schema(
-                        runtime_schema, prefix=path, subtree_reduce=subtree_reduce
+                    child_node = self._specialise(
+                        node, field_name, runtime_schema, path
                     )
-                    node[field_name] = child_node
-
-                    self._refs.update(refs)
 
                 self.push_data(value, prefix=path, node=child_node)
                 continue
@@ -513,6 +559,10 @@ class MetricLogger(ABC):
                         child_node[dynamic_id] = runtime_node
 
                         self._refs.update(refs)
+
+                        # The new child missed the earlier pushes of its node.
+                        for _ in range(child_node.pushes):
+                            self._push_gap(runtime_node)
                     elif not isinstance(runtime_node, Node):
                         raise TypeError(
                             f"Expected runtime Node at {runtime_path}, got "
@@ -528,6 +578,11 @@ class MetricLogger(ABC):
                         dynamic_child, prefix=runtime_path, node=runtime_node
                     )
 
+                for dynamic_id, runtime_node in child_node.items():
+                    if dynamic_id not in value:
+                        self._push_gap(runtime_node)
+
+                child_node.pushes += 1
                 continue
 
             if not isinstance(child_node, Metric):
@@ -536,6 +591,49 @@ class MetricLogger(ABC):
                 )
 
             child_node.push(value)
+
+    @classmethod
+    def _push_gap(cls, node: Node) -> None:
+        """Append one gap to every leaf below ``node``.
+
+        Every dynamic node crossed counts the gap as one of its pushes, so a
+        child it creates later is back-filled to the same length.
+        """
+
+        if node.dynamic:
+            node.pushes += 1
+
+        for child in node.values():
+            if isinstance(child, Metric):
+                child.push_gap()
+            else:
+                cls._push_gap(child)
+
+    @classmethod
+    def _clear_pushes(cls, node: Node) -> None:
+        """Set the push count of every dynamic node below ``node`` to zero."""
+
+        node.pushes = 0
+
+        for child in node.values():
+            if isinstance(child, Node):
+                cls._clear_pushes(child)
+
+    @classmethod
+    def _copy_pushes(cls, source: Node, target: Node) -> None:
+        """Copy the push counts of ``source`` onto the matching nodes of ``target``.
+
+        Nodes are matched by their key path; a node of ``target`` with no
+        counterpart keeps its count.
+        """
+
+        target.pushes = source.pushes
+
+        for key, source_child in source.items():
+            target_child = target.get(key)
+
+            if isinstance(source_child, Node) and isinstance(target_child, Node):
+                cls._copy_pushes(source_child, target_child)
 
     def push(self, key: Path, value: Any) -> None:
         # TODO narrow down Any to stricter type annotation
@@ -660,6 +758,7 @@ class MetricLogger(ABC):
                 ) from e
 
         reduced = tree.map_structure_with_path(_reduce, self._tree)
+        self._clear_pushes(self._tree)
 
         return self._tree.construct(reduced)
 
@@ -698,6 +797,8 @@ class MetricLogger(ABC):
                 raise ValueError(
                     f"Error flushing metrics {metric} at path {path}."
                 ) from e
+
+        self._clear_pushes(self._tree)
 
     def flush(self, key: Path) -> None:
         """Clear the accumulated values of the leaf at ``key``.

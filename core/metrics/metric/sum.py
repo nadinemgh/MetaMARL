@@ -69,7 +69,7 @@ class SumMetric(SeriesMetric):
         if not compile:
             return list(self.values)
 
-        return sum(self.values)
+        return sum(self.present_values())
 
     def reduce(self, compile: bool = True) -> int | float | SumMetric:
         """Return the sum and clear the history.

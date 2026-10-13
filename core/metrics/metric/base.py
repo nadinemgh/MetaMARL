@@ -190,6 +190,16 @@ class Metric(ABC):
         ...
 
     @abstractmethod
+    def push_gap(self) -> None:
+        """Append a gap: a push of the logger with no value for this leaf.
+
+        The logger calls it on every leaf of a dynamic child that a push leaves
+        out, and once per missed push on a child created late, so that the
+        histories of the children stay aligned with the pushes. A gap is kept
+        in the raw history and skipped by the compiled value.
+        """
+
+    @abstractmethod
     def flush(self) -> None:
         """Discard every accumulated value, leaving the metric empty."""
 

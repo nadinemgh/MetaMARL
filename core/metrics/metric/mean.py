@@ -71,10 +71,12 @@ class MeanMetric(SeriesMetric):
         if not compile:
             return list(self.values)
 
-        if not self.values:
+        present = self.present_values()
+
+        if not present:
             return None
 
-        return sum(self.values) / len(self.values)
+        return sum(present) / len(present)
 
     def reduce(self, compile: bool = True) -> float | MeanMetric | None:
         """Return the arithmetic mean and clear the history.

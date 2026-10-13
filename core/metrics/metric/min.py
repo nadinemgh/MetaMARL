@@ -83,7 +83,9 @@ class MinMetric(SeriesMetric):
         if not compile:
             return list(self.values)
 
-        if not self.values:
+        present = self.present_values()
+
+        if not present:
             return None
 
         # NaN is how the Ray adaptor marks a statistic that RLlib did not report,
@@ -91,10 +93,10 @@ class MinMetric(SeriesMetric):
         # ``<``, which is false against NaN, and would then return
         # NaN or a number depending on the push order. NaN values are skipped
         # instead; a window holding nothing but NaN stays NaN.
-        valid = [value for value in self.values if not math.isnan(value)]
+        valid = [value for value in present if not math.isnan(value)]
 
         if not valid:
-            return self.values[0]
+            return present[0]
 
         return min(valid)
 
