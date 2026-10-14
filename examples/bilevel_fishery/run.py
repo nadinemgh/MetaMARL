@@ -34,7 +34,7 @@ Options (``--help`` prints the same list):
 
 Smoke configuration::
 
-    WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \\
+    WANDB_MODE=offline uv run python -m examples.bilevel_fishery.run \\
         --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20
 
 Full configuration: the defaults.

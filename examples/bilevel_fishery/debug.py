@@ -1,12 +1,11 @@
 """Bilevel fishery experiment with the typed metrics/reporting stack.
 
 This script builds the experiment in Python and runs it. The outer Evolution
-Strategies optimizer searches ``fixed_quota`` and ``restoration_subsidy``, the
-``quota`` and ``restoration_subsidy`` mechanisms of ``core.mechanism.algorithms``;
-the inner APPO optimizer trains the fishers against each candidate. Every level
-logs a typed ``MetricSchema`` and renders the queries of
-:mod:`examples.bilevel_fishery.queries` through the configured reporter
-(Weights & Biases by default, CSV with ``--reporter csv``).
+Strategies optimizer searches the ``quota`` and the ``restoration_subsidy``, two
+mechanisms of ``core.mechanism.algorithms``; the inner APPO optimizer trains the
+fishers against each candidate. Every level logs a typed ``MetricSchema`` and
+renders the queries of :mod:`examples.bilevel_fishery.queries` through the
+configured reporter (Weights & Biases by default, CSV with ``--reporter csv``).
 
 Nothing runs at import. :func:`main` configures the logging, calls
 ``ensure_hash_seed()`` (which may restart the process, before Ray starts),
