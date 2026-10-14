@@ -115,3 +115,6 @@ geojsons/
 
 !TODO.md
 !tutorials/*
+# Runs of the notebooks write W&B files next to them; the line above would
+# otherwise bring them back.
+tutorials/wandb/
