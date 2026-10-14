@@ -107,13 +107,6 @@ from core.utils import sigmoid
 logger = logging.getLogger(__name__)
 EPS = 1e-8
 
-# observation layout
-# [fish_norm, usage_norm, harvest, restoration]
-FISH_NORM = 0
-USAGE_NORM = 1
-HARVEST = 2
-RESTORATION = 3
-
 
 class Fisherman(Agent):
     # TODO (nadine) replace usage with inidividual harvest observation
