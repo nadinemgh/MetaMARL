@@ -5,7 +5,8 @@ Strategies optimizer searches the ``quota`` and the ``restoration_subsidy``, two
 mechanisms of ``core.mechanism.algorithms``; the inner APPO optimizer trains the
 fishers against each candidate. Every level logs a typed ``MetricSchema`` and
 renders the queries of :mod:`examples.bilevel_fishery.queries` through the
-configured reporter (Weights & Biases by default, CSV with ``--reporter csv``).
+configured reporter (Weights & Biases by default, CSV with ``--reporter csv``,
+TensorBoard with ``--reporter tensorboard``).
 
 Nothing runs at import. :func:`main` configures the logging, calls
 ``ensure_hash_seed()`` (which may restart the process, before Ray starts),
@@ -22,7 +23,7 @@ Options (``--help`` prints the same list):
     Number of fishers.
 ``--horizon`` : int, default 100
     Episode length of the fishery, in steps.
-``--reporter`` : ``{wandb, csv}``, default ``wandb``
+``--reporter`` : ``{wandb, csv, tensorboard}``, default ``wandb``
     Where the queries are rendered.
 
 Smoke configuration::
@@ -54,6 +55,7 @@ from core.optimizers.es.config import ESConfig
 from core.optimizers.es.schema import ESSchema
 from core.reporting.config import ReporterConfig
 from core.reporting.csv import CSVConfig
+from core.reporting.tensor_board import TensorBoardConfig
 from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
 from examples.bilevel_fishery.queries import (
@@ -111,7 +113,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--reporter",
-        choices=("wandb", "csv"),
+        choices=("wandb", "csv", "tensorboard"),
         default="wandb",
         help="where the queries are rendered",
     )
@@ -123,9 +125,10 @@ def reporter_config(name: str) -> ReporterConfig:
 
     Parameters
     ----------
-    name : {"wandb", "csv"}
-        ``"csv"`` writes the queries as CSV files; any other value builds the
-        Weights & Biases reporter.
+    name : {"wandb", "csv", "tensorboard"}
+        ``"csv"`` writes the queries as CSV files, ``"tensorboard"`` writes
+        them as TensorBoard event files under ``runs/``; any other value builds
+        the Weights & Biases reporter.
 
     Returns
     -------
@@ -138,9 +141,13 @@ def reporter_config(name: str) -> ReporterConfig:
     --------
     >>> type(reporter_config("csv")).__name__
     'CSVConfig'
+    >>> type(reporter_config("tensorboard")).__name__
+    'TensorBoardConfig'
     """
     if name == "csv":
         return CSVConfig(project="bilevel")
+    if name == "tensorboard":
+        return TensorBoardConfig(project="bilevel")
     return WandbConfig(
         project="bilevel",
         x_disable_stats=True,
