@@ -263,9 +263,10 @@ per candidate, plus the `Query` tuples to plot, and assemble them in a script li
 the steps.
 
 To add a mechanism, subclass `Mechanism` and implement `apply`, overriding `decode` or
-`observe` when needed. Add a `MechanismConfig` subclass with the parameters as
-keyword-only fields and `mechanism_cls` set to the new class. A rule with nothing to
-search uses `empty_action_space()` from `core/mechanism/config.py`, as the penalty does.
+`on_reset` when needed. Add a `MechanismConfig` subclass with the parameters as
+keyword-only fields and `mechanism_cls` set to the new class. Every mechanism is given
+its `action_space`; a rule with nothing to search passes `empty_action_space()` from
+`core/mechanism/config.py`.
 
 To add a reporting backend, subclass `Reporter` and implement `_report(query, x, ys,
 errors, colors)` and `close`, then subclass `ReporterConfig` and implement
