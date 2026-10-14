@@ -695,11 +695,13 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         if self.initial_stock_log_sigma == 0.0:
             fish_init = self.fish_init
         else:
-            # TODO (nadine) change to scipy truncnorm rather than clip to avoid flat signal
+            # TODO (nadine) change to scipy truncnorm rather than clip to avoid
+            #   flat signal
             fish_init = np.clip(
                 self.rng.lognormal(
                     mean=np.log(max(self.fish_init, EPS)),
-                    sigma=self.initial_stock_log_sigma,  # sigma around sampling from lognormal distribution
+                    # sigma around sampling from lognormal distribution
+                    sigma=self.initial_stock_log_sigma,
                 ),
                 EPS,
                 self.K,
