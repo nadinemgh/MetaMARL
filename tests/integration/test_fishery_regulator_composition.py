@@ -22,6 +22,14 @@ the stock read before each step, not from the mechanisms:
   reward residual of ``Quota.apply``);
 - collapse penalty of the transition: ``-0.1 / (1 + exp((b' - 0.2) / 0.03))``
   at the normalised stock ``b'`` after the step (``pella_tomlinson``).
+
+The fisher observation has the nine slots of ``debug.py``: the fisher writes
+the stock into slot 0 and the previous harvest into slot 2, the quota writes
+the allowed fraction and the quota into slots 1 and 3 and the parameters of its
+fine into slots 4 to 7, and the incentive mechanism writes the subsidy rate
+into slot 8. Slots 3 and 4 are therefore taken, and the social-influence
+entries are appended after them, at slots 9 and 10, in an observation of 11
+entries.
 """
 
 import math
@@ -32,7 +40,7 @@ from gymnasium import spaces
 
 from core.mechanism.algorithms.incentive import MAX, Incentive
 from core.mechanism.algorithms.penalty import ThresholdPenalty
-from core.mechanism.algorithms.quota import FINE_AMOUNT, Quota
+from core.mechanism.algorithms.quota import FINE_AMOUNT, MAX_DEMAND_FRAC, Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
 from examples.bilevel_fishery.regulated_env import RestoreConfig
 
@@ -57,8 +65,12 @@ RESTORATION_COST = RestoreConfig.restoration_cost
 PENALTY_THRESHOLD = 0.77
 PENALTY_AMOUNT = 0.1
 PENALTY_WIDTH = 0.03
-HARVEST_ENTRY = 3
-RESTORE_ENTRY = 4
+# The social entries follow the nine legacy slots, because slots 3 and 4 hold
+# the fixed quota and MAX_DEMAND_FRAC that the quota writes.
+LEGACY_SLOTS = 9
+HARVEST_ENTRY = 9
+RESTORE_ENTRY = 10
+SOCIAL_OBSERVATION_SIZE = 11
 UNIT_BOX = spaces.Box(0.0, 1.0, (1,), np.float32)
 NO_PARAMETER = spaces.Box(0.0, 1.0, (0,), np.float32)
 Z_SCALE = 2.0
@@ -327,11 +339,19 @@ class TestSocialObservations:
             penalty_config(),
             *social_configs(),
             candidates=answers,
+            observation_size=SOCIAL_OBSERVATION_SIZE,
         )
         adapter = fishery.adapter
         obs, _ = adapter.reset()
         rng = np.random.default_rng(1)
-        history = [{"obs": obs, "level": level_of(adapter), "delivered": None}]
+        history = [
+            {
+                "obs": obs,
+                "level": level_of(adapter),
+                "harvest_norm": 0.0,
+                "delivered": None,
+            }
+        ]
 
         for _ in range(steps):
             level = level_of(adapter)
@@ -352,6 +372,9 @@ class TestSocialObservations:
                 {
                     "obs": obs,
                     "level": level_of(adapter),
+                    # Slot 2 of the fisher: what the fishers removed at this
+                    # step, over the capacity.
+                    "harvest_norm": float(adapter._mdp.state["harvest"][t]) / CAPACITY,
                     "delivered": delivered,
                     "previous_level": level,
                 }
@@ -399,16 +422,31 @@ class TestSocialObservations:
     def test_the_agents_own_entries_are_untouched(
         self, build_fishery, candidate_context
     ):
+        # The social mechanisms must leave the nine legacy slots to the fisher,
+        # the quota and the incentive mechanism, and must not widen them.
         _, history = self.play(
             build_fishery, [candidate_context(candidate(with_social=True))]
         )
 
         for step in history:
+            expected = np.array(
+                [
+                    step["level"],
+                    allowed_fraction(step["level"], QUOTA),
+                    step["harvest_norm"],
+                    QUOTA,
+                    MAX_DEMAND_FRAC,
+                    FINE_AMOUNT,
+                    0.0,
+                    0.0,
+                    SUBSIDY_RATE,
+                ]
+            )
+
             for obs in step["obs"].values():
-                assert obs.shape == (5,)
+                assert obs.shape == (SOCIAL_OBSERVATION_SIZE,)
                 assert obs.dtype == np.float32
-                assert obs[0] == pytest.approx(step["level"], abs=FLOAT32_ATOL)
-                assert obs[1] == 0.0
+                assert obs[:LEGACY_SLOTS] == pytest.approx(expected, abs=FLOAT32_ATOL)
 
     def test_peers_see_different_values_when_their_actions_differ(
         self, build_fishery, candidate_context
@@ -445,6 +483,11 @@ class TestSocialObservations:
                 assert obs[HARVEST_ENTRY] == 0.0
                 assert obs[RESTORE_ENTRY] == 0.0
 
+                # Without a candidate the quota and the incentive mechanism
+                # write nothing either, so the legacy slots they own stay at
+                # zero; only the fisher's slots 0 and 2 move.
+                assert obs[[1, *range(3, LEGACY_SLOTS)]].tolist() == [0.0] * 7
+
     def test_without_a_candidate_the_reward_is_the_requested_harvest_net_of_costs(
         self, build_fishery
     ):
@@ -454,6 +497,7 @@ class TestSocialObservations:
             penalty_config(),
             *social_configs(),
             candidates=[None],
+            observation_size=SOCIAL_OBSERVATION_SIZE,
         )
         adapter = fishery.adapter
 
@@ -468,7 +512,7 @@ class TestSocialObservations:
             for aid in adapter.possible_agents:
                 # The requested harvest, less the fisher's own restoration cost
                 # and the collapse penalty of the transition; the regulator
-                # holds no candidate, so none of its mechanisms acts.
+                # holds no candidate, so no mechanism of its own acts.
                 expected = (
                     requested_fraction(z_of(actions, aid, "harvest"))
                     - RESTORATION_COST
@@ -489,6 +533,7 @@ class TestSocialObservations:
             penalty_config(),
             *social_configs(),
             candidates=[None, candidate_context(candidate(with_social=True))],
+            observation_size=SOCIAL_OBSERVATION_SIZE,
         )
         adapter = fishery.adapter
         rng = np.random.default_rng(3)
@@ -501,6 +546,11 @@ class TestSocialObservations:
         second, *_ = adapter.step(policy_outputs(rng, adapter.possible_agents))
 
         for aid in adapter.possible_agents:
+            # Before the candidate arrives the legacy slots of the quota are
+            # empty; once it has, the fixed quota shows in slot 3.
+            assert first[aid][3] == 0.0
+            assert after_reset[aid][3] == pytest.approx(QUOTA)
+            assert second[aid][3] == pytest.approx(QUOTA)
             assert first[aid][HARVEST_ENTRY] == 0.0
             assert first[aid][RESTORE_ENTRY] == 0.0
             assert after_reset[aid][HARVEST_ENTRY] == 0.0
@@ -523,6 +573,7 @@ class TestEpisodeShape:
             *social_configs(),
             candidates=[candidate_context(candidate(with_social=True))],
             horizon=5,
+            observation_size=SOCIAL_OBSERVATION_SIZE,
         )
         adapter = fishery.adapter
         obs, _ = adapter.reset()
@@ -536,7 +587,10 @@ class TestEpisodeShape:
                 policy_outputs(rng, adapter.possible_agents)
             )
 
-            assert all(o.shape == (5,) and np.isfinite(o).all() for o in obs.values())
+            assert all(
+                o.shape == (SOCIAL_OBSERVATION_SIZE,) and np.isfinite(o).all()
+                for o in obs.values()
+            )
             assert all(math.isfinite(r) for r in rewards.values())
             assert terminateds["__all__"] is False
             assert truncateds["__all__"] is (step == 4)
