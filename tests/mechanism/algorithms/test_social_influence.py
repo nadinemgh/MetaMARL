@@ -1,8 +1,10 @@
 """``SocialInfluenceMechanism``: peers' last actions in each observation.
 
-The mechanism contributes at observation time. After the transition of step
-``t - 1`` the state is at ``t`` and ``actions[...][t - 1]`` holds what each
-agent delivered; the tests build that situation directly.
+The mechanism contributes when the environment opens a step, through
+``on_reset``. After the transition of step ``t - 1`` the state is at ``t``,
+``actions[...][t - 1]`` holds what each agent delivered and the observation of
+step ``t`` is open at its declared size; the tests build that situation
+directly. ``apply`` contributes nothing.
 """
 
 import dataclasses
@@ -32,7 +34,11 @@ def make(obs_offset: int = 2, **kwargs) -> SocialInfluenceMechanism:
 
 
 def mdp_after_a_step(delivered: dict[str, list[float]], obs_size: int = 6) -> MDPState:
-    """State at ``t = 1`` whose step 0 delivered the given harvest actions."""
+    """State at ``t = 1`` whose step 0 delivered the given harvest actions.
+
+    The observations of step 1 are open, at zero, as the environment leaves
+    them before the mechanisms' ``on_reset`` hooks run.
+    """
 
     mdp = MDPState(
         aids=set(delivered),
@@ -43,7 +49,9 @@ def mdp_after_a_step(delivered: dict[str, list[float]], obs_size: int = 6) -> MD
         obs={aid: np.zeros(obs_size, dtype=np.float32) for aid in delivered},
     )
 
-    return dataclasses.replace(mdp, t=1)
+    return mdp.advance(
+        obs={aid: np.zeros(obs_size, dtype=np.float32) for aid in delivered}
+    )
 
 
 THREE = {
@@ -62,14 +70,14 @@ class TestValidation:
         with pytest.raises(ValueError, match="influence_weight"):
             make(influence_weight=-0.5)
 
-    def test_observe_requires_a_target(self):
+    def test_on_reset_requires_a_target(self):
         with pytest.raises(ValueError, match="acts_on"):
-            make(acts_on=None).apply(mdp_after_a_step(THREE), NO_ACTION)
+            make(acts_on=None).on_reset(mdp_after_a_step(THREE), NO_ACTION)
 
     def test_reserved_entries_must_fit_in_the_observation(self):
         # Two peers with two action components need entries 2 to 5.
         with pytest.raises(ValueError, match="fisherman:0"):
-            make(obs_offset=2).apply(mdp_after_a_step(THREE, obs_size=5), NO_ACTION)
+            make(obs_offset=2).on_reset(mdp_after_a_step(THREE, obs_size=5), NO_ACTION)
 
 
 @pytest.mark.unit
@@ -84,8 +92,9 @@ class TestFixedRule:
         assert make().influence_weight == 0.0
 
     def test_apply_contributes_nothing(self):
-        mdp = dataclasses.replace(mdp_after_a_step(THREE), t=0)
-        delta = make()(mdp, NO_ACTION)
+        # The peers' actions are written by on_reset at the start of the next
+        # step; apply returns an empty residual even when peers have acted.
+        delta = make().apply(mdp_after_a_step(THREE), NO_ACTION)
 
         assert delta.obs.data == {}
         assert delta.rewards.data == {}
@@ -96,7 +105,7 @@ class TestFixedRule:
 @pytest.mark.unit
 class TestObservationResidual:
     def test_peer_ordering_and_self_exclusion(self):
-        delta = make(obs_offset=2).apply(mdp_after_a_step(THREE), NO_ACTION)
+        delta = make(obs_offset=2).on_reset(mdp_after_a_step(THREE), NO_ACTION)
 
         # (N - 1) * d = 2 * 2 = 4 entries, after the two the agent fills itself.
         np.testing.assert_allclose(delta.obs["fisherman:0"][0], [0, 0, 2, 20, 3, 30])
@@ -106,7 +115,7 @@ class TestObservationResidual:
 
     def test_peer_order_does_not_depend_on_the_order_of_the_actions(self):
         shuffled = {aid: THREE[aid] for aid in reversed(THREE)}
-        delta = make(obs_offset=2).apply(mdp_after_a_step(shuffled), NO_ACTION)
+        delta = make(obs_offset=2).on_reset(mdp_after_a_step(shuffled), NO_ACTION)
 
         np.testing.assert_allclose(delta.obs["fisherman:1"][0], [0, 0, 1, 10, 3, 30])
 
@@ -114,7 +123,7 @@ class TestObservationResidual:
         # String order would put "fisherman:10" before "fisherman:2".
         delivered = {"fisherman:2": [2.0], "fisherman:10": [10.0], "fisherman:1": [1.0]}
         mdp = mdp_after_a_step(delivered, obs_size=2)
-        delta = make(obs_offset=0).apply(mdp, NO_ACTION)
+        delta = make(obs_offset=0).on_reset(mdp, NO_ACTION)
 
         np.testing.assert_allclose(delta.obs["fisherman:1"][0], [2, 10])
         np.testing.assert_allclose(delta.obs["fisherman:10"][0], [1, 2])
@@ -127,32 +136,39 @@ class TestObservationResidual:
             "fisherman:9": [9.0],
         }
         mdp = mdp_after_a_step(delivered, obs_size=3)
-        delta = make(obs_offset=0).apply(mdp, NO_ACTION)
+        delta = make(obs_offset=0).on_reset(mdp, NO_ACTION)
 
         np.testing.assert_allclose(delta.obs["fisherman:b"][0], [9, 10, -1])
 
     def test_scalar_actions_are_accepted(self):
         # A mechanism such as ``Fishing`` decodes its action to a plain float.
         mdp = mdp_after_a_step({"fisherman:0": 0.25, "fisherman:1": 0.75}, obs_size=3)
-        delta = make(obs_offset=2).apply(mdp, NO_ACTION)
+        delta = make(obs_offset=2).on_reset(mdp, NO_ACTION)
 
         np.testing.assert_allclose(delta.obs["fisherman:0"][0], [0, 0, 0.75])
         np.testing.assert_allclose(delta.obs["fisherman:1"][0], [0, 0, 0.25])
 
     def test_other_agents_are_neither_peers_nor_recipients(self):
         mdp = mdp_after_a_step({**THREE, "farmer:0": [9.0, 90.0]})
-        delta = make(obs_offset=2).apply(mdp, NO_ACTION)
+        delta = make(obs_offset=2).on_reset(mdp, NO_ACTION)
 
         assert set(delta.obs.data) == set(THREE)
         np.testing.assert_allclose(delta.obs["fisherman:0"][0], [0, 0, 2, 20, 3, 30])
 
+    def test_nothing_is_written_without_a_candidate(self):
+        # The regulator hands None to on_reset while it holds no candidate.
+        assert make().on_reset(mdp_after_a_step(THREE), None).obs.data == {}
+        assert make().on_reset(mdp_after_a_step(THREE)).obs.data == {}
+
     def test_nothing_is_written_at_reset(self):
         mdp = dataclasses.replace(mdp_after_a_step(THREE), t=0)
 
-        assert make().apply(mdp, NO_ACTION).obs.data == {}
+        assert make().on_reset(mdp, NO_ACTION).obs.data == {}
 
     def test_a_single_agent_has_no_peer(self):
-        delta = make().apply(mdp_after_a_step({"fisherman:0": [1.0, 10.0]}), NO_ACTION)
+        delta = make().on_reset(
+            mdp_after_a_step({"fisherman:0": [1.0, 10.0]}), NO_ACTION
+        )
 
         assert delta.obs.data == {}
 
@@ -162,10 +178,9 @@ class TestObservationResidual:
         mdp.update(
             actions={"fisherman:0": {"harvest": 0.5}, "fisherman:1": {"harvest": 0.9}}
         )
-        mdp.update(obs={aid: np.zeros(3, dtype=np.float32) for aid in mdp.aids})
 
-        mdp = dataclasses.replace(mdp, t=2)
-        delta = make(obs_offset=2).apply(mdp, NO_ACTION)
+        mdp = mdp.advance(obs={aid: np.zeros(3, dtype=np.float32) for aid in mdp.aids})
+        delta = make(obs_offset=2).on_reset(mdp, NO_ACTION)
 
         np.testing.assert_allclose(delta.obs["fisherman:0"][0], [0, 0, 0.9])
 
@@ -181,7 +196,7 @@ class TestComposition:
             obs={aid: np.asarray([0.8, 0.1, 0.0], dtype=np.float32) for aid in mdp.aids}
         )
         mdp.update(actions={REGULATOR: {"social": NO_ACTION}})
-        mdp = mdp.add([own, regulator.action(mdp)])
+        mdp = mdp.add([own, regulator.action(mdp, reset=True)])
 
         np.testing.assert_allclose(mdp.obs["fisherman:0"][1], [0.8, 0.1, 0.75])
         np.testing.assert_allclose(mdp.obs["fisherman:1"][1], [0.8, 0.1, 0.25])
