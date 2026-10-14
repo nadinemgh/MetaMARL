@@ -54,9 +54,11 @@ COLLAPSE_AMOUNT = 0.1
 COLLAPSE_THRESHOLD = 0.20
 COLLAPSE_WIDTH = 0.03
 
-# Under these seeded actions the stock of the shrunk fishery stays between 0.72
-# and 0.81 of the capacity, so a quota inside that range cuts the larger
-# requests and a penalty threshold inside it is crossed during the episode.
+# Under these seeded actions the stock of the shrunk fishery starts at 0.81 of
+# the capacity and falls to about 0.57 over the episode, passing below 0.78
+# after the first step. A quota at 0.78 therefore cuts the larger requests while
+# leaving the smaller ones alone, and a penalty threshold just below it is
+# crossed during the episode.
 QUOTA = float(np.float32(0.78))
 # A quota far below the stock, which does not bind any request.
 LOOSE_QUOTA = float(np.float32(0.05))
