@@ -168,7 +168,9 @@ class IncentiveMechanism(Mechanism):
                 if len(history) > mdp.t
                 else np.zeros(9, dtype=np.float32)
             )
-            delta = np.zeros(9, dtype=np.float32)
+            # The residual has the size of the entry it is added to, which the
+            # environment has opened at the size of the declared space.
+            delta = np.zeros_like(current)
             delta[8] = np.float32(action) - current[8]
             obs[aid] = delta
 

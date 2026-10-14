@@ -285,7 +285,9 @@ class QuotaMechanism(Mechanism):
                 if len(history) > mdp.t
                 else np.zeros_like(target)
             )
-            delta = np.zeros_like(target)
+            # The residual has the size of the entry it is added to, which the
+            # environment has opened at the size of the declared space.
+            delta = np.zeros_like(existing)
             delta[indices] = target[indices] - existing[indices]
             obs[aid] = delta
 
