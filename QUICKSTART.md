@@ -45,10 +45,10 @@ The lines worth reading are the ones the ES prints at every generation. The
 `BEFORE UPDATE` line lists the quotas of the generation and the fitness of each:
 
 ```text
-[ES] BEFORE UPDATE | gen=0 | mean=[0.5, 0.5] | sigma=0.15000 | population=[[0.5053..., 0.4377...], [0.4502..., 0.5218...], [0.4946..., 0.5622...], [0.5497..., 0.4781...]] | fitness=[2.4050..., 2.4052..., 2.4053..., 2.4052...]
-[ES] gen=0 | best=2.4054 | mean=2.4052+/-0.0001 | var=0.0000 | sigma=0.1500
+[ES] BEFORE UPDATE | gen=0 | mean=[0.5, 0.5] | sigma=0.15000 | population=[[0.5053..., 0.4377...], [0.4502..., 0.5218...], [0.4946..., 0.5622...], [0.5497..., 0.4781...]] | fitness=[2.3978..., 2.3985..., 2.3981..., 2.3978...]
+[ES] gen=0 | best=2.3986 | mean=2.3981+/-0.0003 | var=0.0000 | sigma=0.1500
 ...
-[Bilevel] Run finished | iters=2 | converged=False | mechanism=[0.48476693 0.63555574] | best_fitness=2.4055
+[Bilevel] Run finished | iters=2 | converged=False | mechanism=[0.405259  0.5698728] | best_fitness=2.3990
 ```
 
 The quota is a fraction of the stock and the subsidy a fraction of its maximum, so
@@ -87,7 +87,7 @@ the same long format, one row per point:
 
 ```text
 query,x,series,value,error,color
-Candidate fitness vs quota,0.5053213238716125,Evaluated mechanisms [by_mechanism=0],2.405052661895752,,0
+Candidate fitness vs quota,0.5053213238716125,Evaluated mechanisms [by_mechanism=0],2.397838592529297,,0
 ```
 
 `series` names the curve a point belongs to and `color` carries the generation for
@@ -101,10 +101,13 @@ gradient updates.
 
 ## 4. Change the experiment
 
-The YAML file and the debug script describe the same kind of experiment in two ways.
-The debug script also searches the restoration subsidy, which the YAML file leaves
-out, so their results differ. The YAML file is the declarative form: every mapping with a `_target_` key is built by
-calling that class, `_calls_` lists the builder methods applied to it in order,
+The YAML file and the debug script describe the same experiment in two ways: the
+same quota and restoration subsidy searched by the regulator, the same ten fishers
+and the same ES and APPO settings. A copy of the YAML file with the sizes of the
+smoke run above (two generations, two training iterations, two fishers and a horizon
+of 20) prints the same fitness values as the script, to the last digit. The YAML file
+is the declarative form: every mapping with a `_target_` key is built by calling that
+class, `_calls_` lists the builder methods applied to it in order,
 `_symbol_` imports an object without calling it, and `_tuple_` builds a tuple. The
 `run` section at the end lists the calls `metamarl run` applies to the built
 experiment. For instance, the searched mechanism is declared inside the
@@ -134,7 +137,11 @@ The debug script, `examples/bilevel_fishery/debug.py`, builds the same experimen
 with the Python builders of `BilevelConfig`, and its options change the sizes
 without editing anything: `--outer-iters`, `--train-iters`, `--num-agents`,
 `--horizon` and `--reporter`. `--help` lists them with their defaults, which are
-the full experiment.
+the full experiment. The script `examples/bilevel_fishery/run.py` is a second Python
+version of the same experiment with the same options. The `metamarl` command has no
+size options: `metamarl run` trains the file as it is written, that is 1000
+generations, of which the first takes about a minute on a laptop. For a shorter run,
+edit `episodes` in the `training` calls of a copy of the file.
 
 ## 5. Where to go next
 
