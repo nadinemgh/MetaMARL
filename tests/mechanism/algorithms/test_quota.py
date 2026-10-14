@@ -811,14 +811,18 @@ class TestTargeting:
         assert delta.rewards.data == {}
         assert delta.obs.data == {}
 
-    def test_a_targeted_agent_without_an_observation_raises(self):
-        # The observation residual is built from the agent's current
-        # observation, so a targeted agent must hold one.
-        mdp = mdp_with({"fisherman:0": 0.9})
+    def test_a_targeted_agent_without_an_observation_starts_from_zeros(self):
+        # Same rule as on_reset: an agent that holds no observation yet is
+        # treated as observing zeros, so slots 1 and 3 move to their targets
+        # and every other slot stays at zero.
+        mdp = mdp_with({"fisherman:0": 0.9}, level=0.4)
         mdp.actions.data["fisherman:1"] = {"harvest": [0.9]}
+        quota = float(mdp.actions[REGULATOR]["quota"][0])
+        residual = make()(mdp, quota).obs["fisherman:1"][0]
+        expected = np.zeros(OBS_SIZE, dtype=np.float32)
+        expected[[1, 3]] = [allowed_fraction(0.4, quota), quota]
 
-        with pytest.raises(KeyError, match="fisherman:1"):
-            make()(mdp, mdp.actions[REGULATOR]["quota"][0])
+        np.testing.assert_allclose(residual, expected, atol=FLOAT32_ATOL)
 
 
 @pytest.mark.unit

@@ -46,6 +46,9 @@ RISK_PENALTY_POWER = 1.0
 FINE_AMOUNT = 0.2
 MAX_DEMAND_FRAC = 1.0
 EPS = 1e-8
+# Size of the temporary legacy observation layout that on_reset writes, used
+# when a targeted agent holds no observation yet.
+LEGACY_OBS_SIZE = 9
 
 
 # TODO what if two mechanisms interfere by requiring context from each other ?
@@ -318,9 +321,12 @@ class QuotaMechanism(Mechanism):
         ValueError
             If ``acts_on`` is missing, or if ``obs_map`` does not map
             ``"resource_level"``.
-        KeyError
-            If a targeted agent holds no observation: the observation residual
-            is built from it.
+
+        Notes
+        -----
+        A targeted agent that holds no observation at ``mdp.t`` yet is treated
+        as observing zeros, as in :meth:`on_reset`, so its observation residual
+        moves slots 1 and 3 from zero to the allowed fraction and the quota.
         """
 
         if self.acts_on is None:
@@ -369,7 +375,14 @@ class QuotaMechanism(Mechanism):
             dr[aid] = -min(1.0, quota_penalty + risk_penalty)
 
             # Observation residual - Assuming obs the same for all target agents
-            current_obs = np.asarray(mdp.obs[aid][mdp.t], dtype=np.float32)
+            # An agent with no observation at this step yet starts from zeros,
+            # the same rule as in on_reset, instead of failing on a missing key.
+            history = mdp.obs.data.get(aid, [])
+            current_obs = (
+                np.asarray(history[mdp.t], dtype=np.float32)
+                if len(history) > mdp.t
+                else np.zeros(LEGACY_OBS_SIZE, dtype=np.float32)
+            )
             o = np.zeros_like(current_obs)
             o[1] = allowed_frac - current_obs[1]
             o[3] = action - current_obs[3]
