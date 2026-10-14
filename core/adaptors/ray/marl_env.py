@@ -126,7 +126,7 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     0
     """
 
-    _env: MultiAgentEnv
+    env: MultiAgentEnv
     _mdp: MDPState
 
     def __init__(self, env: MultiAgentEnv, worker_index: int = 0, **kwargs):
