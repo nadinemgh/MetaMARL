@@ -58,6 +58,8 @@ COLLAPSE_WIDTH = 0.03
 # and 0.81 of the capacity, so a quota inside that range cuts the larger
 # requests and a penalty threshold inside it is crossed during the episode.
 QUOTA = float(np.float32(0.78))
+# A quota far below the stock, which does not bind any request.
+LOOSE_QUOTA = float(np.float32(0.05))
 SUBSIDY_RATE = float(np.float32(0.6))
 # Charged by the Restore mechanism of the fisher, at the default cost of its
 # configuration; the incentive mechanism has no cost of its own.
@@ -178,11 +180,11 @@ def social_configs():
     )
 
 
-def candidate(with_social: bool) -> dict[str, np.ndarray]:
+def candidate(with_social: bool, quota: float = QUOTA) -> dict[str, np.ndarray]:
     """The regulator's action: one array per mechanism it holds."""
 
     action = {
-        "quota": np.array([QUOTA], dtype=np.float32),
+        "quota": np.array([quota], dtype=np.float32),
         "subsidy": np.array([SUBSIDY_RATE], dtype=np.float32),
         "penalty": np.empty(0, dtype=np.float32),
     }
@@ -451,8 +453,14 @@ class TestSocialObservations:
     def test_peers_see_different_values_when_their_actions_differ(
         self, build_fishery, candidate_context
     ):
+        # A binding quota cuts every request to the same allowed fraction, and
+        # the stock now falls below the quota after the first steps, so the
+        # peers would deliver the same value whatever they request. A quota far
+        # below the stock leaves the requests alone and the peers' deliveries
+        # differ.
         _, history = self.play(
-            build_fishery, [candidate_context(candidate(with_social=True))]
+            build_fishery,
+            [candidate_context(candidate(with_social=True, quota=LOOSE_QUOTA))],
         )
         gaps = [
             abs(
