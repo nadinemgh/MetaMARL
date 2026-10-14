@@ -28,13 +28,13 @@ creator with ``ray.tune`` and returns a ``RayOptimizer``; the ``Algorithm``
 itself is only built later, inside the ``PolicyActor``.
 """
 
+import functools
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
 
 import numpy as np
 import ray
-import torch
 from gymnasium import spaces
 from ray.actor import ActorHandle
 from ray.rllib.algorithms.algorithm import Algorithm
@@ -45,6 +45,13 @@ from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.tune.registry import register_env
 
+from core.adaptors.ray.common_random import (
+    HEAD_STREAM,
+    SeededHeadsPPOCatalog,
+    SeededXavierUniform,
+    common_random_module_class,
+    with_exploration_keys,
+)
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.agents.base import AgentConfig
@@ -176,7 +183,8 @@ class RayOptimizerConfig(OptimizerConfig):
 
         super().__init__(opt_class=RayOptimizer)
 
-        # TODO termporary setting until find out how to share world context accross runners
+        # TODO termporary setting until find out how to share world context accross
+        #   runners
         self._cfg_ops: dict[FnID, RLlibConfigOp] = {}
         self.rllib_cfg: AlgorithmConfig | None = None
         self.world_name: Optional[str] = None
@@ -214,6 +222,7 @@ class RayOptimizerConfig(OptimizerConfig):
             ``self``.
         """
 
+        @functools.wraps(fn)
         def wrapper(self: Self, *args: P.args, **kwargs: P.kwargs) -> Self:
             """Record the call and return ``self`` for chaining."""
 
@@ -415,7 +424,10 @@ class RayOptimizerConfig(OptimizerConfig):
 
         self.num_mechanisms = kwargs.get("num_envs_per_env_runner", 1)
 
-        return self._env_runners(**kwargs)
+        self._env_runners(**kwargs)
+        self._scale_env_count_by_seeds()
+
+        return self
 
     @rllib_config_mutator
     def learners(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
@@ -547,7 +559,8 @@ class RayOptimizerConfig(OptimizerConfig):
             ]
         elif num_seeds is not None:
             raise ValueError(
-                "`num_seeds` requires `base_seed`, unless explicit `seeds` are provided."
+                "`num_seeds` requires `base_seed`, unless explicit `seeds` are "
+                + "provided."
             )
 
         kwargs["evaluation_interval"] = None
@@ -748,7 +761,9 @@ class RayOptimizerConfig(OptimizerConfig):
 
         return identity
 
-    def _seeded_xavier_uniform(self, seed: Optional[int]):
+    def _seeded_xavier_uniform(
+        self, seed: Optional[int], stream: Optional[str] = None
+    ) -> "SeededXavierUniform | str":
         """Build a deterministic Xavier-uniform initializer for one seed.
 
         Parameters
@@ -756,37 +771,27 @@ class RayOptimizerConfig(OptimizerConfig):
         seed : int or None
             Base seed. ``None`` returns the string ``"xavier_uniform_"`` so
             RLlib uses its default (unseeded) initializer.
+        stream : str or None, optional
+            Seed stream: ``None`` for the encoder layers (layer ``i`` seeded
+            with ``seed + i``), ``HEAD_STREAM`` for the pi and vf heads.
 
         Returns
         -------
-        callable or str
-            An ``init_(tensor, **kwargs)`` function. Each call seeds torch's
-            CPU generator with ``seed + i`` (``i`` counting calls on this
-            closure), applies ``torch.nn.init.xavier_uniform_`` and restores
-            the previous RNG state, so the global stream is left untouched.
-            Because a fresh closure (with its own counter) is created per
-            RLModule, two modules built with the same seed and the same layer
-            order receive identical weights, which is what makes the same
-            policy seed comparable across mechanism candidates.
+        SeededXavierUniform or str
+            An ``init_(tensor, **kwargs)`` callable. Each call seeds torch's
+            CPU generator for its layer, applies
+            ``torch.nn.init.xavier_uniform_`` and restores the generator, so
+            the global stream is left untouched. ``SeededHeadsPPOCatalog``
+            restarts its layer count before every module build, so two
+            modules built with the same seed and the same layer order, or two
+            builds of one module, receive identical weights, which is what
+            makes the same policy seed comparable across mechanism candidates.
         """
 
         if seed is None:
             return "xavier_uniform_"
 
-        counter = {"i": 0}
-
-        def init_(tensor, **kwargs):
-            """Seeded in-place Xavier init; advances the per-closure counter."""
-
-            layer_seed = int(seed) + counter["i"]
-            counter["i"] += 1
-            state = torch.random.get_rng_state()
-
-            torch.manual_seed(layer_seed)
-            torch.nn.init.xavier_uniform_(tensor, **kwargs)
-            torch.random.set_rng_state(state)
-
-        return init_
+        return SeededXavierUniform(seed, stream=stream)
 
     def _apply_agents_to_rllib(self) -> list[AgentConfig]:
         """Expand ``agent_specs`` into per-(mechanism, seed) RLModules.
@@ -831,13 +836,22 @@ class RayOptimizerConfig(OptimizerConfig):
 
         if num_envs % num_seeds != 0:
             raise ValueError(
-                f"num_envs_per_env_runner={num_envs} must be divisible by num_seeds={num_seeds}"
+                f"num_envs_per_env_runner={num_envs} must be divisible by "
+                + f"num_seeds={num_seeds}"
             )
 
         # Get number of mechanisms (one policy per mechanism, per seed)
         num_mechanisms = num_envs // num_seeds
         module_specs = {}
         agents_cfgs = {}
+
+        # Keyed exploration draws and seeded heads, so that the slots of one
+        # policy seed differ only by their mechanism (see common_random).
+        module_class = common_random_module_class(
+            self.algo_class.get_default_config()
+            .get_default_rl_module_spec()
+            .module_class
+        )
 
         for aid, agent in self.agents_cfgs.items():
             obs_space = agent.observation_space
@@ -851,6 +865,8 @@ class RayOptimizerConfig(OptimizerConfig):
                     policy_id = f"{base_policy}_m{m_idx}_s{seed}"
                     policies[policy_id] = (None, obs_space, act_space, {})
                     module_specs[policy_id] = RLModuleSpec(
+                        module_class=module_class,
+                        catalog_class=SeededHeadsPPOCatalog,
                         observation_space=obs_space,
                         action_space=act_space,
                         model_config=DefaultModelConfig(
@@ -858,7 +874,7 @@ class RayOptimizerConfig(OptimizerConfig):
                             fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
                             fcnet_bias_initializer="zeros_",
                             head_fcnet_kernel_initializer=self._seeded_xavier_uniform(
-                                seed
+                                seed, stream=HEAD_STREAM
                             ),
                             head_fcnet_bias_initializer="zeros_",
                         ),
@@ -873,6 +889,11 @@ class RayOptimizerConfig(OptimizerConfig):
 
         self.rllib_cfg = self.rllib_cfg.rl_module(
             rl_module_spec=MultiRLModuleSpec(rl_module_specs=module_specs)
+        )
+        self.rllib_cfg = self.rllib_cfg.env_runners(
+            env_to_module_connector=with_exploration_keys(
+                self.rllib_cfg._env_to_module_connector
+            )
         )
 
         self.env_config.update({"observation_spaces": observation_spaces})
@@ -891,12 +912,12 @@ class RayOptimizerConfig(OptimizerConfig):
 
             if policy_id not in policies:
                 raise RuntimeError(
-                    f"Unknown policy generated by policy_mapping_fn: "
-                    f"policy_id={policy_id}, "
-                    f"episode_id={episode.id_}, "
-                    f"mechanism_id={mechanism_id}, "
-                    f"policy_seed={policy_seed}, "
-                    f"available_policies={list(policies.keys())}"
+                    "Unknown policy generated by policy_mapping_fn: "
+                    + f"policy_id={policy_id}, "
+                    + f"episode_id={episode.id_}, "
+                    + f"mechanism_id={mechanism_id}, "
+                    + f"policy_seed={policy_seed}, "
+                    + f"available_policies={list(policies.keys())}"
                 )
 
             return policy_id
@@ -1015,6 +1036,12 @@ class RayOptimizerConfig(OptimizerConfig):
             num_eval_runners = num_eval_seeds * num_train_seeds
             num_eval_episodes = num_eval_runners * self.num_mechanisms
             evaluation_op.kwargs["evaluation_num_env_runners"] = num_eval_runners
+            # Each evaluation runner tests a single training seed, so it hosts
+            # one environment per mechanism rather than the training runners'
+            # count, which ``debugging`` multiplied by the number of seeds.
+            evaluation_op.kwargs.setdefault("evaluation_config", {})[
+                "num_envs_per_env_runner"
+            ] = self.num_mechanisms
             evaluation_op.kwargs["evaluation_duration"] = num_eval_episodes
             evaluation_op.kwargs["custom_evaluation_function"] = (
                 _evaluate_with_fixed_duration_once
@@ -1025,6 +1052,13 @@ class RayOptimizerConfig(OptimizerConfig):
 
             for op in self._cfg_ops.values():
                 self.rllib_cfg = op(self.rllib_cfg)
+
+            # ``environment`` stores this flag on the framework config; RLlib
+            # only honours it on its own config.
+            if self.disable_env_checking is not None:
+                self.rllib_cfg = self.rllib_cfg.environment(
+                    disable_env_checking=self.disable_env_checking
+                )
 
         if self.opt_class is None:
             raise ValueError("OptimizerConfig has no opt_class")
@@ -1113,7 +1147,7 @@ class RayOptimizerConfig(OptimizerConfig):
                 **dict(env_ctx),
             )
 
-            return RLlibMultiAgentEnvAdapter(env)
+            return RLlibMultiAgentEnvAdapter(env, worker_index=env_ctx.worker_index)
 
         register_env(env_name, env_creator)
 
@@ -1122,11 +1156,14 @@ class RayOptimizerConfig(OptimizerConfig):
         )
         cfg = self.copy(copy_frozen=True)
 
-        # Build reporter
-        reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
-        reporting.schema = self._reporting_schema
+        # Build reporter; reporting is optional
+        reporting = None
 
-        reporting.add_query(*(self._reporting_queries or ()))
+        if self._reporter_cfg is not None:
+            reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
+            reporting.schema = self._reporting_schema
+
+            reporting.add_query(*(self._reporting_queries or ()))
 
         opt = RayOptimizer(world=world, reporting=reporting, config=cfg)
 
@@ -1134,18 +1171,6 @@ class RayOptimizerConfig(OptimizerConfig):
             opt.id = opt_id
 
         return opt
-
-    @rllib_config_mutator
-    @override(OptimizerConfig)
-    def freeze(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
-        """Deferred ``AlgorithmConfig.freeze``.
-
-        Records a freeze of the *RLlib* config for replay; it does not freeze
-        this ``RayOptimizerConfig`` (``build_optimizer`` does that through
-        ``copy(copy_frozen=True)``).
-        """
-
-        return cfg.freeze(**kwargs)
 
     @rllib_config_mutator
     def _training_rllb(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:
@@ -1253,14 +1278,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
         super().debugging(seed=seed, num_seeds=num_seeds)
 
-        if seed is not None:
-            env_runners_op = self._cfg_ops.get("_env_runners")
-
-            if env_runners_op is not None:
-                self.num_mechanisms = env_runners_op.kwargs["num_envs_per_env_runner"]
-                env_runners_op.kwargs["num_envs_per_env_runner"] = (
-                    env_runners_op.kwargs.get("num_envs_per_env_runner", 1) * num_seeds
-                )
+        self._scale_env_count_by_seeds()
 
         # Lazy construction
         return self._debugging_rllib(seed=seed, **kwargs)

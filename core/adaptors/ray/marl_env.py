@@ -29,14 +29,11 @@ from core.envs.marl_regulated import MultiAgentEnv
 from core.mechanism.base import MDPState
 from core.types import MultiAgentDict
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-
 logger = logging.getLogger(__name__)
 
 
-# TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+# TODO future enhancement. decouple gym inheritance to support MPC, trajectory
+#   optimization etc.
 
 
 class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
@@ -129,13 +126,14 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     0
     """
 
-    _env: MultiAgentEnv
+    env: MultiAgentEnv
     _mdp: MDPState
 
-    def __init__(self, env: MultiAgentEnv, **kwargs):
+    def __init__(self, env: MultiAgentEnv, worker_index: int = 0, **kwargs):
         super().__init__(**kwargs)
 
         self.env = env
+        self.worker_index = int(worker_index)
 
         # env identity
         self.mechanism_id = env.mechanism_id
@@ -160,7 +158,8 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         self.logger = env.logger
         self.reporter = env.reporter
 
-        # TODO (nadine) env serialization with numpy to avoid using MDPState and faster computation
+        # TODO (nadine) env serialization with numpy to avoid using MDPState and faster
+        #   computation
 
     @override(RllibMultiAgentEnv)
     def reset(

@@ -10,10 +10,61 @@ from __future__ import annotations
 
 # TODO what is an ABCMeta
 from abc import ABC, abstractmethod
-from typing import Self, TypeAlias, Union
+from typing import Any, Self, TypeAlias, Union
+
+import numpy as np
 
 # NOTE this is restrictive can be relaxed in the future
 PrimitiveType: TypeAlias = Union[int, float, bool, str]
+
+
+def as_number(value: Any, owner: str) -> int | float:
+    """Return ``value`` as a Python ``int`` or ``float``, or raise ``TypeError``.
+
+    The numeric metrics (mean, sum, min, max) use it to validate what they are
+    pushed. Python numbers and NumPy numeric scalars (``np.float32``,
+    ``np.int64``, ...) are accepted; a NumPy scalar is converted to the
+    equivalent Python number so that the history holds only plain ``int`` and
+    ``float`` values. ``bool`` and ``np.bool_`` are rejected, as are strings
+    and ``None``.
+
+    Parameters
+    ----------
+    value : Any
+        The value to validate.
+    owner : str
+        Name of the rejecting metric, used in the error message.
+
+    Returns
+    -------
+    int or float
+        ``value`` itself for a Python number, its ``.item()`` for a NumPy one.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is a boolean or not a number.
+
+    Examples
+    --------
+    >>> as_number(np.float32(1.5), "MeanMetric")
+    1.5
+    >>> type(as_number(np.int64(3), "MeanMetric")).__name__
+    'int'
+    >>> as_number(np.True_, "MeanMetric")
+    Traceback (most recent call last):
+        ...
+    TypeError: MeanMetric only accepts int or float, got bool.
+    """
+
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, float, np.integer, np.floating)
+    ):
+        raise TypeError(
+            f"{owner} only accepts int or float, got {type(value).__name__}."
+        )
+
+    return value.item() if isinstance(value, np.generic) else value
 
 
 class Metric(ABC):
@@ -137,6 +188,16 @@ class Metric(ABC):
         """
 
         ...
+
+    @abstractmethod
+    def push_gap(self) -> None:
+        """Append a gap: a push of the logger with no value for this leaf.
+
+        The logger calls it on every leaf of a dynamic child that a push leaves
+        out, and once per missed push on a child created late, so that the
+        histories of the children stay aligned with the pushes. A gap is kept
+        in the raw history and skipped by the compiled value.
+        """
 
     @abstractmethod
     def flush(self) -> None:

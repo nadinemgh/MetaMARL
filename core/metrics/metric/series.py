@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core.annotations import override
 from core.metrics.metric.base import Metric, PrimitiveType
 
 
@@ -67,6 +68,23 @@ class SeriesMetric(Metric):
         """
 
         self.values.append(value)
+
+    @override(Metric)
+    def push_gap(self) -> None:
+        """Append a gap (``None``): this push had no value for the leaf."""
+
+        self.values.append(None)
+
+    def present_values(self) -> list[PrimitiveType]:
+        """Return the pushed values without the gaps, in order.
+
+        Returns
+        -------
+        list[int or float or bool or str]
+            A new list of the values that are not gaps.
+        """
+
+        return [value for value in self.values if value is not None]
 
     def peek(self, compile: bool = True) -> list[PrimitiveType | None]:
         """Return a copy of the history; ``compile`` is ignored.

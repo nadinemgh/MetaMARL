@@ -1,14 +1,19 @@
 """Bilevel fishery experiment: an ES regulator over a quota, APPO fishers inside.
 
 This script builds the experiment in Python and runs it; it is the programmatic
-counterpart of ``config.yaml``. The outer Evolution Strategies optimizer
-searches one parameter, the ``quota`` mechanism of ``core.mechanism.algorithms``
-(a value in ``[0, 1]`` acting on the fishers' ``harvest``, started from 0.56224),
-with a constant search spread of 0.15. The inner APPO optimizer trains ten
-fishers by default against each candidate, on ``FisheryRegulatedEnv`` with a
-carrying capacity of 5000. Every level logs a typed ``MetricSchema`` and
-renders the queries of :mod:`examples.bilevel_fishery.queries` through the
-configured reporter (Weights & Biases by default, CSV with ``--reporter csv``).
+counterpart of ``config.yaml``, and both describe the same experiment as
+``debug.py``. The outer Evolution Strategies optimizer searches two parameters,
+both mechanisms of ``core.mechanism.algorithms``: the ``quota`` (a value in
+``[0, 1]`` acting on the fishers' ``harvest``, started from 0.56224, with a
+transition width of 0.05) and the ``restoration_subsidy`` (a value in ``[0, 1]``
+acting on the fishers' ``restore``, started from 0.10), with a constant search
+spread of 0.15. The inner APPO optimizer trains ten fishers by default against
+each candidate, on ``FisheryRegulatedEnv`` with a carrying capacity of 5000, a
+restoration cost of 0.25 and a restoration power of 0.02. Every level logs a
+typed ``MetricSchema`` and renders the queries of
+:mod:`examples.bilevel_fishery.queries` through the configured reporter (Weights
+& Biases by default, CSV with ``--reporter csv``, TensorBoard with
+``--reporter tensorboard``).
 
 Nothing runs at import. :func:`main` configures the logging, calls
 ``ensure_hash_seed()`` (which may restart the process, before Ray starts),
@@ -25,12 +30,12 @@ Options (``--help`` prints the same list):
     Number of fishers.
 ``--horizon`` : int, default 100
     Episode length of the fishery, in steps.
-``--reporter`` : ``{wandb, csv}``, default ``wandb``
+``--reporter`` : ``{wandb, csv, tensorboard}``, default ``wandb``
     Where the queries are rendered.
 
 Smoke configuration::
 
-    WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \\
+    WANDB_MODE=offline uv run python -m examples.bilevel_fishery.run \\
         --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20
 
 Full configuration: the defaults.
@@ -39,21 +44,25 @@ Full configuration: the defaults.
 import argparse
 import logging
 from collections.abc import Sequence
-from typing import Optional
+from typing import Optional, TypeAlias
 
 import numpy as np
 import ray
 from gymnasium import spaces
 
+from core.adaptors.ray.schema import RaySchema
 from core.agents.base import AgentConfig
 from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
 from core.config.hash_seed import ensure_hash_seed
+from core.mechanism.algorithms.incentive import Incentive
 from core.mechanism.algorithms.quota import Quota
 from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
+from core.optimizers.es.schema import ESSchema
 from core.reporting.config import ReporterConfig
 from core.reporting.csv import CSVConfig
+from core.reporting.tensor_board import TensorBoardConfig
 from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
 from examples.bilevel_fishery.queries import (
@@ -66,6 +75,8 @@ from examples.bilevel_fishery.regulated_env import FisheryRegulatedEnv
 from examples.bilevel_fishery.regulated_env import FishingConfig as Fishing
 from examples.bilevel_fishery.regulated_env import RestoreConfig as Restore
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
+
+FisheriesRegulator: TypeAlias = AgentConfig
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -109,7 +120,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--reporter",
-        choices=("wandb", "csv"),
+        choices=("wandb", "csv", "tensorboard"),
         default="wandb",
         help="where the queries are rendered",
     )
@@ -122,9 +133,10 @@ def reporter_config(name: str) -> ReporterConfig:
 
     Parameters
     ----------
-    name : {"wandb", "csv"}
-        ``"csv"`` writes the queries as CSV files; any other value builds the
-        Weights & Biases reporter.
+    name : {"wandb", "csv", "tensorboard"}
+        ``"csv"`` writes the queries as CSV files, ``"tensorboard"`` writes
+        them as TensorBoard event files under ``runs/``; any other value builds
+        the Weights & Biases reporter.
 
     Returns
     -------
@@ -137,10 +149,14 @@ def reporter_config(name: str) -> ReporterConfig:
     --------
     >>> type(reporter_config("csv")).__name__
     'CSVConfig'
+    >>> type(reporter_config("tensorboard")).__name__
+    'TensorBoardConfig'
     """
 
     if name == "csv":
         return CSVConfig(project="bilevel")
+    if name == "tensorboard":
+        return TensorBoardConfig(project="bilevel")
 
     return WandbConfig(
         project="bilevel",
@@ -208,7 +224,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 episodes=args.outer_iters,
             )
             .agents(
-                AgentConfig(
+                FisheriesRegulator(
                     id="fisheries_regulator",
                     policy_id="quota_policy",
                     mechanisms=(
@@ -220,6 +236,15 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                             acts_on=("fisherman", "harvest"),
                             obs_map={"resource_level": "fish"},
                             default=np.asarray(0.56224),
+                            quota_transition_width=0.05,
+                        ),
+                        Incentive(
+                            id="restoration_subsidy",
+                            action_space=spaces.Box(
+                                low=0, high=1.0, shape=(1,), dtype=np.float32
+                            ),
+                            acts_on=("fisherman", "restore"),
+                            default=np.asarray(0.10),
                         ),
                     ),
                 )
@@ -231,11 +256,12 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                     "ecology_cfg": {
                         "sustainability_weight": 2,  # assert between 0 and 5
                         "sustainability_threshold": 0.20,
+                        "K": 5_000,  # has to match the environment K
                     }
                 },
             )
-            .debugging(seed=42)
-            .reporting(queries=ES_QUERIES)
+            .debugging(seed=42, num_seeds=1)
+            .reporting(queries=ES_QUERIES, schema=ESSchema)
         )
         .society(
             APPOptimizerConfig()
@@ -329,11 +355,13 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                             action_space=spaces.Box(
                                 low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
                             ),
+                            restoration_cost=0.25,
+                            restoration_power=0.02,
                         ),
                     ),
                     count=args.num_agents,
                     observation_space=spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32
+                        low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32
                     ),
                 )
             )
@@ -344,6 +372,7 @@ def build_config(args: argparse.Namespace) -> BilevelConfig:
                 min_sample_timesteps_per_iteration=0,
                 min_train_timesteps_per_iteration=0,
                 queries=INNER_QUERIES,
+                schema=RaySchema,
             )
         )
     )

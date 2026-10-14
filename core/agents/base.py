@@ -127,30 +127,30 @@ class Agent:
 
         The state holds, under the agent's identifier, one action per
         mechanism, stored as a trajectory over time. For every mechanism the
-        agent owns and holds an action for, the raw entry of the current step
-        ``mdp.t`` (``mdp.raw_actions``, as it arrived and not as a previous step
-        decoded it) is passed to the mechanism, which decodes it, records the
-        decoded value in ``mdp.actions`` and returns a residual ``MDPState``
-        describing its effect. The residuals are composed with
-        the original state by ``MDPState.add``: additive quantities are summed
-        and constrained spaces are intersected. Actions for identifiers the
-        agent does not own are ignored.
+        agent owns and holds an action for, the decoded entry of the current
+        step ``mdp.t`` in ``mdp.actions`` is passed to the mechanism. Follower
+        actions are decoded by the RLlib adapter; leader candidates and
+        defaults are decoded by the environment during reset. The mechanisms'
+        residuals are combined with ``MDPState.add`` and returned for the
+        caller to compose with the shared state. Actions for identifiers the
+        agent does not own are ignored. During reset, each mechanism receives
+        its latest decoded action, or ``None`` when no action is available.
 
         Parameters
         ----------
         mdp : MDPState
             Shared state observed by every mechanism of the agent. Its
             ``actions`` entry for this agent maps mechanism identifiers to the
-            action trajectories.
+            decoded action trajectories.
         reset : bool, optional
             Whether to execute the mechanisms' initialization hooks. Default is False.
 
         Returns
         -------
         MDPState
-            The state composed with all residuals. When the state holds no
-            action for this agent (or an empty one), ``mdp`` itself is
-            returned unchanged.
+            Combined residual of this agent's mechanisms. When the state holds
+            no action for this agent (or an empty one), an empty residual is
+            returned, unless ``reset`` requests the initialization hooks.
         """
 
         acts = mdp.actions.data.get(self.id) or {}
@@ -173,7 +173,8 @@ class Agent:
         )
 
     def observation(self, mdp: MDPState) -> MDPState:
-        # [self.logger.push(key=("by_agent", aid, "observation"), value=o) for aid, o in observations]
+        # [self.logger.push(key=("by_agent", aid, "observation"), value=o)
+        #  for aid, o in observations]
         return MDPState()
 
     def reward(self, mdp: MDPState) -> MDPState:

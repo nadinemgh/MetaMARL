@@ -52,20 +52,26 @@ def test_reset_logs_the_episode_identity_and_no_step(toy, identity_ray_get):
 
 
 @pytest.mark.unit
-def test_reset_does_not_reseed_the_environment(toy, identity_ray_get):
+def test_reset_creates_the_generator_from_the_environment_seed(toy, identity_ray_get):
     env = toy.make_env(toy.ScriptedWorld(), seed=3)
-    state_before = env.rng.bit_generator.state
+    expected = np.random.default_rng(3).bit_generator.state
 
     env.reset(MDPState(aids=AIDS))
     assert env.seed == 3
-    assert env.rng.bit_generator.state == state_before
+    assert env.rng.bit_generator.state == expected
+
+    # Every episode restarts the stream from the same seed.
+    env.rng.random()
+    env.reset(MDPState(aids=AIDS))
+    assert env.seed == 3
+    assert env.rng.bit_generator.state == expected
 
 
 @pytest.mark.unit
 def test_reset_requires_a_mechanism_id(toy, identity_ray_get):
     env = toy.make_env(toy.ScriptedWorld(), mechanism_id=None)
 
-    with pytest.raises(RuntimeError, match="MultiAgentEnv has no mechanism_id"):
+    with pytest.raises(RuntimeError, match="RegulatedEnv has no mechanism_id"):
         env.reset(MDPState(aids=AIDS))
 
 
@@ -110,7 +116,8 @@ def test_leaders_hold_the_candidate_as_their_first_action(toy, identity_ray_get)
     assert list(mdp.actions.data) == ["regulator"]
     np.testing.assert_allclose(mdp.actions["regulator"]["fee"][0], [0.25])
 
-    # The Fee mechanism writes the fee it holds into the second entry.
+    # The Fee mechanism's on_reset hook writes the fee it holds into the
+    # second entry.
     for aid in AIDS:
         np.testing.assert_allclose(mdp.obs[aid][0], [toy.initial_stock, 0.25])
 
@@ -155,7 +162,7 @@ def test_a_fetched_candidate_replaces_the_mechanism_defaults(toy, identity_ray_g
         leaders_cfg_dict=toy.regulator_configs(fee_default=0.4),
     )
     fees = [
-        float(env.reset(MDPState(aids=AIDS)).actions["regulator"]["fee"][0][0])
+        float(env.reset(MDPState(aids=AIDS)).actions["regulator"]["fee"][0])
         for _ in range(3)
     ]
 

@@ -64,9 +64,12 @@ class ThresholdPenaltyMechanism(Mechanism):
     Examples
     --------
     >>> import numpy as np
+    >>> from gymnasium import spaces
     >>> from core.mechanism.base import MDPState
+    >>> no_parameter = spaces.Box(0.0, 1.0, shape=(0,), dtype=np.float32)
     >>> mechanism = ThresholdPenalty(
     ...     id="penalty",
+    ...     action_space=no_parameter,
     ...     acts_on=("fisherman", "harvest"),
     ...     obs_map={"resource_level": "fish"},
     ...     threshold=0.2,
@@ -189,8 +192,8 @@ class ThresholdPenalty(MechanismConfig):
     Attributes
     ----------
     action_space : gymnasium.Space
-        Defaults to :func:`~core.mechanism.config.empty_action_space`: the rule
-        is fixed and the regulator searches no dimension for it.
+        Required. Pass a ``Box`` of shape ``(0,)``: the rule is fixed and the
+        regulator searches no dimension for it.
     threshold : float
         Normalised resource level in ``[0, 1]`` at which half of the penalty
         applies. Default ``0.20``.
@@ -212,8 +215,11 @@ class ThresholdPenalty(MechanismConfig):
 
     Examples
     --------
+    >>> import numpy as np
+    >>> from gymnasium import spaces
     >>> config = ThresholdPenalty(
     ...     id="penalty",
+    ...     action_space=spaces.Box(0.0, 1.0, shape=(0,), dtype=np.float32),
     ...     acts_on=("fisherman", "harvest"),
     ...     obs_map={"resource_level": "fish"},
     ...     threshold=0.3,

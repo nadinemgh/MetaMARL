@@ -52,7 +52,32 @@ def test_an_unknown_reporter_is_rejected_by_the_parser():
     from examples.bilevel_fishery.debug import parse_args
 
     with pytest.raises(SystemExit):
-        parse_args(["--reporter", "tensorboard"])
+        parse_args(["--reporter", "mlflow"])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "script", ["examples.bilevel_fishery.debug", "examples.bilevel_fishery.run"]
+)
+@pytest.mark.parametrize(
+    ("reporter", "config_class"),
+    [
+        ("wandb", "WandbConfig"),
+        ("csv", "CSVConfig"),
+        ("tensorboard", "TensorBoardConfig"),
+    ],
+)
+def test_each_reporter_option_builds_its_reporter_configuration(
+    script, reporter, config_class
+):
+    module = importlib.import_module(script)
+
+    config = module.reporter_config(
+        module.parse_args(["--reporter", reporter]).reporter
+    )
+
+    assert type(config).__name__ == config_class
+    assert config.project_name == "bilevel"
 
 
 @pytest.mark.unit

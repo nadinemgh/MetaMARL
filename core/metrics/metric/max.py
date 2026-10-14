@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
+
 from core.annotations import override
-from core.metrics.metric.base import PrimitiveType
+from core.metrics.metric.base import PrimitiveType, as_number
 from core.metrics.metric.series import SeriesMetric
 
 
@@ -60,12 +62,7 @@ class MaxMetric(SeriesMetric):
             If ``value`` is a ``bool`` (or ``np.bool_``) or not a number.
         """
 
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise TypeError(
-                f"MaxMetric only accepts int or float, got {type(value).__name__}."
-            )
-
-        self.values.append(value)
+        self.values.append(as_number(value, "MaxMetric"))
 
     def peek(self, compile: bool = True) -> int | float | list[int | float] | None:
         """Return the maximum (``None`` when empty).
@@ -87,10 +84,22 @@ class MaxMetric(SeriesMetric):
         if not compile:
             return list(self.values)
 
-        if not self.values:
+        present = self.present_values()
+
+        if not present:
             return None
 
-        return max(self.values)
+        # NaN is how the Ray adaptor marks a statistic that RLlib did not report,
+        # so it carries no ordering information. Python's max() compares with
+        # ``>``, which is false against NaN, and would then return
+        # NaN or a number depending on the push order. NaN values are skipped
+        # instead; a window holding nothing but NaN stays NaN.
+        valid = [value for value in present if not math.isnan(value)]
+
+        if not valid:
+            return present[0]
+
+        return max(valid)
 
     def reduce(self, compile: bool = True) -> int | float | MaxMetric | None:
         """Return the maximum and clear the history.

@@ -42,6 +42,7 @@ from typing import Any, Optional, Self
 
 from core.adaptors.ray.runtime import DeviceType, RayRuntime, RayRuntimeConfig
 from core.annotations import override
+from core.mechanism.base import Mechanism
 from core.optimizers.base import Optimizer
 from core.optimizers.config import OptimizerConfig
 from core.reporting.base import Reporter
@@ -303,6 +304,10 @@ class BilevelConfig(OptimizerConfig):
         inner_cfg = self.inner_cfg.copy()
         outer_cfg = self.outer_cfg.copy()
 
+        # The bilevel ``episodes`` is the number of ES generations.
+        if outer_cfg.episodes is None:
+            outer_cfg.episodes = self.episodes
+
         # Setup reporting
         self.reporter_cfg.world = self.world_name
         primary_reporter = self.reporter_cfg.build(label="bilevel")
@@ -379,7 +384,9 @@ class BilevelOptimizer(Optimizer):
     ...                 "best_mechanism": [0.5]}
     ...     def stop(self):
     ...         self.stopped = True
-    >>> config = SimpleNamespace(episodes=None, env=None, world_name="w")
+    >>> config = SimpleNamespace(
+    ...     episodes=None, env=None, world_name="w", output_dir=None
+    ... )
     >>> outer, inner = Level(), Level()
     >>> bilevel = BilevelOptimizer(config, outer=outer, inner=inner, reporter=None)
     >>> bilevel.train()["best_fitness"]
@@ -436,15 +443,24 @@ class BilevelOptimizer(Optimizer):
             self.world_name,
         )
 
+        # Stop both levels even when training fails, so the RLlib algorithm
+        # and its env runners are released before the reporter closes.
         try:
             result = self.outer.train()
         finally:
+            for level in (self.outer, self.inner):
+                if level is not None:
+                    level.stop()
+
             # TODO fig reporter with the new wandb reporter actor
             if self.reporting is not None:
                 self.reporting.close()
 
+        self.converged = bool(result["converged"])
+
         logger.info(
-            "[Bilevel] Run finished | iters=%d | converged=%s | mechanism=%s | best_fitness=%.4f",
+            "[Bilevel] Run finished | iters=%d | converged=%s | mechanism=%s | "
+            + "best_fitness=%.4f",
             result["episodes"],
             result["converged"],
             result["best_mechanism"],

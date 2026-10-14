@@ -87,18 +87,20 @@ class TestESConfig:
 
         assert ESConfig(opt_class=Other).opt_class is Other
 
-    def test_debugging_sets_only_the_generator_seed(self):
+    def test_debugging_sets_the_generator_seed(self):
         cfg = ESConfig().debugging(seed=7)
 
         assert cfg.base_seed == 7
-        assert cfg.seeds == []
 
-    def test_debugging_rejects_a_number_of_seeds(self):
-        # The regulator publishes one context per training seed of the inner
-        # level, which ``BilevelConfig`` copies over, so an outer count would
-        # be silently ignored.
-        with pytest.raises(TypeError, match="society"):
-            ESConfig().debugging(seed=7, num_seeds=2)
+    def test_debugging_accepts_a_number_of_seeds(self):
+        # Nadine's 778383b removed the v2 override that rejected ``num_seeds``,
+        # so that ``debug.py`` can call ``debugging(seed=42, num_seeds=1)``.
+        # The list it fills is not read by the search: the training seeds of a
+        # bilevel run come from the inner configuration.
+        cfg = ESConfig().debugging(seed=7, num_seeds=2)
+
+        assert cfg.base_seed == 7
+        assert len(cfg.seeds) == 2
 
     def test_an_unknown_constructor_argument_is_rejected(self):
         with pytest.raises(TypeError, match="sigma"):

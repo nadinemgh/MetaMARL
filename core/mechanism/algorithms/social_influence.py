@@ -28,7 +28,7 @@ arXiv:1810.08647.
 """
 
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 
 import numpy as np
 
@@ -84,15 +84,21 @@ class SocialInfluenceMechanism(Mechanism):
     When to use: the regulator makes behaviour public instead of constraining
     or pricing it. The exposed value is the delivered action, after the
     regulator's other mechanisms and the agent's own decoding, not the raw
-    policy output. Nothing is exposed at reset, where no action exists yet.
+    policy output. Nothing is exposed at reset, where no action exists yet, nor
+    while the regulator holds no candidate. The entries are written when the
+    environment opens a step, so the policies read at step ``t`` what their
+    peers delivered at step ``t - 1``.
 
     Examples
     --------
-    >>> import dataclasses
     >>> import numpy as np
+    >>> from gymnasium import spaces
     >>> from core.mechanism.base import MDPState
     >>> mechanism = SocialInfluence(
-    ...     id="social", acts_on=("fisherman", "harvest"), obs_offset=1
+    ...     id="social",
+    ...     action_space=spaces.Box(0.0, 1.0, shape=(0,), dtype=np.float32),
+    ...     acts_on=("fisherman", "harvest"),
+    ...     obs_offset=1,
     ... ).build("regulator")
     >>> mdp = MDPState(
     ...     actions={
@@ -101,7 +107,10 @@ class SocialInfluenceMechanism(Mechanism):
     ...     },
     ...     obs={"fisherman:0": np.zeros(2), "fisherman:1": np.zeros(2)},
     ... )
-    >>> delta = mechanism.observe(dataclasses.replace(mdp, t=1))
+    >>> mdp = mdp.advance(
+    ...     obs={"fisherman:0": np.zeros(2), "fisherman:1": np.zeros(2)}
+    ... )
+    >>> delta = mechanism.on_reset(mdp, np.empty(0))
     >>> delta.obs["fisherman:0"][0].tolist()
     [0.0, 0.75]
     """
@@ -122,21 +131,55 @@ class SocialInfluenceMechanism(Mechanism):
 
     @override(Mechanism)
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:
-        """Return the peers' actions of step ``mdp.t - 1`` as an obs residual.
+        """Contribute nothing to the transition; see :meth:`on_reset`.
+
+        The peers' actions are written at the start of the next step, where the
+        policies read them, and not while the actions of the current step are
+        still being applied.
 
         Parameters
         ----------
         mdp : MDPState
-            Shared state after the transition; the delivered actions are read
-            at ``mdp.t - 1`` and the size of each observation from the one of
-            that step.
+            Shared state; not used.
+        action : ActType
+            Empty array, shape ``(0,)``; not used.
+
+        Returns
+        -------
+        MDPState
+            An empty residual.
+        """
+
+        return MDPState()
+
+    @override(Mechanism)
+    def on_reset(self, mdp: MDPState, action: Optional[ActType] = None) -> MDPState:
+        """Return the peers' actions of step ``mdp.t - 1`` as an obs residual.
+
+        The environment calls this hook when it opens a step, before the
+        followers observe, so the entries reach the policies at the step that
+        follows the actions they expose. Observations are per-step flows that
+        start at zero, so the residual is the signal itself, added to the entry
+        the environment has already opened at ``mdp.t`` at its declared size.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state at the step being opened; the delivered actions are
+            read at ``mdp.t - 1`` and the size of each observation from the
+            entry of ``mdp.t``.
+        action : ActType or None, optional
+            Decoded action of this mechanism, an empty array when the regulator
+            holds a candidate and ``None`` when it does not. Nothing is
+            written without a candidate, as the other mechanisms do.
 
         Returns
         -------
         MDPState
             Residual holding only ``obs``: per targeted agent a ``float32``
             vector of the size of its observation, zero outside the reserved
-            entries. Empty at reset and when an agent has no peer.
+            entries. Empty at reset, without a candidate, and when an agent has
+            no peer.
 
         Raises
         ------
@@ -144,6 +187,9 @@ class SocialInfluenceMechanism(Mechanism):
             If ``acts_on`` is missing or the reserved entries do not fit in an
             agent's observation.
         """
+
+        if action is None:
+            return MDPState()
 
         if self.acts_on is None:
             raise ValueError("SocialInfluenceMechanism requires `acts_on`.")
@@ -173,7 +219,7 @@ class SocialInfluenceMechanism(Mechanism):
                 continue
 
             signal = np.concatenate(peers)
-            size = np.asarray(mdp.obs[aid][mdp.t - 1]).reshape(-1).size
+            size = np.asarray(mdp.obs[aid][mdp.t]).reshape(-1).size
             end = self.obs_offset + signal.size
 
             if end > size:
@@ -197,8 +243,8 @@ class SocialInfluence(MechanismConfig):
     Attributes
     ----------
     action_space : gymnasium.Space
-        Defaults to :func:`~core.mechanism.config.empty_action_space`: the rule
-        has no searched parameter.
+        Required. Pass a ``Box`` of shape ``(0,)``: the rule has no searched
+        parameter.
     obs_offset : int
         Index of the first observation entry reserved for the peers' actions,
         non-negative. Required.
@@ -217,8 +263,13 @@ class SocialInfluence(MechanismConfig):
 
     Examples
     --------
+    >>> import numpy as np
+    >>> from gymnasium import spaces
     >>> config = SocialInfluence(
-    ...     id="social", acts_on=("fisherman", "harvest"), obs_offset=4
+    ...     id="social",
+    ...     action_space=spaces.Box(0.0, 1.0, shape=(0,), dtype=np.float32),
+    ...     acts_on=("fisherman", "harvest"),
+    ...     obs_offset=4,
     ... )
     >>> config.action_space.shape
     (0,)

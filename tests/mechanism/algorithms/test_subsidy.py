@@ -1,8 +1,9 @@
-"""``SubsidyMechanism``: a reward residual on the targeted agents' effort.
+"""``IncentiveMechanism``: a reward residual on the targeted agents' effort.
 
-The regulator acts before the fishermen, so the effort it reads is still the
-raw policy output ``z``; the mechanism maps it to ``e = sigmoid(z / 4)`` as the
-followers' own mechanisms do. The tests build ``z`` from the effort they want.
+The adapter decodes the followers' raw policy outputs before the regulator's
+mechanisms run, so the effort ``e`` the mechanism reads from the state is already
+decoded, and the rate it receives is the regulator's decoded action. The tests
+therefore store the effort and the rate directly.
 """
 
 import dataclasses
@@ -12,33 +13,29 @@ import pytest
 from gymnasium import spaces
 
 from core.agents.base import Agent
-from core.mechanism.algorithms.incentive import MAX_SUBSIDY, Subsidy, SubsidyMechanism
+from core.mechanism.algorithms.incentive import MAX, Incentive, IncentiveMechanism
 from core.mechanism.base import MDPState
-from core.utils import ACTION_TEMPERATURE
 
 REGULATOR = "regulator"
 
 
-def make(cost: float = 0.5, acts_on=("fisherman", "restore")) -> SubsidyMechanism:
-    return Subsidy(
+def make(acts_on=("fisherman", "restore")) -> IncentiveMechanism:
+    return Incentive(
         id="subsidy",
         action_space=spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32),
         acts_on=acts_on,
-        cost=cost,
     ).build(REGULATOR)
 
 
-def raw(effort: float) -> np.ndarray:
-    """Policy output whose decoded effort is ``effort``."""
+def decoded(effort: float) -> np.float32:
+    """Decoded effort as the adapter stores it in the state."""
 
-    z = ACTION_TEMPERATURE * np.log(effort / (1.0 - effort))
-
-    return np.array([z], dtype=np.float32)
+    return np.float32(effort)
 
 
 def follower_actions(efforts: dict[str, float]) -> dict:
     return {
-        aid: {"harvest": raw(0.8), "restore": raw(effort)}
+        aid: {"harvest": decoded(0.8), "restore": decoded(effort)}
         for aid, effort in efforts.items()
     }
 
@@ -48,27 +45,17 @@ def mdp_with(efforts: dict[str, float], rate: float = 0.6) -> MDPState:
 
     return MDPState(
         aids=set(efforts),
-        actions={
-            REGULATOR: {"subsidy": np.array([rate], dtype=np.float32)},
-            **follower_actions(efforts),
-        },
+        actions={REGULATOR: {"subsidy": np.float32(rate)}, **follower_actions(efforts)},
     )
 
 
 @pytest.mark.unit
 class TestValidation:
-    def test_cost_must_be_in_unit_interval(self):
-        with pytest.raises(ValueError, match="cost"):
-            make(cost=1.5)
-
-        with pytest.raises(ValueError, match="cost"):
-            make(cost=-0.1)
-
     def test_apply_requires_a_target(self):
         mechanism = make(acts_on=None)
 
         with pytest.raises(ValueError, match="acts_on"):
-            mechanism(mdp_with({"fisherman:0": 0.4}), np.array([0.6]))
+            mechanism(mdp_with({"fisherman:0": 0.4}), 0.6)
 
 
 @pytest.mark.unit
@@ -94,47 +81,44 @@ class TestDecode:
 @pytest.mark.unit
 class TestRewardResidual:
     def test_analytical_value(self):
-        rate, cost, effort = 0.6, 0.5, 0.4
+        rate, effort = 0.6, 0.4
         mdp = mdp_with({"fisherman:0": effort}, rate=rate)
-        delta = make(cost=cost)(mdp, mdp.actions[REGULATOR]["subsidy"][0])
-        sigma = rate * MAX_SUBSIDY
+        delta = make()(mdp, mdp.actions[REGULATOR]["subsidy"][0])
 
         assert delta.rewards["fisherman:0"][0] == pytest.approx(
-            sigma * effort - cost * effort**2, abs=1e-6
+            rate * MAX * effort, abs=1e-6
         )
 
     def test_no_effort_leaves_the_reward_unchanged(self):
         mdp = mdp_with({"fisherman:0": 0.5})
-        mdp.actions["fisherman:0"]["restore"][0] = np.array([-400.0], dtype=np.float32)
-        delta = make()(mdp, np.array([1.0]))
+        mdp.actions["fisherman:0"]["restore"][0] = np.float32(0.0)
+        delta = make()(mdp, 1.0)
 
         assert delta.rewards["fisherman:0"][0] == pytest.approx(0.0, abs=1e-12)
 
     def test_effort_is_read_from_the_targeted_mechanism(self):
         mdp = mdp_with({"fisherman:0": 0.2})
-        delta = make(cost=0.0, acts_on=("fisherman", "harvest"))(mdp, np.array([1.0]))
+        delta = make(acts_on=("fisherman", "harvest"))(mdp, 1.0)
 
         # ``follower_actions`` sets the harvest effort to 0.8.
-        assert delta.rewards["fisherman:0"][0] == pytest.approx(
-            MAX_SUBSIDY * 0.8, abs=1e-6
-        )
+        assert delta.rewards["fisherman:0"][0] == pytest.approx(MAX * 0.8, abs=1e-6)
 
     def test_each_targeted_agent_gets_its_own_residual(self):
         mdp = mdp_with({"fisherman:0": 0.2, "fisherman:1": 0.9})
-        delta = make(cost=0.0)(mdp, np.array([1.0]))
+        delta = make()(mdp, 1.0)
 
         assert delta.rewards["fisherman:0"][0] == pytest.approx(0.1, abs=1e-6)
         assert delta.rewards["fisherman:1"][0] == pytest.approx(0.45, abs=1e-6)
 
     def test_other_agents_are_not_subsidised(self):
         mdp = mdp_with({"fisherman:0": 0.4, "farmer:0": 0.4})
-        delta = make()(mdp, np.array([1.0]))
+        delta = make()(mdp, 1.0)
 
         assert set(delta.rewards.data) == {"fisherman:0"}
 
     def test_only_rewards_are_touched(self):
         mdp = mdp_with({"fisherman:0": 0.4})
-        delta = make()(mdp, np.array([1.0]))
+        delta = make()(mdp, 1.0)
 
         assert delta.actions.data == {}
         assert delta.state.data == {}
@@ -144,37 +128,68 @@ class TestRewardResidual:
 @pytest.mark.unit
 class TestComposition:
     def test_residual_adds_to_the_agents_own_reward(self):
-        rate, cost, effort = 1.0, 0.25, 0.4
-        regulator = Agent(
-            id=REGULATOR, policy_id="p", mechanisms={"subsidy": make(cost=cost)}
-        )
+        rate, effort = 1.0, 0.4
+        regulator = Agent(id=REGULATOR, policy_id="p", mechanisms={"subsidy": make()})
         mdp = regulator.action(mdp_with({"fisherman:0": effort}, rate=rate))
         mdp = mdp.add(MDPState(rewards={"fisherman:0": 2.0}))
 
         assert mdp.rewards["fisherman:0"][0] == pytest.approx(
-            2.0 + MAX_SUBSIDY * effort - cost * effort**2, abs=1e-6
+            2.0 + MAX * effort, abs=1e-6
         )
 
     def test_rate_does_not_drift_over_the_steps_of_an_episode(self):
-        # The regulator's action is set once at reset and carried forward; the
-        # mechanism decodes the raw action again at every step.
+        # The regulator's decoded action is set once at reset and carried
+        # forward; the mechanism only reads it, so the residual is the same at
+        # every step and the stored rate is never rewritten.
         efforts = {"fisherman:0": 0.4}
-        regulator = Agent(
-            id=REGULATOR, policy_id="p", mechanisms={"subsidy": make(cost=0.0)}
-        )
+        regulator = Agent(id=REGULATOR, policy_id="p", mechanisms={"subsidy": make()})
         mdp = MDPState(
-            aids=set(efforts),
-            actions={REGULATOR: {"subsidy": np.array([0.6], dtype=np.float32)}},
+            aids=set(efforts), actions={REGULATOR: {"subsidy": np.float32(0.6)}}
         )
         residuals = []
 
-        for _ in range(4):
-            mdp.update(actions=follower_actions(efforts))
+        for t in range(4):
+            mdp.update(t=t, actions=follower_actions(efforts))
 
-            mdp = regulator.action(mdp)
+            mdp = dataclasses.replace(mdp, t=t)
 
-            residuals.append(mdp.rewards["fisherman:0"][mdp.t])
+            delta = regulator.action(mdp)
 
-            mdp = dataclasses.replace(mdp, t=mdp.t + 1)
+            residuals.append(delta.rewards["fisherman:0"][delta.t])
 
-        assert residuals == pytest.approx([0.6 * MAX_SUBSIDY * 0.4] * 4, abs=1e-6)
+            assert mdp.actions[REGULATOR]["subsidy"][t] == np.float32(0.6)
+
+        assert residuals == pytest.approx([0.6 * MAX * 0.4] * 4, abs=1e-6)
+
+
+@pytest.mark.unit
+class TestOnReset:
+    def test_without_a_rate_nothing_is_written(self):
+        assert make().on_reset(mdp_with({"fisherman:0": 0.4}), None).obs.data == {}
+
+    def test_the_rate_is_written_in_the_last_slot_only(self):
+        residual = make().on_reset(mdp_with({"fisherman:0": 0.4}), 0.3)
+        expected = np.zeros(9, dtype=np.float32)
+        expected[8] = np.float32(0.3)
+
+        np.testing.assert_array_equal(residual.obs["fisherman:0"][0], expected)
+
+    def test_the_delta_is_taken_from_the_current_step(self):
+        mdp = mdp_with({"fisherman:0": 0.4}).add(
+            MDPState(obs={"fisherman:0": np.full(9, 2.0, dtype=np.float32)})
+        )
+        residual = make().on_reset(mdp, 0.3).obs["fisherman:0"][0]
+
+        assert residual[8] == pytest.approx(0.3 - 2.0, abs=1e-6)
+
+    def test_a_step_without_an_observation_yet_receives_the_rate(self):
+        # Observations are per-step flows: the previous step's value must not
+        # enter the difference, or the slot alternates between the rate and
+        # zero from one step to the next.
+        mdp = mdp_with({"fisherman:0": 0.4}).add(
+            MDPState(obs={"fisherman:0": np.full(9, 2.0, dtype=np.float32)})
+        )
+        mdp = mdp.advance(state={})
+        residual = make().on_reset(mdp, 0.3).obs["fisherman:0"][0]
+
+        assert residual[8] == pytest.approx(0.3, abs=1e-6)

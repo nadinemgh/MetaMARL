@@ -554,3 +554,64 @@ def intersect(
         return spaces.Box(low=low, high=high, dtype=x.dtype)
 
     raise TypeError(f"Cannot intersect spaces of type {type(x).__name__}")
+
+
+def logical_or_dict(
+    x: dict[Any, Any] | None, dxs: list[dict[Any, Any] | None]
+) -> dict[Any, bool]:
+    """Combine dictionaries of flags with a logical or, key by key.
+
+    Missing entries (``None`` or empty dicts, in ``x`` or in ``dxs``) count as
+    "no flags". The result has the union of the keys, and every value is coerced
+    to ``bool`` (a key absent from one dict counts as ``False`` there). The
+    inputs are not modified.
+
+    Parameters
+    ----------
+    x : dict or None
+        Base flags, for example ``{agent_id: terminated}``.
+    dxs : list of dict or None
+        Further flag dictionaries; ``None`` entries are ignored.
+
+    Returns
+    -------
+    dict
+        A new dict mapping each key to ``True`` if any input flags it as true,
+        else ``False``.
+
+    When to use: to merge termination and truncation flags contributed by
+    several mechanisms, so that an agent ends as soon as any of them says so.
+    ``MDPState.add`` calls it to combine the flags of a state with those of
+    its residuals.
+
+    Examples
+    --------
+    >>> logical_or_dict({"a": False, "b": True}, [{"a": True}, None]) == {
+    ...     "a": True, "b": True
+    ... }
+    True
+    """
+
+    x = x or {}
+
+    if not any(dxs):
+        # The common case: no other dictionary sets a flag. This path stays in C:
+        # a plain copy when every value is already a bool, as after any earlier
+        # composition.
+        if set(map(type, x.values())) <= {bool}:
+            return dict(x)
+        return dict(zip(x, map(bool, x.values())))
+
+    result = dict(x)
+    keys = set(result)
+
+    for dx in dxs:
+        if dx:
+            keys.update(dx)
+
+    for key in keys:
+        result[key] = bool(x.get(key, False)) or any(
+            dx.get(key, False) for dx in dxs if dx is not None
+        )
+
+    return result

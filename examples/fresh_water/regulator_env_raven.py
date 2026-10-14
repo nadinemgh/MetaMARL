@@ -51,14 +51,17 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
     def observation(self, obs: ObsType) -> ObsType:
         return 0.0
 
-    @override(RegulatorEnv)
+    # ``RegulatorEnv`` no longer defines ``aggregate_rewards`` (its ``step`` calls
+    # ``reward`` with the inner metrics), so the method is not marked with
+    # ``@override`` and nothing calls it until it is ported to ``reward``.
     def aggregate_rewards(self, ctxs: list[Context]) -> list[float]:
         """
         Compute per-mechanism fitness from step-level EnvStepContexts.
         Implementation mirrors `FisheryRegulatorEnv.aggregate_rewards`.
         """
 
-        # Must be able to get the seed and run the baseline dynamically for the no extraction
+        # Must be able to get the seed and run the baseline dynamically for the no
+        # extraction
         step_ctxs = [
             ctx
             for ctx in ctxs
@@ -91,7 +94,8 @@ class WaterRegulatorRavenEnv(RegulatorEnv):
             for ctx in steps:
                 r = ctx.payload.reward
 
-                # TODO for now we average accross agents but later another solution required!
+                # TODO for now we average accross agents but later another solution
+                #   required!
                 if isinstance(r, dict):
                     rewards.append(float(np.mean(list(r.values()))))
                 else:
@@ -167,7 +171,7 @@ def read_hydrograph_series(output_dir: str, column_name: str) -> dict[str, float
                 if match is None:
                     raise KeyError(
                         f"Column '{column_name}' not found in {csv_path}. "
-                        f"Available columns: {list(row.keys())}"
+                        + f"Available columns: {list(row.keys())}"
                     )
 
                 column_name = match

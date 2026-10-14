@@ -22,7 +22,7 @@ select = [
     "E306",
 ]
 
-ignore = ["W191"]
+ignore = ["W191", "TD", "FIX", "ERA"]
 
 preview = true
 explicit-preview-rules = true

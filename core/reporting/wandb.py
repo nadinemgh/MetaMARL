@@ -16,7 +16,6 @@ started on the first report, never when the reporter is built.
 from __future__ import annotations
 
 import uuid
-from enum import Enum
 from typing import Any, Optional
 
 import numpy as np
@@ -24,10 +23,9 @@ import plotly.graph_objects as go
 import wandb
 from plotly.colors import qualitative
 
-from core.metrics.enums import ReduceProtocol
-from core.reporting.base import Group, Reporter, Resolved
+from core.reporting.base import Reporter, Resolved
 from core.reporting.config import ReporterConfig
-from core.reporting.query import Path, Query
+from core.reporting.query import Query
 from core.utils import sanitize_key
 
 
@@ -103,7 +101,6 @@ class WandbConfig(ReporterConfig):
         quiet: Optional[bool] = True,
         max_end_of_run_summary_metrics: Optional[int] = 0,
         max_end_of_run_history_metrics: Optional[int] = 0,
-        **kwargs: Any,
     ) -> None:
         super().__init__(project=project)
 
@@ -229,30 +226,6 @@ class WandbReporter(Reporter):
                 reinit="create_new",
                 settings=wandb.Settings(**(self._settings or {})),
             )
-
-    @staticmethod
-    def _path_name(path: Path) -> str:
-        return "/".join(
-            str(token.value) if isinstance(token, Enum) else token
-            for token in path
-            if not isinstance(token, ReduceProtocol)
-        )
-
-    @classmethod
-    def _series_label(
-        cls, path: Path, group: Group, label: Optional[str] = None
-    ) -> str:
-        # TODO when by_agent followed by add, then skip
-        name = label if label is not None else cls._path_name(path)
-
-        if not group:
-            return name
-
-        group_name = ", ".join(
-            f"{junction}={dynamic_id}" for junction, dynamic_id in group
-        )
-
-        return f"{name} [{group_name}]"
 
     @classmethod
     def _series_figure(
@@ -394,13 +367,13 @@ class WandbReporter(Reporter):
         errors: list[Resolved],
         colors: Resolved | None,
     ) -> None:
+        if not any(ys):
+            return
+
         self._init_run()
 
         if self._run is None:
             raise RuntimeError("W&B run failed to initialize.")
-
-        if not any(ys):
-            return
 
         fig = self._series_figure(
             query=query, xs=x, yss=ys, error_yss=errors, color_values=colors
