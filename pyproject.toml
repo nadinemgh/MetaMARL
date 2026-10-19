@@ -35,6 +35,7 @@ dependencies = [
     "sentencepiece>=0.2.1",
     "plotly>=6.7.0",
     "scikit-learn>=1.9.0",
+    "raven-hydro-meta-marl==0.1.2",
 ]
 
 [project.scripts]
@@ -60,6 +61,22 @@ dev = [
     "spacing>=1.0.3",
 ]
 
+hydrology = [
+    "geopandas",
+    "rasterio",
+    "shapely",
+    "pyproj",
+    "rasterstats>=0.21.0",
+    "netcdf4>=1.7.4",
+    "simpledbf>=0.2.6",
+    "joblib>=1.5.3",
+    "requests>=2.32.5",
+    "wget>=3.2",
+    "gdown>=6.4.2",
+    "scipy>=1.17.1",
+    "basinmaker",
+]
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -75,3 +92,6 @@ include = ["core*"]
 # option coverage leaves out every file that no test imports, which overstates
 # the total.
 include_namespace_packages = true
+
+[tool.uv.sources]
+basinmaker = { url = "https://github.com/dustming/basinmaker/archive/master.zip" }
