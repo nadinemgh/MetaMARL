@@ -30,6 +30,7 @@ wheels/
 *.csv
 *.geojson
 *.nc
+*.env
 
 # Virtual environments
 .venv/
@@ -92,6 +93,7 @@ figures/
 *.parquet
 
 # WandB
+wandb_analysis/
 wandb/
 
 # Ray
@@ -103,10 +105,10 @@ CLAUDE.md
 .claude
 
 # Raven model outputs, binaries and helpers
-3_Model_output
-/raven/3_Model_output/
-/raven/2_Raven/Raven.exe
-/raven/2_Raven/run_raven.bat
+examples/fresh_water/raven/
 
 # GeoJSONs directory (project-specific large files)
 geojsons/
+
+!TODO.md
+!tutorials/*
