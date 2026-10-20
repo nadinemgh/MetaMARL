@@ -167,10 +167,10 @@ class RayOptimizerConfig(OptimizerConfig):
         return cfg.evaluation(**kwargs)
 
     def evaluation(
-            self, 
-            base_seed: Optional[int] = None, 
-            num_seeds: Optional[int] = None,
-            seeds: Optional[list[int]] = None,
+        self,
+        base_seed: Optional[int] = None,
+        num_seeds: Optional[int] = None,
+        seeds: Optional[list[int]] = None,
             **kwargs) -> None:
         eval_config : dict = kwargs.setdefault("evaluation_config", {})
         eval_env_config : dict = eval_config.setdefault("env_config", {})
@@ -243,7 +243,7 @@ class RayOptimizerConfig(OptimizerConfig):
             This updated AlgorithmConfig object.
         """
         return cfg.experimental(**kwargs)
-    
+
     def _parse_episode_identity(self, episode_id: str) -> dict[str, str]:
         parts = episode_id.split("|")
 
@@ -280,7 +280,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
     def _apply_agents_to_rllib(self) -> list[AgentID]:
         policies = {}
-        agent_type_map = {}
+        agent_policy_map = {}
         agents: list[AgentID] = []
         observation_spaces = {}
         action_spaces = {}
@@ -293,7 +293,7 @@ class RayOptimizerConfig(OptimizerConfig):
             raise ValueError(
                 f"num_envs_per_env_runner={num_envs} must be divisible by num_seeds={num_seeds}"
             )
-        
+
         # Get number of mechanisms (one policy per mechanism, per seed)
         num_mechanisms = num_envs // num_seeds
 
@@ -304,7 +304,16 @@ class RayOptimizerConfig(OptimizerConfig):
             act_space = spec.get("action_space")
             base_policy = spec.get("policy")
 
-            # TODO (nadinemgh) this does not guarantee tht different mechanism's policy will be
+            for i in range(spec.get("count")):
+                agent_id = f"{agent_type}:{i}"
+                agent_policy = f"{base_policy}_a{i}"
+
+                agents.append(agent_id)
+                agent_policy_map[agent_id] = agent_policy
+                observation_spaces[agent_id] = obs_space
+                action_spaces[agent_id] = act_space
+
+                # TODO (nadinemgh) this does not guarantee tht different mechanism's policy will be
                 # initiated with the same seed !
                 # what we want :
                 # run mechanism 0, seed 101
@@ -313,47 +322,42 @@ class RayOptimizerConfig(OptimizerConfig):
                 # run mechanism 0, seed 202
                 # run mechanism 1, seed 202
                 # run mechanism 2, seed 202
-            for seed in self.seeds:
-                # TODO verify case when null seed            
-                for m_idx in range(num_mechanisms):
-                    policy_id = f"{base_policy}_m{m_idx}_s{seed}"
-                    policies[policy_id] = (
-                        None,
+                for seed in self.seeds:
+                    # TODO verify case when null seed
+                    for m_idx in range(num_mechanisms):
+                        policy_id = f"{agent_policy}_m{m_idx}_s{seed}"
+                        policies[policy_id] = (
+                            None,
                         spec.get("observation_space"),
                         spec.get("action_space"),
-                        {},
-                    )
+                            {},
+                        )
 
-                    module_specs[policy_id] = RLModuleSpec(
-                        observation_space=obs_space,
-                        action_space=act_space,
-                        model_config=DefaultModelConfig(
-                            vf_share_layers=False,
-                            fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
-                            fcnet_bias_initializer="zeros_",
+                        module_specs[policy_id] = RLModuleSpec(
+                            observation_space=obs_space,
+                            action_space=act_space,
+                            model_config=DefaultModelConfig(
+                                vf_share_layers=False,
+                                fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
+                                fcnet_bias_initializer="zeros_",
                             head_fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
-                            head_fcnet_bias_initializer="zeros_",
-                        ),
-                    )
+                                head_fcnet_bias_initializer="zeros_",
+                            ),
+                        )
 
-            for i in range(spec.get("count")):
-                agent_id = f"{agent_type}:{i}"
-                agents.append(agent_id)
-                agent_type_map[agent_id] = base_policy
-                observation_spaces[agent_id] = obs_space
-                action_spaces[agent_id] = act_space
-        
         self.rllib_cfg = self.rllib_cfg.rl_module(
                 rl_module_spec=MultiRLModuleSpec(
                     rl_module_specs=module_specs
                 )
-            )
+        )
 
         self.env_config.update({"observation_spaces": observation_spaces})
         self.env_config.update({"action_spaces": action_spaces})
 
         def policy_mapping_fn(agent_id, episode: MultiAgentEpisode, *_, **__):
-            base_policy = agent_type_map[agent_id]
+            """Route an agent to ``<policy>_m<m>_s<ps>`` from the episode ID."""
+
+            agent_policy = agent_policy_map[agent_id]
 
             # Old Api Stack Route to policy based on environment index
             # TODO this is depregated !
@@ -363,12 +367,13 @@ class RayOptimizerConfig(OptimizerConfig):
             identity = self._parse_episode_identity(episode.id_)
             mechanism_id = identity["m"]
             policy_seed = identity["ps"]
-            policy_id = f"{base_policy}_m{mechanism_id}_s{policy_seed}"
+            policy_id = f"{agent_policy}_m{mechanism_id}_s{policy_seed}"
 
             if policy_id not in policies:
                 raise RuntimeError(
                     f"Unknown policy generated by policy_mapping_fn: "
                     f"policy_id={policy_id}, "
+                    f"agent_id={agent_id}, "
                     f"episode_id={episode.id_}, "
                     f"mechanism_id={mechanism_id}, "
                     f"policy_seed={policy_seed}, "
@@ -515,16 +520,16 @@ class RayOptimizerConfig(OptimizerConfig):
     @override(OptimizerConfig)
     def freeze(cfg, **kwargs) -> None:
         return cfg.freeze(**kwargs)
-    
+
     @rllib_config_mutator
     @override(OptimizerConfig)
     def training(cfg, **kwargs) -> None:
         return cfg.training(**kwargs)
-    
+
     @rllib_config_mutator
     def _debugging_rllib(cfg, seed: Optional[int] = None, **kwargs):
         return cfg.debugging(seed=seed, **kwargs)
-    
+
     
     @override(OptimizerConfig)
     def debugging(
@@ -535,7 +540,7 @@ class RayOptimizerConfig(OptimizerConfig):
         **kwargs,
     ) -> Self:
         """Sets the debugging related configuration."""
-        
+
         super().debugging(seed=seed, num_seeds=num_seeds)
         if seed is not None:
             env_runners_op = self._cfg_ops.get("_env_runners")
@@ -545,6 +550,6 @@ class RayOptimizerConfig(OptimizerConfig):
                 env_runners_op.kwargs["num_envs_per_env_runner"] = (
                     env_runners_op.kwargs.get("num_envs_per_env_runner", 1) * num_seeds
                 )
-                
+
         # Lazy construction
         return self._debugging_rllib(seed=seed, **kwargs)
