@@ -546,7 +546,7 @@ class RayOptimizerConfig(OptimizerConfig):
         """
 
         policies = {}
-        agent_type_map = {}
+        agent_policy_map = {}
 
         agents: list[AgentID] = []
 
@@ -571,47 +571,47 @@ class RayOptimizerConfig(OptimizerConfig):
             act_space = spec.get("action_space")
             base_policy = spec.get("policy")
 
-            # TODO (nadinemgh) this does not guarantee tht different mechanism's policy will be
-            # initiated with the same seed !
-            # what we want :
-            # run mechanism 0, seed 101
-            # run mechanism 1, seed 101
-            # run mechanism 2, seed 101
-            # run mechanism 0, seed 202
-            # run mechanism 1, seed 202
-            # run mechanism 2, seed 202
-            for seed in self.seeds:
-                # TODO verify case when null seed
-                for m_idx in range(num_mechanisms):
-                    policy_id = f"{base_policy}_m{m_idx}_s{seed}"
-                    policies[policy_id] = (
-                        None,
-                        spec.get("observation_space"),
-                        spec.get("action_space"),
-                        {},
-                    )
-                    module_specs[policy_id] = RLModuleSpec(
-                        observation_space=obs_space,
-                        action_space=act_space,
-                        model_config=DefaultModelConfig(
-                            vf_share_layers=False,
-                            fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
-                            fcnet_bias_initializer="zeros_",
-                            head_fcnet_kernel_initializer=self._seeded_xavier_uniform(
-                                seed
-                            ),
-                            head_fcnet_bias_initializer="zeros_",
-                        ),
-                    )
-
             for i in range(spec.get("count")):
                 agent_id = f"{agent_type}:{i}"
+                agent_policy = f"{base_policy}_a{i}"
 
                 agents.append(agent_id)
-
-                agent_type_map[agent_id] = base_policy
+                agent_policy_map[agent_id] = agent_policy
                 observation_spaces[agent_id] = obs_space
                 action_spaces[agent_id] = act_space
+
+                # TODO (nadinemgh) this does not guarantee tht different mechanism's policy will be
+                # initiated with the same seed !
+                # what we want :
+                # run mechanism 0, seed 101
+                # run mechanism 1, seed 101
+                # run mechanism 2, seed 101
+                # run mechanism 0, seed 202
+                # run mechanism 1, seed 202
+                # run mechanism 2, seed 202
+                for seed in self.seeds:
+                    # TODO verify case when null seed
+                    for m_idx in range(num_mechanisms):
+                        policy_id = f"{agent_policy}_m{m_idx}_s{seed}"
+                        policies[policy_id] = (
+                            None,
+                            obs_space,
+                            act_space,
+                            {},
+                        )
+                        module_specs[policy_id] = RLModuleSpec(
+                            observation_space=obs_space,
+                            action_space=act_space,
+                            model_config=DefaultModelConfig(
+                                vf_share_layers=False,
+                                fcnet_kernel_initializer=self._seeded_xavier_uniform(seed),
+                                fcnet_bias_initializer="zeros_",
+                                head_fcnet_kernel_initializer=self._seeded_xavier_uniform(
+                                    seed
+                                ),
+                                head_fcnet_bias_initializer="zeros_",
+                            ),
+                        )
 
         self.rllib_cfg = self.rllib_cfg.rl_module(
             rl_module_spec=MultiRLModuleSpec(rl_module_specs=module_specs)
@@ -623,7 +623,7 @@ class RayOptimizerConfig(OptimizerConfig):
         def policy_mapping_fn(agent_id, episode: MultiAgentEpisode, *_, **__):
             """Route an agent to ``<policy>_m<m>_s<ps>`` from the episode ID."""
 
-            base_policy = agent_type_map[agent_id]
+            agent_policy = agent_policy_map[agent_id]
 
             # Old Api Stack Route to policy based on environment index
             # TODO this is depregated !
@@ -633,12 +633,13 @@ class RayOptimizerConfig(OptimizerConfig):
             identity = self._parse_episode_identity(episode.id_)
             mechanism_id = identity["m"]
             policy_seed = identity["ps"]
-            policy_id = f"{base_policy}_m{mechanism_id}_s{policy_seed}"
+            policy_id = f"{agent_policy}_m{mechanism_id}_s{policy_seed}"
 
             if policy_id not in policies:
                 raise RuntimeError(
                     f"Unknown policy generated by policy_mapping_fn: "
                     f"policy_id={policy_id}, "
+                    f"agent_id={agent_id}, "
                     f"episode_id={episode.id_}, "
                     f"mechanism_id={mechanism_id}, "
                     f"policy_seed={policy_seed}, "

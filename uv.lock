@@ -132,78 +132,6 @@ wheels = [
 ]
 
 [[package]]
-name = "bilevel-fishery"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "accelerate" },
-    { name = "bitsandbytes" },
-    { name = "datasets" },
-    { name = "dm-tree" },
-    { name = "gym" },
-    { name = "matplotlib" },
-    { name = "peft" },
-    { name = "plotly" },
-    { name = "pydantic" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pyyaml" },
-    { name = "ray", extra = ["rllib", "tune"] },
-    { name = "ruff" },
-    { name = "scikit-learn" },
-    { name = "scipy" },
-    { name = "seaborn" },
-    { name = "sentencepiece" },
-    { name = "spacing" },
-    { name = "torch" },
-    { name = "transformers" },
-    { name = "wandb" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "black" },
-    { name = "flake8" },
-    { name = "isort" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "accelerate", specifier = ">=1.13.0" },
-    { name = "bitsandbytes", specifier = ">=0.49.2" },
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "datasets", specifier = ">=4.8.4" },
-    { name = "dm-tree", specifier = ">=0.1.9" },
-    { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
-    { name = "gym", specifier = ">=0.26.2" },
-    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.0.0" },
-    { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "peft", specifier = ">=0.18.1" },
-    { name = "plotly", specifier = ">=6.7.0" },
-    { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pytest", specifier = ">=8.4.2" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "pytest-cov", specifier = ">=7.0.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "ray", extras = ["rllib", "tune"], specifier = "==2.53.0" },
-    { name = "ruff", specifier = ">=0.14.13" },
-    { name = "scikit-learn", specifier = ">=1.9.0" },
-    { name = "scipy", specifier = ">=1.17.0" },
-    { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "sentencepiece", specifier = ">=0.2.1" },
-    { name = "spacing", specifier = ">=1.0.3" },
-    { name = "torch", specifier = ">=2.10.0" },
-    { name = "transformers", specifier = ">=5.4.0" },
-    { name = "wandb", specifier = ">=0.16,<1.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "bitsandbytes"
 version = "0.49.2"
 source = { registry = "https://pypi.org/simple" }
@@ -858,6 +786,78 @@ sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec9
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
 ]
+
+[[package]]
+name = "meta-marl"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "accelerate" },
+    { name = "bitsandbytes" },
+    { name = "datasets" },
+    { name = "dm-tree" },
+    { name = "gym" },
+    { name = "matplotlib" },
+    { name = "peft" },
+    { name = "plotly" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pyyaml" },
+    { name = "ray", extra = ["rllib", "tune"] },
+    { name = "ruff" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "seaborn" },
+    { name = "sentencepiece" },
+    { name = "spacing" },
+    { name = "torch" },
+    { name = "transformers" },
+    { name = "wandb" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "black" },
+    { name = "flake8" },
+    { name = "isort" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate", specifier = ">=1.13.0" },
+    { name = "bitsandbytes", specifier = ">=0.49.2" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
+    { name = "datasets", specifier = ">=4.8.4" },
+    { name = "dm-tree", specifier = ">=0.1.9" },
+    { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
+    { name = "gym", specifier = ">=0.26.2" },
+    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.0.0" },
+    { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "peft", specifier = ">=0.18.1" },
+    { name = "plotly", specifier = ">=6.7.0" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pytest", specifier = ">=8.4.2" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "ray", extras = ["rllib", "tune"], specifier = "==2.53.0" },
+    { name = "ruff", specifier = ">=0.14.13" },
+    { name = "scikit-learn", specifier = ">=1.9.0" },
+    { name = "scipy", specifier = ">=1.17.0" },
+    { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "sentencepiece", specifier = ">=0.2.1" },
+    { name = "spacing", specifier = ">=1.0.3" },
+    { name = "torch", specifier = ">=2.10.0" },
+    { name = "transformers", specifier = ">=5.4.0" },
+    { name = "wandb", specifier = ">=0.16,<1.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "mpmath"

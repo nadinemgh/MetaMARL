@@ -235,7 +235,7 @@ bilevel_opt_cfg: BilevelConfig = (
             min_sample_timesteps_per_iteration=0,
             min_train_timesteps_per_iteration=0,
             schema=RaySchema,
-            queries=INNER_QUERIES,
+            queries=(), #INNER_QUERIES
             # TODO test queries agg over mechanisms (or other dynamic fields)
             # TODO test queries with y keys from reduced (env)
         )

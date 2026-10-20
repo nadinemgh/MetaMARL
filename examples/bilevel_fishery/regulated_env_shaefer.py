@@ -316,17 +316,18 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
         for agent_id, action in A_t.items():
             harvest_frac, _ = self._action_components(action)
             requested_harvest = harvest_frac * self.full_required_harvest
-            allowed_harvest = self._allowed_harvest(fish_norm)
-            delivered_harvest = requested_harvest - (
-                smooth_positive_zero_at_origin(
-                    requested_harvest - allowed_harvest,
-                    self.harvest_transition_width * self.full_required_harvest,
-                )
-            )
+            delivered_harvest = requested_harvest
+            # allowed_harvest = self._allowed_harvest(fish_norm)
+            # delivered_harvest = requested_harvest - (
+            #     smooth_positive_zero_at_origin(
+            #         requested_harvest - allowed_harvest,
+            #         self.harvest_transition_width * self.full_required_harvest,
+            #     )
+            # )
             requested_frac_norm = requested_harvest / max(
                 EPS, self.full_required_harvest
             )
-            utility = delivered_harvest / max(EPS, self.full_required_harvest)
+            utility = requested_frac_norm
             utilities[agent_id] = utility
 
             self.logger.push(
@@ -375,10 +376,7 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             self.violation_transition_width,
         )
         quota_violation = violation_frac * self.full_required_harvest
-        quota_penalty = min(
-            1.0,
-            self.mechanism.fine_amount * violation_frac,
-        )
+        quota_penalty = float(np.clip(violation_frac, 0.0, 1.0))
         stock_pressure = max(0.0, 1.0 - fish_norm)
         risk_penalty = (
             self.mechanism.risk_penalty_scale
@@ -445,13 +443,14 @@ class FisheryRegulatedEnv(MultiAgentRegulatedEnv):
             harvest_frac, restoration_effort = self._action_components(action)
             restoration_efforts[agent_id] = restoration_effort
             requested_harvest = harvest_frac * self.full_required_harvest
-            delivered_harvest[agent_id] = (
-                requested_harvest
-                - smooth_positive_zero_at_origin(
-                    requested_harvest - allowed_harvest,
-                    self.harvest_transition_width * self.full_required_harvest,
-                )
-            )
+            delivered_harvest[agent_id] = requested_harvest
+            # delivered_harvest[agent_id] = (
+            #     requested_harvest
+            #     - smooth_positive_zero_at_origin(
+            #         requested_harvest - allowed_harvest,
+            #         self.harvest_transition_width * self.full_required_harvest,
+            #     )
+            # )
 
         mean_restoration_effort = float(np.mean(list(restoration_efforts.values())))
         restoration_gain = (

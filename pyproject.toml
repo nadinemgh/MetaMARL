@@ -1,5 +1,5 @@
 [project]
-name = "bilevel-fishery"
+name = "meta-marl"
 version = "0.1.0"
 description = "Bilevel optimization framework for sustainable fishery management using Evolution Strategies"
 readme = "README.md"
