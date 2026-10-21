@@ -232,8 +232,13 @@ def log_agent_rollout_returns(
         ) if tag_obs else "unknown"
         assigned_group = (
             (agent_groups or {}).get(agent_id)
-            or (agent_groups or {}).get(agent_id.split(":")[-1])
-            or "unknown"
+            or (
+                "fixed_non_tagger"
+                if agent_id.startswith("utilizer_non_tagging:")
+                else "tagging_capable"
+                if agent_id.startswith("utilizer:")
+                else "unknown"
+            )
         )
         n = v["steps"]
         table.add_data(

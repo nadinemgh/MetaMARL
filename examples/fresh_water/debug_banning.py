@@ -119,6 +119,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 "raven_cmd": "/Users/nadine/src/github.com/nadinemgh/MetaMARL/examples/fresh_water/raven/2_Raven/Raven.exe",
                 "raven_freq": 1,
                 "seed": 0,
+                "num_fixed_non_taggers": 0,
             },
             horizon=100,
             disable_env_checking=False,
@@ -188,6 +189,26 @@ bilevel_opt_cfg: BilevelConfig = (
                             dtype=np.float32,
                         ),
                         "tag": spaces.Discrete(2),
+                    }),
+                },
+                "utilizer": {
+                    "count": 0,
+                    "policy": "utilizer_policy",
+                    "observation_space": spaces.Box(
+                        low=-np.inf,
+                        high=np.inf,
+                        shape=(5 + WaterMechanismSpace().full_dimension,
+                        ),
+                        dtype=np.float32,
+                    ),
+                    "action_space": spaces.Dict({
+                        "extraction": spaces.Box(
+                            low=-np.inf,
+                            high=np.inf,
+                            shape=(1,),
+                            dtype=np.float32,
+                        ),
+                        "tag": spaces.Discrete(1), # Always 0
                     }),
                 }
             }
