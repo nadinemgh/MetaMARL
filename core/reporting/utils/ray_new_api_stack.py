@@ -967,6 +967,17 @@ def plot_training_results_new_stack(
     metrics = {k: v for k, v in metrics.items() if v is not None}
     wandb_run.log(metrics, step=gs, commit=False)
 
+    # Added: lossless per-policy EPISODE RETURN MEAN table for Schelling analysis.
+    # This does not change any existing metrics or plots.
+    from core.reporting.utils.schelling_archive import log_module_episode_returns
+    log_module_episode_returns(
+        wandb_run=wandb_run,
+        results=results,
+        outer_iter=outer_iter,
+        train_step=training_episode,
+        prefix=prefix,
+    )
+
     # --------------------------
     # 2) MULTI-LINE PLOT: returns (ONE plot, lines=series)
     # --------------------------

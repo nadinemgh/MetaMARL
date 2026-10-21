@@ -795,11 +795,25 @@ def plot_env_reduced(
     training_episode: int,
     reducers: list[ReductionSpec] | None = None,
     prefix: str = "env_reduced",
+    agent_groups: dict[str, str] | None = None,  # optional fixed/learned experimental roles
 ) -> None:
     if wandb_run is None or not ctxs:
         return
 
     gs = _global_step(outer_iter, training_episode)
+
+    # Added: exact per-agent rollout reward sums and observed tagging behavior.
+    # Leaves existing aggregated environmental plots and tables unchanged.
+    from core.reporting.utils.schelling_archive import log_agent_rollout_returns
+    log_agent_rollout_returns(
+        wandb_run=wandb_run,
+        ctxs=ctxs,
+        outer_iter=outer_iter,
+        train_step=training_episode,
+        prefix=prefix,
+        expected_horizon=100,
+        agent_groups=agent_groups,
+    )
 
     rows: list[dict[str, Any]] = []
 
