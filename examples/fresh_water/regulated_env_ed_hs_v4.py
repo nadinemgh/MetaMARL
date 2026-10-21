@@ -671,8 +671,13 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            # stdout=subprocess.PIPE,
+            # stderr=subprocess.PIPE,
             text=True,
         )
+        logger.info("Raven stdout:\n%s", result.stdout)
+        logger.info("Raven stderr:\n%s", result.stderr)
+
         if result.returncode != 0:
             logger.error(
                 "Raven failed with code %d:\n%s",

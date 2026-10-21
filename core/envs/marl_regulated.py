@@ -216,8 +216,11 @@ class MultiAgentRegulatedEnv(RegulatedEnv, MultiAgentEnv):
     
     @override(RegulatedEnv)
     def reward(self, rewards: MultiAgentDict, **kwargs) -> SupportsFloat:
-        rewards = {
-            aid : u_i - self.penalty(u_i, **kwargs) * self.violation_signal(u_i, aid, **kwargs)
+        return {
+            aid: float(
+                u_i
+                - self.penalty(u_i, **kwargs)
+                * self.violation_signal(u_i, aid, **kwargs)
+            )
             for aid, u_i in rewards.items()
         }
-        return self._aggregate_rewards(rewards=rewards)

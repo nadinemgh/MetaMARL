@@ -58,6 +58,7 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         raven_cmd: Optional[str] = None,
         raven_cwd: str = "raven",
         raven_freq: int = 1,
+        num_fixed_non_taggers: int = 0,
         raven_stage_col: str = "Belwood_Lake",
         raven_streamflow_col: str = "Belwood_Lake (res. inflow) [m3/s]",
         raven_outflow_col: str = "Belwood_Lake [m3/s]",
@@ -65,6 +66,11 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         **kwargs,
     ):
         super().__init__(**kwargs)
+
+        # Experimental composition; fixed policy assignment is handled separately.
+        self.num_fixed_non_taggers = int(num_fixed_non_taggers)
+        if not 0 <= self.num_fixed_non_taggers <= len(self.agents):
+            raise ValueError("num_fixed_non_taggers must be between 0 and agent count")
 
         # Normally pulled out of Raven
         self.full_stage_m = ecology_cfg.get("full_stage_m")
@@ -205,14 +211,42 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         return float(sigmoid(z / temperature))
 
+    @staticmethod
+    def _wants_tag(action: ActType) -> bool:
+        # Supports both the current Box(2) action and a future Dict action.
+        if isinstance(action, dict):
+            return int(action["tag"]) == 1
+        action = np.asarray(action, dtype=np.float32).reshape(-1)
+        if action.size != 2:
+            raise ValueError(f"Expected Box(2) action, got shape {action.shape}")
+        return bool(action[1] > 0.0)
+
     def _resolve_tags(self, A_t: MultiAgentDict) -> None:
-        """Apply this timestep's tagging decisions exactly once."""
+        """Record tag decisions and apply this timestep's bans exactly once."""
         if self._tags_resolved_step == self.current_step:
             return
         self._tags_resolved_step = self.current_step
+
+        wants_tag = {
+            agent_id: self._wants_tag(action)
+            for agent_id, action in A_t.items()
+        }
+        n_taggers = sum(wants_tag.values())
+        n_non_taggers = len(A_t) - n_taggers
+
+        # These scalar infos are repeated for agents by the existing base env.
+        self._update_infos(key="n_taggers", values=n_taggers)
+        self._update_infos(key="n_non_taggers", values=n_non_taggers)
+        self._update_infos(key="n_fixed_non_taggers", values=self.num_fixed_non_taggers)
+
+        # Only present at the last day of a completed horizon-length episode.
+        if self._is_truncated():
+            self._update_infos(key="n_taggers_episode_end", values=n_taggers)
+            self._update_infos(key="n_non_taggers_episode_end", values=n_non_taggers)
+
         agent_ids = list(A_t)
-        for agent_id, action in A_t.items():
-            if int(action["tag"]) != 1:
+        for agent_id, is_tagger in wants_tag.items():
+            if not is_tagger:
                 continue
             if self.current_step - self.last_tag_step.get(agent_id, -self.ban_duration) < self.ban_duration:
                 continue
@@ -230,7 +264,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         """A banned agent has exactly zero irrigation, not sigmoid(0)=0.5."""
         if self.current_step < self.banned_until.get(agent_id, 0):
             return 0.0
-        return self._action_to_float(action["extraction"])
+        extraction = action["extraction"] if isinstance(action, dict) else action[0]
+        return self._action_to_float(extraction)
 
     def _crop_stage(self, date: datetime) -> str:
         planting_date = datetime(date.year, self._planting_month, self._planting_day)

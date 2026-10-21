@@ -116,42 +116,42 @@ class RayOptimizer(Optimizer):
 
         # TODO make this more dynamic NEW_STACK
         # TODO move this to world
-        # ray.get(
-        #     self.reporting.plot_ray_result.remote(
-        #         outer_iter=self._es_round,
-        #         training_episode=step,
-        #         results=result,
-        #         prefix="appo/train",
-        #     )
-        # )
+        ray.get(
+            self.reporting.plot_ray_result.remote(
+                outer_iter=self._es_round,
+                training_episode=step,
+                results=result,
+                prefix="appo/train",
+            )
+        )
 
-        # eval_result = result.get("evaluation")
-        # if eval_result:
-        #     ray.get(
-        #         self.reporting.plot_ray_result.remote(
-        #         outer_iter=self._es_round,
-        #         training_episode=step,
-        #         results=eval_result,
-        #         prefix="appo/eval",
-        #     )
-        #     )
+        eval_result = result.get("evaluation")
+        if eval_result:
+            ray.get(
+                self.reporting.plot_ray_result.remote(
+                outer_iter=self._es_round,
+                training_episode=step,
+                results=eval_result,
+                prefix="appo/eval",
+            )
+            )
 
         # TODO reduced env episode plotting
-        # if self._env_reducers:
-        #     latest_env_ctxs = ray.get(
-        #         self.world.get_new_env_step_contexts.remote(opt_id=self.opt_id)
-        #     )
+        if self._env_reducers:
+            latest_env_ctxs = ray.get(
+                self.world.get_new_env_step_contexts.remote(opt_id=self.opt_id)
+            )
 
-        #     if latest_env_ctxs:
-        #         ray.get(
-        #             self.reporting.plot_env_reduced.remote(
-        #                 ctxs=latest_env_ctxs,
-        #                 outer_iter=self._es_round,
-        #                 training_episode=step,
-        #                 reducers=self._env_reducers,
-        #                 prefix="env_reduced",
-        #             )
-        #         )
+            if latest_env_ctxs:
+                ray.get(
+                    self.reporting.plot_env_reduced.remote(
+                        ctxs=latest_env_ctxs,
+                        outer_iter=self._es_round,
+                        training_episode=step,
+                        reducers=self._env_reducers,
+                        prefix="env_reduced",
+                    )
+                )
 
         # TODO temporary to be moved to a logger Extract metrics
         ep_return = get_episode_return_mean(result)

@@ -144,6 +144,11 @@ def _ctx_to_metric_rows(ctx: Context) -> list[dict[str, Any]]:
         "info/MSY",
         "info/F_msy",
         "info/intrinsic_utility",
+        "info/n_taggers",
+        "info/n_non_taggers",
+        "info/n_fixed_non_taggers",
+        "info/n_taggers_episode_end",
+        "info/n_non_taggers_episode_end",
     }
     # KEEP_METRICS = {
     #     "info/fish",
@@ -1021,6 +1026,27 @@ def plot_env_reduced(
         rows,
         train_step=gs,
     )
+
+    # Tagging composition versus training iteration (W&B time-series).
+    # Average across mechanism/seed groups; episode-end metrics include only
+    # completed episodes, whereas plain counts use all sampled timesteps.
+    count_metrics = {
+        "n_taggers_mean": "taggers",
+        "n_non_taggers_mean": "non_taggers",
+        "n_fixed_non_taggers_mean": "fixed_non_taggers",
+        "n_taggers_episode_end_mean": "taggers_episode_end",
+        "n_non_taggers_episode_end_mean": "non_taggers_episode_end",
+    }
+    count_log = {}
+    for metric_name, label in count_metrics.items():
+        values = [
+            row["value"] for row in iter_rows
+            if row["phase"] == "train" and row["metric"] == metric_name
+        ]
+        if values:
+            count_log[f"{prefix}/tagging/{label}"] = float(np.mean(values))
+    if count_log:
+        wandb_run.log(count_log, step=gs, commit=False)
 
     iter_df = pd.DataFrame(iter_rows)
 

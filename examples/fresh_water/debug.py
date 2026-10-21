@@ -5,8 +5,8 @@ from gymnasium import spaces
 from core.callbacks import tag_episode_with_env_idx
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
-from core.optimizers.appo.config import APPOptimizerConfig
 
+from core.optimizers.ppo.config import PPOptimizerConfig
 from examples.fresh_water.mechanism import WaterMechanismSpace
 from examples.fresh_water.regulated_env_ed_hs_v4 import WaterRegulatedEdHsEnv
 from examples.fresh_water.regulator_env_raven import WaterRegulatorRavenEnv
@@ -84,7 +84,7 @@ bilevel_opt_cfg: BilevelConfig = (
         )
     )
     .inner(
-        APPOptimizerConfig()
+        PPOptimizerConfig()
         .resources(
             num_cpus_for_main_process=1,
         )
@@ -99,7 +99,7 @@ bilevel_opt_cfg: BilevelConfig = (
             env=WaterRegulatedEdHsEnv,
             env_config={
                 "ecology_cfg": {
-                    "max_farm_area_m2": 1_000_000.0,
+                    "max_farm_area_m2": 5_000_000.0,
                     # TODO move this to Raven helper
                     "full_stage_m": 420.41,
                     "max_depth_m": 11.0,
@@ -139,15 +139,15 @@ bilevel_opt_cfg: BilevelConfig = (
             on_episode_created=tag_episode_with_env_idx,
         )
         .training(
-            vtrace=True,
-            circular_buffer_num_batches=4,
-            circular_buffer_iterations_per_batch=1,
-            broadcast_interval=1,
-            timeout_s_sampler_manager=10,
-            timeout_s_aggregator_manager=10,
+            # vtrace=True,
+            # circular_buffer_num_batches=4,
+            # circular_buffer_iterations_per_batch=1,
+            # broadcast_interval=1,
+            # timeout_s_sampler_manager=10,
+            # timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size_per_learner=100,
+            train_batch_size_per_learner=400, #in PPO must scale by num envs
             minibatch_size=100,
             num_epochs=1,
             entropy_coeff=0.001,
@@ -166,12 +166,12 @@ bilevel_opt_cfg: BilevelConfig = (
                 "max_requests_in_flight_per_env_runner": 1,
             },
             base_seed = 42,
-            num_seeds = 3
+            num_seeds = 1
         )
         .agents(
             {
                 "utilizer": {
-                    "count": 500,
+                    "count": 100,
                     "policy": "utilizer_policy",
                     "observation_space": spaces.Box(
                         low=-np.inf,
