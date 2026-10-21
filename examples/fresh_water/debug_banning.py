@@ -172,7 +172,7 @@ bilevel_opt_cfg: BilevelConfig = (
         .agents(
             {
                 "utilizer": {
-                    "count": 100,
+                    "count": 80,
                     "policy": "utilizer_policy",
                     "observation_space": spaces.Box(
                         low=-np.inf,
@@ -191,8 +191,8 @@ bilevel_opt_cfg: BilevelConfig = (
                         "tag": spaces.Discrete(2),
                     }),
                 },
-                "utilizer": {
-                    "count": 0,
+                "utilizer_non_banning": {
+                    "count": 20,
                     "policy": "utilizer_policy",
                     "observation_space": spaces.Box(
                         low=-np.inf,

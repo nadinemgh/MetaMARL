@@ -39,7 +39,7 @@ bilevel_opt_cfg: BilevelConfig = (
             default_risk_penalty_power=1.0,
         ),
     )
-    .training(outer_iters=1000)
+    .training(outer_iters=1)
     .ray(
         device="cpu",
         num_cpus=4,
@@ -76,7 +76,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 },
             },
             horizon=100,
-            train_iters=50,
+            train_iters=500,
         )
         .debugging(
             seed=42,
