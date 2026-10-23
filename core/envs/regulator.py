@@ -147,7 +147,7 @@ class RegulatorEnv(gym.Env):
         self,
         *,
         world: ActorHandle[World],
-        optimizer: Optimizer,  # TODO (nadine) not clear and avoid providing instantiated obj
+        optimizer: Optimizer,  # TODO (nadine) not clear and avoid providing instantiated obj  # noqa: E501
         horizon: Optional[int],
         agents_cfgs: dict[AgentID, AgentConfig],
         # Agent policy seeds required for mechanism publishing.
@@ -316,7 +316,7 @@ class RegulatorEnv(gym.Env):
             self.logger.push(key=("iter",), value=self._t)
 
         truncated = False
-        terminated = self.horizon is not None and (self._t + 1) >= self.horizon
+        terminated = self.horizon is not None and self._t >= self.horizon
 
         return obs, reward, terminated, truncated, info
 

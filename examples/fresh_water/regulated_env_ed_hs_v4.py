@@ -11,8 +11,7 @@ import numpy as np
 from gymnasium.core import ActType
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
 
-from core.annotations import override
-from core.envs.marl_regulated import MultiAgentRegulatedEnv
+from core.envs.marl_regulated import MultiAgentEnv
 
 logger = logging.getLogger(__name__)
 EPS = 1e-8
@@ -40,7 +39,14 @@ P_BY_MONTH_45N = {
 CORN_WILTING_FRAC = 0.35
 
 
-class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
+# This is the Raven variant of the fresh-water environment, kept as an optional
+# example. It was written against the pre-merge environment API, whose hooks
+# (``_reset``, ``_is_truncated``, ``intrinsic_utility``, ``violation_signal``,
+# ``penalty``) ``MultiAgentEnv`` no longer defines, so the methods below are no
+# longer marked with ``@override``, and the class has to be ported to the
+# ``@reset`` and ``@transition`` hooks before it can run. It imports cleanly. The
+# runnable fresh-water example is ``examples.fresh_water.regulated_env``.
+class WaterRegulatedEdHsEnv(MultiAgentEnv):
     def __init__(
         self,
         *,
@@ -108,7 +114,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         self.full_required_m3_day = 0.0
         self._baseline_ref: Optional[str] = None
 
-    @override(MultiAgentRegulatedEnv)
     def _reset(self):
         self.withdrawal_history_m3s = []
 
@@ -154,7 +159,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
             agent_id: self.observation(agent_id, self.S_t) for agent_id in self.agents
         }
 
-    @override(MultiAgentRegulatedEnv)
     def _is_truncated(self) -> bool:
         return self.horizon is not None and (self._t + 1) >= self.horizon
 
@@ -228,7 +232,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
     def _allowed_m3_day(self, reservoir_level_norm: float) -> float:
         return self._allowed_frac(reservoir_level_norm) * self.full_required_m3_day
 
-    @override(MultiAgentRegulatedEnv)
     def intrinsic_utility(self, A_t: dict[AgentID, ActType]) -> MultiAgentDict:
         precip_mm_day = self.S_t["precip_mm_day"]
 
@@ -283,7 +286,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         return crop_satisfaction
 
-    @override(MultiAgentRegulatedEnv)
     def violation_signal(
         self,
         u_i: SupportsFloat,  # crop satisfaction
@@ -313,7 +315,8 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
         )
 
         # risk_penalty_power is now actually used.
-        # This makes high extraction fractions increasingly costly when release pressure is high.
+        # This makes high extraction fractions increasingly costly when release pressure
+        # is high.
         requested_frac = requested_m3_day / max(EPS, self.full_required_m3_day)
         flow_penalty = (
             self.mechanism.risk_penalty_scale
@@ -365,7 +368,6 @@ class WaterRegulatedEdHsEnv(MultiAgentRegulatedEnv):
 
         return total_penalty
 
-    @override(MultiAgentRegulatedEnv)
     def penalty(self, u_i: SupportsFloat, **kwargs) -> SupportsFloat:
         return 1.0
 

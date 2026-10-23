@@ -8,23 +8,24 @@ run on a laptop; yours may differ in the last digits if your hardware does.
 ## 1. Install and check
 
 ```bash
-git clone git@github.com:deep-introspection/MetaMARL.git
+git clone https://github.com/nadinemgh/MetaMARL.git
 cd MetaMARL
-uv sync
+uv sync --group dev
 WANDB_MODE=offline uv run metamarl check examples/bilevel_fishery/config.yaml
 ```
 
-`uv sync` creates `.venv/` with Python 3.12, the runtime dependencies and the
-development tools. The `check` command builds the fishery experiment described in
+`uv sync --group dev` creates `.venv/` with Python 3.12, the runtime dependencies and
+the development tools (pytest and ruff, which the tests and the lint need). The `check` command builds the fishery experiment described in
 `examples/bilevel_fishery/config.yaml` without training it. Its first two log lines
 show the hash-seed guard restarting the process with `PYTHONHASHSEED=0`, and its
 last line is `Config OK: core.optimizers.bilevel.BilevelConfig`.
 
-The unit tests, with the doctests, confirm the installation in about forty
-seconds:
+You can also run the unit tests, which include the doctests, with the command
+below. They are not needed for a first run, and their duration depends on the
+machine.
 
 ```bash
-uv run python -m pytest -m "not integration and not notebook" -q
+uv run python -m pytest -m "not integration and not notebook"
 ```
 
 ## 2. A first bilevel run
@@ -35,27 +36,32 @@ WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \
 ```
 
 This runs two generations of the outer Evolution Strategies optimizer. In each
-generation the regulator proposes four values of the fishing quota, and for each
-of them the inner APPO optimizer trains two fishers for two iterations on
-20-step episodes, then evaluates them. The run takes about fifteen seconds.
+generation the regulator proposes four candidates, each a pair made of a fishing
+quota and a restoration subsidy, and for each of them the inner APPO optimizer
+trains two fishers for two iterations on 20-step episodes, then evaluates them.
+On a laptop the run takes about fifteen seconds.
 
 The lines worth reading are the ones the ES prints at every generation. The
 `BEFORE UPDATE` line lists the quotas of the generation and the fitness of each:
 
 ```text
-[ES] BEFORE UPDATE | gen=0 | mean=[0.5] | sigma=0.15000 | population=[[0.5053...], [0.4377...], [0.4946...], [0.5622...]] | fitness=[2.5979..., 2.5989..., 2.5978..., 2.6060...]
-[ES] gen=0 | best=2.6060 | mean=2.6002+/-0.0034 | var=0.0000 | sigma=0.1500
+[ES] BEFORE UPDATE | gen=0 | mean=[0.5, 0.5] | sigma=0.15000 | population=[[0.5053..., 0.4377...], [0.4502..., 0.5218...], [0.4946..., 0.5622...], [0.5497..., 0.4781...]] | fitness=[2.3978..., 2.3985..., 2.3981..., 2.3978...]
+[ES] gen=0 | best=2.3986 | mean=2.3981+/-0.0003 | var=0.0000 | sigma=0.1500
 ...
-[Bilevel] Run finished | iters=2 | converged=False | mechanism=[0.5622445] | best_fitness=2.6060
+[Bilevel] Run finished | iters=2 | converged=False | mechanism=[0.405259  0.5698728] | best_fitness=2.3990
 ```
 
-The quota is a fraction of the stock, so the candidates live in `[0, 1]`; `mean`
-is the centre of the search and `sigma` its spread, both in that space. The fitness
+The quota is a fraction of the stock and the subsidy a fraction of its maximum, so
+the two coordinates of a candidate live in `[0, 1]`; `mean` is the centre of the
+search and `sigma` its spread, both in that space. The fitness
 of a candidate is the realised harvest relative to the maximum sustainable yield
 plus twice the mean normalised biomass, both measured over the last steps of the
 evaluation episodes (see `examples/bilevel_fishery/regulator_env.py`). The last line reports
 the best candidate of the whole run. `converged=False` is expected: the
-convergence stop is off unless `convergence_eps` is set in the ES configuration.
+convergence stop is off unless `convergence_eps` is set to a positive value in the
+ES configuration. The numbers above come from one run at the time of writing; running
+the same command again gives the same values, and a later release of the library
+may print different ones.
 
 The run is reproducible. Running the same command again gives the same `fitness`
 vectors to the last digit, because the seeds are fixed and the hash-seed guard
@@ -68,19 +74,20 @@ the regulator and those of the inner optimizer go to two directories named after
 the run's world and the optimizer class:
 
 ```text
-results/bilevel/fishery_world_<id>-ESOptimizer/     7 files
+results/bilevel/fishery_world_<id>-ESOptimizer/     8 files
 results/bilevel/fishery_world_<id>-RayOptimizer/    9 files
 ```
 
 The ES directory holds the fitness over the generations, the fitness of every
-candidate against its quota, and the comparison of training and evaluation for the
-return and the normalised biomass. The inner directory holds the training curves:
+candidate against its quota, the subsidy against the quota, and the comparison of
+training and evaluation for the return and the normalised biomass. The run also
+creates some directories named after the environments, which stay empty. The inner directory holds the training curves:
 episode return, biomass statistics, policy entropy and the losses. Every file has
 the same long format, one row per point:
 
 ```text
 query,x,series,value,error,color
-Candidate fitness vs quota,0.5622444748878479,Evaluated mechanisms [by_mechanism=3],2.6060359477996826,,0
+Candidate fitness vs quota,0.5053213238716125,Evaluated mechanisms [by_mechanism=0],2.397838592529297,,0
 ```
 
 `series` names the curve a point belongs to and `color` carries the generation for
@@ -94,9 +101,13 @@ gradient updates.
 
 ## 4. Change the experiment
 
-The YAML file and the debug script describe the same experiment in two ways. The
-YAML file is the declarative form: every mapping with a `_target_` key is built by
-calling that class, `_calls_` lists the builder methods applied to it in order,
+The YAML file and the debug script describe the same experiment in two ways: the
+same quota and restoration subsidy searched by the regulator, the same ten fishers
+and the same ES and APPO settings. A copy of the YAML file with the sizes of the
+smoke run above (two generations, two training iterations, two fishers and a horizon
+of 20) prints the same fitness values as the script, to the last digit. The YAML file
+is the declarative form: every mapping with a `_target_` key is built by calling that
+class, `_calls_` lists the builder methods applied to it in order,
 `_symbol_` imports an object without calling it, and `_tuple_` builds a tuple. The
 `run` section at the end lists the calls `metamarl run` applies to the built
 experiment. For instance, the searched mechanism is declared inside the
@@ -126,14 +137,30 @@ The debug script, `examples/bilevel_fishery/debug.py`, builds the same experimen
 with the Python builders of `BilevelConfig`, and its options change the sizes
 without editing anything: `--outer-iters`, `--train-iters`, `--num-agents`,
 `--horizon` and `--reporter`. `--help` lists them with their defaults, which are
-the full experiment.
+the full experiment. The script `examples/bilevel_fishery/run.py` is a second Python
+version of the same experiment with the same options. The `metamarl` command has no
+size options: `metamarl run` trains the file as it is written, that is 1000
+generations, of which the first takes about a minute on a laptop. For a shorter run,
+edit `episodes` in the `training` calls of a copy of the file.
 
 ## 5. Where to go next
 
-The other two benchmarks run the same way: `python -m examples.cartpole.debug`
-checks the whole pipeline on a task whose fitness is known in advance, and
-`python -m examples.fresh_water.debug` searches the eight rules of a water policy
-for a reservoir shared by farms. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+The other two benchmarks run the same way. `python -m examples.cartpole.debug
+--algo appo` (or `--algo ppo`) checks the whole pipeline on a task whose fitness is
+known in advance, and `python -m examples.fresh_water.debug` searches the eight rules
+of a water policy for a reservoir shared by farms. For example:
+
+```bash
+WANDB_MODE=offline uv run python -m examples.cartpole.debug --algo appo \
+    --outer-iters 2 --train-iters 2 --horizon 20 --reporter csv
+WANDB_MODE=offline uv run python -m examples.fresh_water.debug \
+    --outer-iters 2 --train-iters 2 --horizon 30 --num-agents 20 --reporter csv
+```
+
+`--help` lists every option of these scripts. The fresh-water example can also drive
+the external Raven model (`--hydrology raven`), which needs a separate Raven
+installation. The script `examples/fresh_water/debug_raven.py` is a Raven variant
+that does not run yet, as the README explains. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 explains what happens inside a generation and how to write your own benchmark or
 mechanism. The notebooks in `tutorials/` present the abstractions on the fishery
 (`metamarl_fishery_tutorial.ipynb`), the mechanism algorithms

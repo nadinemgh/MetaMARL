@@ -17,6 +17,7 @@ from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.rllib.utils.typing import ResultDict
 
+from core.adaptors.ray.learner_drain import stop_learner_thread, wait_for_learner_thread
 from core.adaptors.ray.utils import hash_weights
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,10 @@ class PolicyActor:
         first makes the evaluated policy the fully trained one in every run.
         """
 
+        for result in self.algo.learner_group.foreach_learner(wait_for_learner_thread):
+            if not result.ok:
+                raise result.get()
+
         return self.algo.evaluate()
 
     def compute_actions(self, policy_id: str, obs_batch: np.ndarray) -> np.ndarray:
@@ -177,6 +182,8 @@ class PolicyActor:
 
         # TODO verify reset is using the same seed
         # self.algo.set_weights(self._init_weights)
+        self.stop()
+
         self.algo = self.algo_config.build_algo()
 
         # TODO tie the init_weights with seeding
@@ -201,4 +208,9 @@ class PolicyActor:
             ``TimeoutError``), re-raised after the algorithm has been stopped.
         """
 
-        self.algo.stop()
+        try:
+            for result in self.algo.learner_group.foreach_learner(stop_learner_thread):
+                if not result.ok:
+                    raise result.get()
+        finally:
+            self.algo.stop()

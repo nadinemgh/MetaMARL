@@ -73,8 +73,28 @@ experiment:
                           default:
                             _target_: numpy.asarray
                             _args_: [0.56224]
+
+                          quota_transition_width: 0.05
+
+                        - _target_: core.mechanism.algorithms.incentive.Incentive
+                          id: restoration_subsidy
+
+                          action_space:
+                            _target_: gymnasium.spaces.Box
+                            low: 0
+                            high: 1
+                            shape: [1]
                             dtype:
                               _symbol_: numpy.float32
+
+                          acts_on:
+                            _tuple_:
+                              - fisherman
+                              - restore
+
+                          default:
+                            _target_: numpy.asarray
+                            _args_: [0.10]
 
             - environment:
                 horizon: 1
@@ -86,13 +106,17 @@ experiment:
                   ecology_cfg:
                     sustainability_weight: 2
                     sustainability_threshold: 0.20
+                    K: 5000  # has to match the environment K
 
             - debugging:
                 seed: 42
+                num_seeds: 1
 
             - reporting:
                 queries:
                   _symbol_: examples.bilevel_fishery.queries.ES_QUERIES
+                schema:
+                  _symbol_: core.optimizers.es.schema.ESSchema
 
     - society:
         cfg:
@@ -216,11 +240,14 @@ experiment:
                             dtype:
                               _symbol_: numpy.float32
 
+                          restoration_cost: 0.25
+                          restoration_power: 0.02
+
                     observation_space:
                       _target_: gymnasium.spaces.Box
                       low: -.inf
                       high: .inf
-                      shape: [5]
+                      shape: [9]
                       dtype:
                         _symbol_: numpy.float32
 
@@ -238,6 +265,8 @@ experiment:
 
                 queries:
                   _symbol_: examples.bilevel_fishery.queries.INNER_QUERIES
+                schema:
+                  _symbol_: core.adaptors.ray.schema.RaySchema
 
 run:
   - build_optimizer: {}

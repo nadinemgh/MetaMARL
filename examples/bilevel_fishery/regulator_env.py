@@ -56,7 +56,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
         (weight of the mean normalized biomass in the objective, dimensionless,
         default 5.0), ``sustainability_threshold`` (normalized biomass in
         ``[0, 1]`` below which an entry counts as collapsed, default 0.1),
-        ``aggregation_status`` (``"train"`` or ``"eval"``,
+        ``K`` (carrying capacity in biomass units, used to denormalize the
+        threshold for plots; there is no default, and omitting it raises a
+        ``ValueError``), ``aggregation_status`` (``"train"`` or ``"eval"``,
         default ``"eval"``) and ``fitness_tail_steps`` (number of trailing
         steps of each episode the fitness is computed on, default 50; an
         episode with fewer steps contributes all of them).
@@ -71,6 +73,10 @@ class FisheryRegulatorEnv(RegulatorEnv):
         Weight of ``mean_fish`` in the objective.
     sustainability_threshold : float
         Normalized biomass below which an entry counts as collapsed.
+    K : float
+        Carrying capacity (biomass units).
+    raw_sustainability_threshold : float
+        ``sustainability_threshold * K`` (biomass units), for plots.
     aggregation_status : MechanismStatus
         Split of the inner metrics the fitness is computed from.
     fitness_tail_steps : int
@@ -82,12 +88,13 @@ class FisheryRegulatorEnv(RegulatorEnv):
     Raises
     ------
     ValueError
-        If ``aggregation_status`` is neither ``"train"`` nor ``"eval"``.
+        If ``aggregation_status`` is neither ``"train"`` nor ``"eval"``, or if
+        ``ecology_cfg`` has no ``K``.
 
     When to use: as the ``env`` of the outer ``ESConfig`` of a fishery
-    experiment. The objective reads the normalized biomass the inner
-    environment logs, so it needs no carrying capacity of its own; use it with
-    ``FisheryMetricSchema``.
+    experiment, with an ``ecology_cfg`` whose ``K`` matches the inner
+    environment's carrying capacity. The objective depends on the series the
+    inner environment logs, so use it with ``FisheryMetricSchema``.
 
     Examples
     --------
@@ -108,7 +115,7 @@ class FisheryRegulatorEnv(RegulatorEnv):
     ...     horizon=1,
     ...     agents_cfgs={},
     ...     seeds=[0],
-    ...     ecology_cfg={"sustainability_weight": 2.0},
+    ...     ecology_cfg={"K": 5000.0, "sustainability_weight": 2.0},
     ... )
     >>> episode = SimpleNamespace(
     ...     reward_series=[[0.5, 0.5]],
@@ -131,7 +138,13 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         self.sustainability_weight = ecology_cfg.get("sustainability_weight", 5.0)
         self.sustainability_threshold = ecology_cfg.get("sustainability_threshold", 0.1)
-        self.K = ecology_cfg.get("K")
+        if "K" not in ecology_cfg:
+            raise ValueError(
+                "ecology_cfg must define 'K', the carrying capacity in biomass "
+                + "units: the regulator needs it to denormalize the "
+                + "sustainability threshold."
+            )
+        self.K = ecology_cfg["K"]
 
         # Denormalized threshold for visualization
         self.raw_sustainability_threshold = self.sustainability_threshold * self.K
@@ -214,7 +227,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         per_mech_metrics: list[dict[str, float]] = []
 
-        # TODO when running parallel eval, async may duplicate runs ! should not statistically change the result
+        # TODO when running parallel eval, async may duplicate runs ! should not
+        #   statistically change the result
         metrics_by_mechanism: dict[int, list[dict[str, Any]]] = defaultdict(list)
 
         self.trajectories = {}
@@ -227,59 +241,68 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 seed = int(seed_id)
 
                 for episode_metrics in seed_metrics.by_episode.values():
-                    # TODO this is the mean however this is not good representation for late learning mechanisms
-                    rewards = np.atleast_1d(
-                        np.asarray(episode_metrics.reward_mean, dtype=np.float32)
+                    # TODO this is the mean however this is not good representation for
+                    #   late learning mechanisms
+                    # Each leaf holds one entry per logged episode: the list of
+                    # its steps, or its MSY.
+                    logged_episodes = zip(
+                        episode_metrics.reward_series,
+                        episode_metrics.fish_norm_next_series,
+                        episode_metrics.H_realized_series,
+                        np.atleast_1d(episode_metrics.MSY),
+                        strict=True,
                     )
-                    fish = np.atleast_1d(
-                        np.asarray(
-                            episode_metrics.fish_norm_next_mean, dtype=np.float32
-                        )
-                    )
-                    realized_harvest = np.atleast_1d(
-                        np.asarray(episode_metrics.H_realized, dtype=np.float32)
-                    )
-                    msy = np.atleast_1d(
-                        np.asarray(episode_metrics.MSY, dtype=np.float32)
-                    )
-                    harvest_scores = realized_harvest / np.maximum(msy, 1e-6)
-                    sustainability_penalties = np.maximum(
-                        0.0,
-                        (self.sustainability_threshold - fish)
-                        / max(1e-6, self.sustainability_threshold),
-                    )
-                    num_steps = len(fish)
-                    tail_steps = min(self.fitness_tail_steps, num_steps)
-                    tail_start = num_steps - tail_steps
-                    tail_rewards = rewards[tail_start:]
-                    tail_fish = fish[tail_start:]
-                    tail_realized_harvest = realized_harvest[tail_start:]
-                    tail_harvest_scores = harvest_scores[tail_start:]
-                    sustainability_penalties = np.maximum(
-                        0.0,
-                        (self.sustainability_threshold - tail_fish)
-                        / max(1e-6, self.sustainability_threshold),
-                    )
+                    for reward_steps, fish_steps, harvest_steps, msy in logged_episodes:
+                        # A gap of the metric logger: no episode under this key
+                        # in that inner iteration.
+                        if reward_steps is None:
+                            continue
 
-                    metrics_by_mechanism[idx].append(
-                        {
-                            "seed": seed,
-                            "mean_reward": float(tail_rewards.mean()),
-                            "reward_std": float(tail_rewards.std()),
-                            "mean_realized_harvest": float(
-                                tail_realized_harvest.mean()
-                            ),
-                            "harvest_score": float(tail_harvest_scores.mean()),
-                            "collapse_rate": float(
-                                (tail_fish < self.sustainability_threshold).mean()
-                            ),
-                            "sustainability_penalty": float(
-                                sustainability_penalties.mean()
-                            ),
-                            "min_fish": float(tail_fish.min()),
-                            "mean_fish": float(tail_fish.mean()),
-                        }
-                    )
+                        rewards = np.asarray(reward_steps, dtype=np.float32)
+                        fish = np.asarray(fish_steps, dtype=np.float32)
+                        realized_harvest = np.asarray(harvest_steps, dtype=np.float32)
+                        harvest_scores = realized_harvest / np.maximum(
+                            np.float32(msy), 1e-6
+                        )
+                        num_steps = len(fish)
+                        tail_steps = min(self.fitness_tail_steps, num_steps)
+                        tail_start = num_steps - tail_steps
+                        tail_rewards = rewards[tail_start:]
+                        tail_fish = fish[tail_start:]
+                        tail_realized_harvest = realized_harvest[tail_start:]
+                        tail_harvest_scores = harvest_scores[tail_start:]
+                        sustainability_penalties = np.maximum(
+                            0.0,
+                            (self.sustainability_threshold - tail_fish)
+                            / max(1e-6, self.sustainability_threshold),
+                        )
+
+                        metrics_by_mechanism[idx].append(
+                            {
+                                "seed": seed,
+                                "mean_reward": float(tail_rewards.mean()),
+                                "reward_std": float(tail_rewards.std()),
+                                "mean_realized_harvest": float(
+                                    tail_realized_harvest.mean()
+                                ),
+                                "harvest_score": float(tail_harvest_scores.mean()),
+                                "collapse_rate": float(
+                                    (tail_fish < self.sustainability_threshold).mean()
+                                ),
+                                "sustainability_penalty": float(
+                                    sustainability_penalties.mean()
+                                ),
+                                "min_fish": float(tail_fish.min()),
+                                "mean_fish": float(tail_fish.mean()),
+                            }
+                        )
+
+        if not metrics_by_mechanism:
+            raise ValueError(
+                f"No rollout found for the {self.aggregation_status.value!r} "
+                + "split: the inner optimizer logged no mechanism, seed and "
+                + "episode to score."
+            )
 
         max_idx = max(metrics_by_mechanism)
         fitness = np.full(max_idx + 1, -np.inf, dtype=np.float32)
@@ -353,9 +376,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
         logger.info(
             "[Regulator][summary] "
-            "mean_obj=%.4f | best_obj=%.4f (θ=%d) | "
-            "worst_obj=%.4f (θ=%d) | "
-            "collapse(mean=%.3f max=%.3f)",
+            + "mean_obj=%.4f | best_obj=%.4f (θ=%d) | "
+            + "worst_obj=%.4f (θ=%d) | "
+            + "collapse(mean=%.3f max=%.3f)",
             float(objectives.mean()),
             best["objective"],
             int(best["idx"]),

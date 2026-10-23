@@ -1,10 +1,10 @@
 """``core.agents.base``: ``Agent`` behaviour and ``AgentConfig`` validation.
 
 ``Agent.action`` is where an agent's mechanisms meet the shared ``MDPState``:
-each mechanism the agent holds an action for is called with that action at the
-current timestep and the residuals it returns are added to the state. The
-observation side of the agent (``mechanism_observations``) is tested in
-``test_mechanism_observations.py``.
+each mechanism the agent holds an action for is called with that (already
+decoded) action at the current timestep, and the residuals it returns are
+combined into one residual ``MDPState`` that the caller composes with the shared
+state. The agent neither decodes the actions nor writes them back.
 
 ``AgentConfig.count`` and ``AgentConfig.shared_policy`` are stored but not read
 by ``build``, which always returns one agent.
@@ -27,10 +27,7 @@ BOX = spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32)
 
 
 class Adder(Mechanism):
-    """Add the (decoded) action to the ``total`` state entry."""
-
-    def decode(self, mdp: MDPState, action):
-        return float(np.asarray(action).reshape(-1)[0]) * 10.0
+    """Add the (already decoded) action to the ``total`` state entry."""
 
     def apply(self, mdp: MDPState, action: float) -> MDPState:
         return MDPState(state={"total": action})
@@ -87,33 +84,37 @@ def test_default_observation_and_reward_contribute_nothing():
 
 
 @pytest.mark.unit
-def test_action_without_an_entry_for_the_agent_returns_the_same_mdp():
+def test_action_without_an_entry_for_the_agent_returns_an_empty_residual():
     mdp = MDPState(actions={"someone_else": {"m": np.array([1.0])}})
+    residual = make_agent("m").action(mdp)
 
-    assert make_agent("m").action(mdp) is mdp
+    assert residual is not mdp
+    assert residual.state.data == {} and residual.actions.data == {}
 
 
 @pytest.mark.unit
-def test_action_with_an_empty_entry_returns_the_same_mdp():
+def test_action_with_an_empty_entry_returns_an_empty_residual():
     mdp = MDPState(actions={"a0": {}})
+    residual = make_agent("m").action(mdp)
 
-    assert make_agent("m").action(mdp) is mdp
+    assert residual is not mdp
+    assert residual.state.data == {} and residual.actions.data == {}
 
 
 @pytest.mark.unit
 def test_action_applies_every_mechanism_it_holds_an_action_for():
     agent = make_agent("m1", "m2")
-    mdp = mdp_holding({"m1": [0.1], "m2": [0.2]})
+    mdp = mdp_holding({"m1": [1.0], "m2": [2.0]})
     result = agent.action(mdp)
 
-    # Both decoded actions (x10) are summed into the state.
+    # Both actions are summed into the residual.
     assert result.state["total"] == pytest.approx([3.0])
 
 
 @pytest.mark.unit
 def test_action_ignores_actions_for_mechanisms_the_agent_does_not_own():
     agent = make_agent("m1")
-    mdp = mdp_holding({"m1": [0.1], "stranger": [5.0]})
+    mdp = mdp_holding({"m1": [1.0], "stranger": [5.0]})
     result = agent.action(mdp)
 
     assert result.state["total"] == pytest.approx([1.0])
@@ -122,19 +123,24 @@ def test_action_ignores_actions_for_mechanisms_the_agent_does_not_own():
 @pytest.mark.unit
 def test_action_uses_the_entry_of_the_current_timestep():
     agent = make_agent("m")
-    mdp = mdp_holding({"m": [0.1, 0.3]}, t=1)
+    mdp = mdp_holding({"m": [1.0, 3.0]}, t=1)
     result = agent.action(mdp)
 
-    assert result.state["total"] == pytest.approx([0.0, 3.0])
+    # The residual starts at step 0 whatever the step of ``mdp``, and holds the
+    # action of the current step of ``mdp`` (3.0), not that of step 0 (1.0).
+    assert result.state["total"] == pytest.approx([3.0])
 
 
 @pytest.mark.unit
-def test_action_records_the_decoded_action_in_the_mdp():
+def test_action_does_not_write_the_action_back():
     agent = make_agent("m")
-    mdp = mdp_holding({"m": [0.1]})
+    mdp = mdp_holding({"m": [1.0]})
     result = agent.action(mdp)
 
-    assert result.actions["a0"]["m"] == pytest.approx([1.0])
+    # Decoding happens in the adapter and in ``env.reset``: the mechanism uses
+    # the action as stored and leaves the action trajectories alone.
+    assert result.actions.data == {}
+    assert mdp.actions["a0"]["m"] == pytest.approx([1.0])
 
 
 @pytest.mark.unit

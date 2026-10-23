@@ -18,8 +18,8 @@ class ConstantRewardAgent:
         self.aid = aid
         self.value = reward
 
-    def action(self, mdp: MDPState) -> MDPState:
-        return mdp
+    def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
+        return MDPState()
 
     def reward(self, mdp: MDPState) -> MDPState:
         return MDPState(rewards={self.aid: self.value})
@@ -38,6 +38,7 @@ def make_env(rewards: dict[str, float]):
         leaders={},
         logger=MetricLogger.from_schema(EpisodeRolloutSchema),
         horizon=None,
+        _t=0,
     )
     env.transition = lambda mdp: dataclasses.replace(mdp, t=mdp.t + 1)
     env.termination = lambda mdp: MultiAgentEnv.termination(env, mdp)

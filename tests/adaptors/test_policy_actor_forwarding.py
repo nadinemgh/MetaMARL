@@ -15,8 +15,8 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from core.adaptors.ray.learner_drain import stop_learner_thread, wait_for_learner_thread
 
+from core.adaptors.ray.learner_drain import stop_learner_thread, wait_for_learner_thread
 from core.adaptors.ray.policy_actor import PolicyActor
 from core.adaptors.ray.utils import hash_weights
 

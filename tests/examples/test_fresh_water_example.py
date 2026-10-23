@@ -52,24 +52,6 @@ from typing import Any
 
 import numpy as np
 import pytest
-from examples.fresh_water.hydrology import (
-    RavenLake,
-    RavenOutputError,
-    SurrogateLake,
-    estimate_temp_c,
-    write_stand_in_raven,
-)
-from examples.fresh_water.metric_schema import WaterMetricSchema
-from examples.fresh_water.regulated_env import (
-    IRRIGATE_SPACE,
-    IrrigateConfig,
-    UtilizerConfig,
-    WaterRegulatedEnv,
-    crop_demand,
-    crop_stage,
-    residence_time_days,
-)
-from examples.fresh_water.regulator_env import WaterRegulatorEnv, level_deviation
 from gymnasium import spaces
 
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
@@ -78,6 +60,13 @@ from core.envs import marl_regulated
 from core.reporting.csv import CSVConfig
 from core.world.context import MechanismContext, MechanismStatus
 from examples.fresh_water.contexts import FitnessContext
+from examples.fresh_water.hydrology import (
+    RavenLake,
+    RavenOutputError,
+    SurrogateLake,
+    estimate_temp_c,
+    write_stand_in_raven,
+)
 from examples.fresh_water.mechanism import (
     DEFAULT_RULES,
     IRRIGATE_ID,
@@ -93,6 +82,17 @@ from examples.fresh_water.mechanism import (
     quota_stress,
     violation_signal,
 )
+from examples.fresh_water.metric_schema import WaterMetricSchema
+from examples.fresh_water.regulated_env import (
+    IRRIGATE_SPACE,
+    IrrigateConfig,
+    UtilizerConfig,
+    WaterRegulatedEnv,
+    crop_demand,
+    crop_stage,
+    residence_time_days,
+)
+from examples.fresh_water.regulator_env import WaterRegulatorEnv, level_deviation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REGULATOR = "water_regulator"
@@ -1051,22 +1051,33 @@ def test_the_residence_time_of_the_belwood_setup_is_months_not_microdays(build_e
 
 
 @pytest.mark.unit
-def test_episodes_after_a_reset_start_on_a_new_planting_day(build_env):
-    env = build_env(horizon=3)
-    adapter = RLlibMultiAgentEnvAdapter(env)
-    starts = []
+def test_the_planting_day_is_drawn_from_the_seed_at_every_reset(build_env):
+    # The environment draws its generator from the seed at every reset, so the
+    # episodes of one environment replay the same planting day and the
+    # environments with different seeds spread over the season.
+    def planting_days(seed: int) -> list[int]:
+        env = build_env(horizon=3, seed=seed)
+        adapter = RLlibMultiAgentEnvAdapter(env)
+        starts = []
 
-    for _ in range(4):
-        adapter.reset()
-        starts.append(env._planting_date)
+        for _ in range(3):
+            adapter.reset()
+            starts.append(env._planting_date)
 
-        for step in range(3):
-            adapter.step(requests_for(step, 3))
+            for step in range(3):
+                adapter.step(requests_for(step, 3))
 
-    day_of_year = [(d - datetime(1980, 1, 1)).days for d in starts]
+        return [(d - datetime(1980, 1, 1)).days for d in starts]
 
-    assert all(121 <= day < 274 for day in day_of_year)
-    assert len(set(day_of_year)) > 1
+    first_seed = planting_days(0)
+
+    assert len(set(first_seed)) == 1
+    assert first_seed == planting_days(0)
+
+    days = {planting_days(seed)[0] for seed in range(6)}
+
+    assert all(121 <= day < 274 for day in days)
+    assert len(days) > 1
 
 
 @pytest.mark.unit

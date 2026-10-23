@@ -4,6 +4,7 @@ import dataclasses
 
 import numpy as np
 import pytest
+from gymnasium import spaces
 
 from core.agents.base import Agent
 from core.mechanism.algorithms.penalty import (
@@ -15,13 +16,16 @@ from core.mechanism.base import MDPState
 REGULATOR = "regulator"
 K = 5_000.0
 NO_ACTION = np.empty(0, dtype=np.float32)
+NO_PARAMETER = spaces.Box(low=0.0, high=1.0, shape=(0,), dtype=np.float32)
 
 
 def make(**kwargs) -> ThresholdPenaltyMechanism:
     kwargs.setdefault("acts_on", ("fisherman", "harvest"))
     kwargs.setdefault("obs_map", {"resource_level": "fish"})
 
-    return ThresholdPenalty(id="penalty", **kwargs).build(REGULATOR)
+    return ThresholdPenalty(id="penalty", action_space=NO_PARAMETER, **kwargs).build(
+        REGULATOR
+    )
 
 
 def mdp_at(fish_norm: float, aids=("fisherman:0", "fisherman:1")) -> MDPState:
@@ -65,7 +69,7 @@ class TestValidation:
 @pytest.mark.unit
 class TestFixedRule:
     def test_default_action_space_is_empty(self):
-        config = ThresholdPenalty(id="penalty")
+        config = ThresholdPenalty(id="penalty", action_space=NO_PARAMETER)
 
         assert config.action_space.shape == (0,)
         assert config.build(REGULATOR).action_space.shape == (0,)
@@ -131,15 +135,19 @@ class TestComposition:
         mdp = mdp_at(0.9, aids=("fisherman:0",))
         rewards = []
 
-        for fish_norm in (0.9, 0.2, 0.0):
-            mdp.update(state={"fish": fish_norm * K})
-            mdp.update(actions={"fisherman:0": {"harvest": np.array([0.0])}})
+        for t, fish_norm in enumerate((0.9, 0.2, 0.0)):
+            mdp.update(
+                t=t,
+                state={"fish": fish_norm * K},
+                actions={"fisherman:0": {"harvest": np.array([0.0])}},
+            )
 
-            mdp = regulator.action(mdp)
-            mdp = mdp.add(MDPState(rewards={"fisherman:0": 1.0}))
+            mdp = dataclasses.replace(mdp, t=t)
 
-            rewards.append(mdp.rewards["fisherman:0"][mdp.t])
+            # ``Agent.action`` returns the residual of the regulator's
+            # mechanisms; the follower's own reward of 1.0 is added to it.
+            delta = regulator.action(mdp)
 
-            mdp = dataclasses.replace(mdp, t=mdp.t + 1)
+            rewards.append(1.0 + delta.rewards["fisherman:0"][delta.t])
 
         assert rewards == pytest.approx([1.0, 0.95, 0.9], abs=1e-3)

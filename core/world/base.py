@@ -303,7 +303,8 @@ class World:
         for ctx in self._contexts.values():
             if type(ctx.payload) is schema:
                 raise ValueError(
-                    f"Singleton Context Schema {schema.__name__} already exists in world."
+                    f"Singleton Context Schema {schema.__name__} already exists "
+                    + "in world."
                 )
 
     # Mutators

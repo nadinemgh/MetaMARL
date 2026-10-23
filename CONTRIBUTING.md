@@ -6,7 +6,7 @@ MetaMARL welcomes contributions to reusable agent and mechanism abstractions, op
 
 1. Fork or clone the [repository](https://github.com/nadinemgh/MetaMARL).
 2. Install Python 3.12 and [uv](https://docs.astral.sh/uv/).
-3. From the repository root, run `uv sync`.
+3. From the repository root, run `uv sync --group dev`. The `dev` group installs pytest, its coverage plugin and ruff, which the checks below need, and it is what the continuous integration installs.
 4. Read [README.md](README.md), [QUICKSTART.md](QUICKSTART.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing core abstractions.
 
 ## Proposing changes
@@ -17,13 +17,15 @@ Create a focused branch, make your changes, and open a pull request against `mas
 
 ## Checks before a pull request
 
-Run these commands from the repository root:
+Run these commands from the repository root, after `uv sync --group dev`:
 
 ```bash
 uv run python -m pytest
 uv run ruff check --no-fix .
 uv run ruff format --check .
 ```
+
+The `lint` job of `.github/workflows/ci.yml` runs the last two commands, and the `unit` job runs pytest with `-m "not integration and not notebook"`. The `integration` job runs `uv run python -m pytest -m integration --no-cov` and the `notebook` job runs the tutorial notebooks. Always pass `--no-fix` to `ruff check`, because `ruff.toml` sets `fix = true` and a plain `ruff check` rewrites files.
 
 Run a relevant example or a small smoke experiment when changing the agent–environment interface, mechanism composition, optimizer, or reporting. See [QUICKSTART.md](QUICKSTART.md) for a starting point. Avoid committing generated run outputs, credentials, `.venv/`, or local experiment logs.
 

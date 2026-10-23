@@ -34,7 +34,7 @@ class AnalyticRegulatorEnv:
 
     def step(self, actions):
         candidates = np.array(
-            [[a[mid][0] for mid in MECHANISM_IDS] for a in actions], dtype=np.float32
+            [[a[mid] for mid in MECHANISM_IDS] for a in actions], dtype=np.float32
         )
         fitness = -np.sum((candidates - OPTIMUM) ** 2, axis=1)
 

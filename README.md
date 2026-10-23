@@ -45,12 +45,12 @@ The broader aim is to support a collaborative research ecosystem of algorithms a
 The project uses [uv](https://docs.astral.sh/uv/) and Python 3.12, which `pyproject.toml` requires (`>=3.12,<3.13`). From the repository root:
 
 ```bash
-uv sync
+uv sync --group dev
 ```
 
-This installs the runtime dependencies (Ray 2.53 with RLlib, PyTorch, Weights & Biases and the scientific stack) together with the `dev` group, which holds pytest, ruff, nbconvert, the Jupyter kernel and TensorBoard. An installation without the `dev` group gets the TensorBoard reporter through the optional `tensorboard` extra.
+This installs the runtime dependencies (Ray 2.53 with RLlib, PyTorch, Weights & Biases and the scientific stack) together with the `dev` group, which holds pytest and its coverage plugin, ruff, nbconvert, the Jupyter kernel and TensorBoard. The `dev` group is what the tests and the lint need, and it is what the continuous integration installs. An installation without the `dev` group gets the TensorBoard reporter through the optional `tensorboard` extra.
 
-The fresh-water example runs on a built-in lake model by default. Its `--hydrology raven` option drives the external Raven hydrological model instead; Raven is not a Python dependency, and its executable and model directory are given on the command line (see the docstring of `examples/fresh_water/debug.py`).
+The fresh-water example runs on a built-in lake model by default. Its `--hydrology raven` option drives the external Raven hydrological model instead. Raven is not a Python dependency and is not part of the repository: its model directory and executable are given with `--raven-cwd` and `--raven-cmd` (see the docstring of `examples/fresh_water/debug.py`). We have not run this path in the current release, because it needs a Raven installation.
 
 ## Running an experiment
 
@@ -80,7 +80,9 @@ WANDB_MODE=offline uv run python -m examples.fresh_water.debug \
     --outer-iters 2 --train-iters 2 --horizon 30 --num-agents 20 --reporter csv
 ```
 
-These smoke configurations are intended for quick validation on a development machine. Without options, the scripts run substantially larger experiments: the fishery, for instance, runs 1000 generations of 50 APPO iterations with ten fishers.
+These smoke configurations are intended for quick validation on a development machine. Without options, the scripts run substantially larger experiments: the fishery, for instance, runs 1000 generations of 50 APPO iterations with ten fishers. `--help` lists the options of each script with its defaults. The fishery script accepts `--outer-iters`, `--train-iters`, `--num-agents`, `--horizon` and `--reporter`; `examples/bilevel_fishery/run.py` builds the same experiment with the same options, and `config.yaml` describes it declaratively. The cart-pole script accepts `--algo` (`ppo` or `appo`, default `appo`), `--outer-iters`, `--train-iters`, `--horizon` and `--reporter`. The fresh-water script accepts the same sizes plus `--num-agents`, `--population`, `--hydrology`, `--raven-cwd`, `--raven-cmd` and `--raven-work-dir`.
+
+The directory `examples/fresh_water/` also holds `debug_raven.py`, a configuration of the same experiment that drives Raven through `--raven-cwd` and `--raven-cmd` (or the environment variables `METAMARL_RAVEN_CWD` and `METAMARL_RAVEN_CMD`). This script does not run yet: it still uses the earlier `BilevelConfig` builders, which `.regulator` and `.society` replaced, and its Raven environment has to be ported to the `@reset` and `@transition` hooks. It is kept as the starting point for that port, and importing it has no side effects.
 
 ### Reporting and visualization
 
@@ -98,7 +100,7 @@ The reporting abstractions are designed to allow additional backends without mod
 
 Metrics can be collected at different levels of the experiment, including individual agents and policies, environment dynamics, and outer-loop mechanism evaluation. Depending on the benchmark, these can include agent rewards, collective welfare, resource sustainability, mechanism parameters, and optimization fitness.
 
-With `--reporter csv`, experiment metrics are written under `results/bilevel/<world>-<optimizer>/`. With the default `--reporter wandb`, metrics are sent to Weights & Biases.
+With `--reporter csv`, experiment metrics are written under `results/bilevel/<world>-<optimizer>/`. With the default `--reporter wandb`, metrics are sent to Weights & Biases. With `--reporter tensorboard`, the fishery scripts write TensorBoard event files under `runs/bilevel/<world>-<optimizer>/`, and `tensorboard --logdir runs` displays them; the cart-pole and fresh-water scripts offer the first two reporters only. A run started from `examples/bilevel_fishery/config.yaml` logs to TensorBoard when its `reporter` entry is replaced by `core.reporting.tensor_board.TensorBoardConfig` with `project: bilevel`. TensorBoard scalars need an integer x axis, so the two scatter plots of the regulator (`Candidate fitness vs quota` and `Restoration subsidy vs quota`) are not drawn there; the run logs an error for each and continues.
 
 The `tutorials/` directory also provides notebooks for exploring framework abstractions and visualizing experiments.
 
@@ -120,11 +122,13 @@ The `tutorials/` directory also provides notebooks for exploring framework abstr
 | `examples/` | Fishery and CartPole benchmarks, alongside the developing fresh-water alignment benchmark |
 | `tests/` | Unit, integration, and benchmark tests covering framework components and examples |
 | `tutorials/` | Notebooks on framework abstractions, environment construction, mechanisms, and visualization |
-| `docs/` | Architecture documentation and maintainer notes |
+| `docs/` | Architecture documentation |
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how these pieces work together during a run, and [AGENTS.md](AGENTS.md) is the guide for anyone, human or coding agent, about to change the code. [docs/MERGE_NOTES.md](docs/MERGE_NOTES.md) records what the latest cleanup pass changed and what it left open, and [TODO.md](TODO.md) holds the maintainer's plan and the archived in-code notes.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how these pieces work together during a run, and [AGENTS.md](AGENTS.md) is the guide for anyone, human or coding agent, about to change the code. [TODO.md](TODO.md) holds the maintainer's plan and the archived in-code notes.
 
 ## Tests and lint
+
+These commands need the `dev` group of the installation above.
 
 ```bash
 uv run python -m pytest                                         # whole suite
@@ -133,13 +137,13 @@ uv run ruff check --no-fix .
 uv run ruff format --check .
 ```
 
-The suite runs the doctests of `core/` and `examples/` as well, and measures the coverage of `core/`.
+The suite runs the doctests of `core/` and `examples/` as well, and measures the coverage of `core/`. Run the commands to see the current state of the suite and of the lint: this page does not quote counts, which would go stale.
 
 Tests marked `integration` start the example scripts and the `metamarl` command in child processes, each with its own Ray runtime. Use the `-m pytest` form, which binds pytest to the project's environment.
 
 Always pass `--no-fix` to `ruff check`: `ruff.toml` sets `fix = true`, so a plain `ruff check` rewrites files.
 
-Continuous integration (`.github/workflows/ci.yml`) runs the lint, the unit tests and the integration tests as three jobs.
+Continuous integration (`.github/workflows/ci.yml`) runs four jobs, `lint`, `unit`, `integration` and `notebook`, each after `uv sync --group dev`. A second workflow, `.github/workflows/draft-pdf.yml`, builds the draft of the JOSS paper in `paper/`.
 
 ## License
 

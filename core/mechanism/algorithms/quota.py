@@ -6,12 +6,25 @@ of the effort that the quota allows,
 
     allowed = (s((b - q) / w) - s(-q / w)) / (s((1 - q) / w) - s(-q / w)),
 
-where ``s`` is the logistic function and ``w`` the quota transition width. A
-targeted agent that requests the fraction ``f = s(z / 4)`` of its effort, with
-``z`` its raw policy output, is delivered ``f`` minus a smooth excess over
-``allowed``, and the mechanism returns the residual on ``z`` that moves the
-request to that delivered fraction. The regulator acts before the agents, so the
-request it reads has not been decoded yet, which is why it works on ``z``.
+where ``s`` is the logistic function and ``w`` the quota transition width. The
+request of a targeted agent is read as an effort fraction ``f`` in ``[0, 1]``:
+the Ray adapter decodes the raw policy output before the regulator acts, so the
+mechanism works directly in fraction space. For every targeted agent it returns
+three residuals. The action residual is ``-excess``, where the excess is a
+smooth hinge of ``f - allowed`` of width ``usage_transition_width``, so the
+delivered fraction is ``f`` minus the excess. The reward residual is a fine,
+``-min(1, FINE_AMOUNT * violation + risk)``, where the violation is a second
+smooth hinge of ``f - allowed`` of width ``violation_transition_width`` and the
+risk term is currently switched off (its scale is zero). The observation
+residual moves the allowed fraction into slot 1 and the quota into slot 3 of the
+agent's observation, so that the followers can see what the regulator allows.
+At reset, :meth:`QuotaMechanism.on_reset` writes the same two slots together
+with the fixed parameters of the fine into the slots 4 to 7.
+
+The action cut is a transitional device: the code marks it with a TODO, and the
+intention is to remove it and let the reward penalty alone discourage requests
+above the allowance. Until then the delivered action and the reward both depend
+on the excess.
 
 The cap is a modelling choice of the fishery benchmark, a logistic smoothing
 that keeps the delivered action differentiable in the quota and the stock. It is
@@ -33,6 +46,9 @@ RISK_PENALTY_POWER = 1.0
 FINE_AMOUNT = 0.2
 MAX_DEMAND_FRAC = 1.0
 EPS = 1e-8
+# Size of the temporary legacy observation layout that on_reset writes, used
+# when a targeted agent holds no observation yet.
+LEGACY_OBS_SIZE = 9
 
 
 # TODO what if two mechanisms interfere by requiring context from each other ?
@@ -45,13 +61,14 @@ class QuotaMechanism(Mechanism):
     The quota is the regulator's action, read in ``[0, 1]``. It is compared with
     the normalised resource level to give the fraction of effort allowed (see the
     module docstring for the formula), and every targeted agent whose request
-    exceeds it is cut back. The request is the raw policy output ``z`` of the
-    agent, mapped to an effort ``f = sigmoid(z / 4)`` in ``(0, 1)``; the delivered
-    effort is ``f`` minus the smooth excess over the allowance, floored at
-    ``1e-6`` and capped at ``1 - 1e-6`` before it is mapped back to ``z``. When the
-    stock is empty the allowance is ``0``, and when it is full the allowance
-    is ``1``. The mechanism returns a residual on the first component of the
-    request, so the request is not modified in place.
+    exceeds it is cut back. The request is the effort fraction ``f`` in
+    ``[0, 1]`` that the adapter has already decoded from the policy output; the
+    delivered effort is ``f`` minus the smooth excess over the allowance. When
+    the stock is empty the allowance is ``0``, and when it is full the allowance
+    is ``1``. The mechanism returns residuals, so nothing is modified in place:
+    a cut on the request, a fine on the reward, and a correction of slots 1 and
+    3 of the observation of each targeted agent. The agent must hold an
+    observation, which the mechanism reads to build the correction.
 
     Parameters
     ----------
@@ -60,8 +77,11 @@ class QuotaMechanism(Mechanism):
         normalised resource units (fraction of the carrying capacity). Default
         ``0.03``.
     usage_transition_width : float
-        Width of the smooth excess over the allowance, positive, in fraction of
-        the effort. Default ``0.005``.
+        Width of the smooth excess over the allowance that is cut from the
+        request, positive, in fraction of the effort. Default ``0.005``.
+    violation_transition_width : float
+        Width of the smooth violation that the fine is proportional to,
+        positive, in fraction of the effort. Default ``0.03``.
     **kwargs
         Forwarded to :class:`core.mechanism.base.Mechanism`: ``action_space``
         (a ``Box`` of shape ``(1,)`` in ``[0, 1]``), ``acts_on`` and ``obs_map``
@@ -76,7 +96,7 @@ class QuotaMechanism(Mechanism):
     Notes
     -----
     When to use: the regulator should limit what the agents can take according
-    to the state of the resource, in contrast with :class:`SubsidyMechanism`,
+    to the state of the resource, in contrast with :class:`IncentiveMechanism`,
     which prices the action, or :class:`ThresholdPenaltyMechanism`, which
     sanctions every agent alike. The constructor of the mechanism does not check
     ``acts_on`` and ``obs_map``; ``apply`` raises a ``ValueError`` when they are
@@ -84,12 +104,19 @@ class QuotaMechanism(Mechanism):
 
     Two quotas held by the same regulator and aimed at the same target compose
     additively, like every residual of :meth:`core.agents.base.Agent.action`.
-    Each quota reads the same raw request and returns the full correction to
-    its own allowance, so the two corrections are summed and the delivered
-    effort falls below what the stricter quota alone would deliver. To cap a
-    target by the stricter of two rules, compute that rule in one mechanism.
-    Each quota publishes its allowance under its own state entry,
-    ``allowed_frac:<id>``.
+    Each quota reads the same request and returns the full cut and the full fine
+    for its own allowance, so the cuts are summed, the fines are summed, and the
+    delivered effort falls below what the stricter quota alone would deliver.
+    The observation residuals are summed as well: each is the difference
+    between its own allowance and the same current observation, so with two
+    quotas slots 1 and 3 no longer show either of them. To cap a target by the
+    stricter of two rules, compute that rule in one mechanism. The mechanism
+    writes no state entry; the allowed fraction reaches the agents only through
+    their observation.
+
+    The residual action is a float in fraction space, and the action cut is
+    meant to be replaced by the reward penalty later (see the TODO in
+    :meth:`apply`).
 
     Examples
     --------
@@ -102,20 +129,23 @@ class QuotaMechanism(Mechanism):
     ...     acts_on=("fisherman", "harvest"),
     ...     obs_map={"resource_level": "fish"},
     ... ).build("regulator")
-    >>> z = np.array([4.0 * np.log(9.0)], dtype=np.float32)  # requests 0.9
     >>> mdp = MDPState(
     ...     params={"K": 1000.0},
     ...     state={"fish": 500.0},
     ...     actions={
-    ...         "regulator": {"quota": np.array([0.5], dtype=np.float32)},
-    ...         "fisherman:0": {"harvest": z},
+    ...         "regulator": {"quota": 0.5},
+    ...         "fisherman:0": {"harvest": 0.9},  # decoded request
     ...     },
+    ...     obs={"fisherman:0": np.zeros(9, dtype=np.float32)},
     ... )
-    >>> delta = mechanism(mdp, np.array([0.5]))
+    >>> delta = mechanism(mdp, 0.5)
     >>> cut = delta.actions["fisherman:0"]["harvest"][0]
-    >>> delivered = 1.0 / (1.0 + np.exp(-(z + cut) / 4.0))
-    >>> round(float(delivered[0]), 3)  # half the stock: about half the effort
+    >>> round(0.9 + cut, 3)  # half the stock: about half the effort
     0.503
+    >>> round(delta.rewards["fisherman:0"][0], 3)  # the fine on the excess
+    -0.076
+    >>> delta.obs["fisherman:0"][0][[1, 3]]  # allowance and quota, as residual
+    array([0.5, 0.5], dtype=float32)
     """
 
     # Fixed algorithmic parameters.
@@ -172,6 +202,39 @@ class QuotaMechanism(Mechanism):
 
     @override(Mechanism)
     def on_reset(self, mdp: MDPState, action: ActType) -> MDPState:
+        """Write the quota and the fine parameters into the targeted observations.
+
+        The "legacy attributes" of the observation are the slots 1 (allowed
+        fraction), 3 (fixed quota), 4 (``MAX_DEMAND_FRAC``), 5 (``FINE_AMOUNT``),
+        6 (``RISK_PENALTY_SCALE``) and 7 (risk penalty power, set to ``0``). The
+        residual moves each of them from the value the agent's observation
+        already holds at ``mdp.t`` to its target, and leaves the other slots
+        alone. Observations are per-step flows, so a step the agent has not
+        written yet holds ``0`` and the residual is the target itself, whatever
+        the previous step held.
+
+        Parameters
+        ----------
+        mdp : MDPState
+            Shared state at initialization; the resource is read at ``mdp.t``.
+        action : float or None
+            Decoded quota in ``[0, 1]``, or ``None`` when the regulator has no
+            candidate yet.
+
+        Returns
+        -------
+        MDPState
+            Residual holding an observation of size 9 for every agent whose
+            identifier starts with the targeted type and a colon, or an empty
+            residual when ``action`` is ``None``.
+
+        Raises
+        ------
+        ValueError
+            If ``acts_on`` is missing, or if ``obs_map`` does not map
+            ``"resource_level"``, once a quota is given.
+        """
+
         if action is None:
             return MDPState()
 
@@ -213,13 +276,18 @@ class QuotaMechanism(Mechanism):
             if not str(aid).startswith(f"{self.acts_on[0]}:"):
                 continue
 
+            # Observations are per-step flows: the slot of the current step starts
+            # at zero, so the difference is taken against what this step already
+            # holds, not against the previous step.
             history = mdp.obs.data.get(aid, [])
             existing = (
-                np.asarray(history[-1], dtype=np.float32)
-                if history
+                np.asarray(history[mdp.t], dtype=np.float32)
+                if len(history) > mdp.t
                 else np.zeros_like(target)
             )
-            delta = np.zeros_like(target)
+            # The residual has the size of the entry it is added to, which the
+            # environment has opened at the size of the declared space.
+            delta = np.zeros_like(existing)
             delta[indices] = target[indices] - existing[indices]
             obs[aid] = delta
 
@@ -227,35 +295,40 @@ class QuotaMechanism(Mechanism):
 
     @override(Mechanism)
     def apply(self, mdp: MDPState, action: ActType) -> MDPState:
-        """Return the cut that brings each targeted request under the allowance.
+        """Return the cut, the fine and the observation of each targeted agent.
 
         Parameters
         ----------
         mdp : MDPState
-            Shared state; the resource is read at ``mdp.t`` and the raw actions
-            of the targeted agents are read at ``mdp.t``.
+            Shared state; the resource is read at ``mdp.t``, and so are the
+            decoded requests and the observations of the targeted agents.
         action : float
             Quota in ``[0, 1]`` returned by :meth:`decode`.
 
         Returns
         -------
         MDPState
-            Residual with, for each targeted agent that holds an action for
-            the targeted mechanism, a ``float32`` array of the shape of its
-            request, zero except for the first component, which moves the
-            request to the delivered effort. It also carries the allowed fraction
-            under the state entry ``allowed_frac:<id>``, named after this
-            mechanism so that two quotas keep one entry each: the residual is
-            the difference between the allowed fraction and the value that
-            entry already holds at ``mdp.t`` (``0`` when absent), so that adding
-            it to the state leaves the allowed fraction of the step in the
-            entry.
+            Residual with, for each targeted agent that holds an action for the
+            targeted mechanism, three entries. In ``actions``, the float
+            ``-excess``, the cut in effort fraction that moves the request to
+            the delivered effort. In ``rewards``, the float
+            ``-min(1, FINE_AMOUNT * violation + risk)``, which is ``0`` when
+            the request is at or below the allowance. In ``obs``, a ``float32``
+            array of the size of the current observation, zero except for slot
+            1, which moves to the allowed fraction, and slot 3, which moves to
+            the quota. No state entry is written.
 
         Raises
         ------
         ValueError
             If ``acts_on`` is missing, or if ``obs_map`` does not map
             ``"resource_level"``.
+
+        Notes
+        -----
+        A targeted agent that holds no observation at ``mdp.t`` yet is treated
+        as observing zeros, as in :meth:`on_reset`, so its observation residual
+        moves slots 1 and 3 from zero to the allowed fraction and the quota.
         """
 
         if self.acts_on is None:
@@ -304,7 +377,14 @@ class QuotaMechanism(Mechanism):
             dr[aid] = -min(1.0, quota_penalty + risk_penalty)
 
             # Observation residual - Assuming obs the same for all target agents
-            current_obs = np.asarray(mdp.obs[aid][mdp.t], dtype=np.float32)
+            # An agent with no observation at this step yet starts from zeros,
+            # the same rule as in on_reset, instead of failing on a missing key.
+            history = mdp.obs.data.get(aid, [])
+            current_obs = (
+                np.asarray(history[mdp.t], dtype=np.float32)
+                if len(history) > mdp.t
+                else np.zeros(LEGACY_OBS_SIZE, dtype=np.float32)
+            )
             o = np.zeros_like(current_obs)
             o[1] = allowed_frac - current_obs[1]
             o[3] = action - current_obs[3]
@@ -323,8 +403,11 @@ class Quota(MechanismConfig):
         Width of the logistic transition of the quota, in fraction of the
         carrying capacity. Default ``0.03``.
     usage_transition_width : float
-        Width of the smooth excess over the allowance, in fraction of the
-        effort. Default ``0.005``.
+        Width of the smooth excess over the allowance that is cut from the
+        request, in fraction of the effort. Default ``0.005``.
+    violation_transition_width : float
+        Width of the smooth violation that the fine is proportional to, in
+        fraction of the effort. Default ``0.03``.
 
     Notes
     -----

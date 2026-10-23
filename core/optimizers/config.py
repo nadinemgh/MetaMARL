@@ -59,8 +59,7 @@ class OptimizerConfig(_Config, ABC):
     - *Freeze*: ``freeze()`` flips ``_is_frozen``; afterwards any attribute
       assignment raises ``AttributeError`` (enforced in ``__setattr__``).
       Freezing is shallow: nested objects such as ``env_config`` stay
-      mutable. ``RayOptimizerConfig`` overrides ``freeze`` with a deferred
-      RLlib mutator, so its copies are not frozen by ``copy(copy_frozen=True)``.
+      mutable.
     - *Copy*: ``copy(copy_frozen=...)`` deep-copies the config and sets the
       frozen flag of the copy. ``build_optimizer`` builds from
       ``self.copy(copy_frozen=True)``, so the original stays editable.
@@ -81,6 +80,10 @@ class OptimizerConfig(_Config, ABC):
         Episode length in steps. ``None`` until a subclass or the caller sets
         it; ``environment(horizon=...)`` stores the value in
         ``env_config["horizon"]`` and does not change this attribute.
+    disable_env_checking : bool or None
+        Whether RLlib skips its environment check; ``None`` keeps RLlib's
+        default. Set by ``environment`` and replayed on the RLlib config by
+        ``RayOptimizerConfig.build_optimizer``.
     agents_cfgs : dict[AgentID, AgentConfig] or None
         Agent configurations keyed by agent id, set by ``agents``.
     episodes : int or None
@@ -141,6 +144,7 @@ class OptimizerConfig(_Config, ABC):
         self.env: Optional[Union[str, EnvType]] = None
         self.env_config: dict = {}
         self.horizon: Optional[int] = None
+        self.disable_env_checking: Optional[bool] = None
         self.agents_cfgs: Optional[dict[AgentID, AgentConfig]] = None
 
         # training
@@ -164,7 +168,7 @@ class OptimizerConfig(_Config, ABC):
 
     @property
     def reporter_cfg(self) -> Optional[ReporterConfig]:
-        """Reporter configuration used by ``_build_reporter``.
+        """Reporter configuration from which ``build_optimizer`` builds the reporter.
 
         ``None`` disables reporting.
         """
@@ -191,7 +195,7 @@ class OptimizerConfig(_Config, ABC):
             if name not in ["_is_frozen"]:
                 raise AttributeError(
                     f"Cannot set attribute ({name}) of an already frozen "
-                    "OptimizerConfig!"
+                    + "OptimizerConfig!"
                 )
 
         super().__setattr__(name, value)
@@ -324,7 +328,8 @@ class OptimizerConfig(_Config, ABC):
         return self.env(**env_ctx)
 
     # TODO deep copy allows on may be toggled later with use_copy
-    # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] = None,
+    # TODO build_optimizer() to accept logger_creator: Optional[Callable[[], Logger]] =
+    #   None,
     # TODO move optimizer registration to executor in future
     # TODO enable multiple world registration
     def build_optimizer(
@@ -373,11 +378,14 @@ class OptimizerConfig(_Config, ABC):
         if cfg.opt_class is None:
             raise ValueError("OptimizerConfig has no opt_class")
 
-        # Build reporter
-        reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
-        reporting.schema = self._reporting_schema
+        # Build reporter; reporting is optional
+        reporting = None
 
-        reporting.add_query(*(self._reporting_queries or ()))
+        if self._reporter_cfg is not None:
+            reporting = self._reporter_cfg.build(label=self.opt_class.__name__)
+            reporting.schema = self._reporting_schema
+
+            reporting.add_query(*(self._reporting_queries or ()))
 
         opt: Optimizer = cfg.opt_class(world=world, reporting=reporting, config=cfg)
 

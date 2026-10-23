@@ -28,14 +28,13 @@ against it (see ``core.callbacks``). Without a ``schema`` there is no logger and
 
 import logging
 from abc import ABC
-from typing import ClassVar, Optional
+from typing import Any, ClassVar, Optional
 
-import gymnasium as gym
 import numpy as np
 import ray
+from gymnasium import spaces
 
 from core.agents.base import AgentConfig
-from core.annotations import override
 from core.mechanism.base import ActType, MDPState, StateType
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
@@ -46,10 +45,6 @@ from core.types import AgentID, MechanismID, OptimizerID
 from core.world.base import World
 from core.world.context import MechanismContext, MechanismStatus
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -58,7 +53,47 @@ logger = logging.getLogger(__name__)
 # TODO wrapper for MultiAgentEnv adaptor to work with ray
 
 
-# TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+# TODO future enhancement. decouple gym inheritance to support MPC, trajectory
+#   optimization etc.
+
+
+def _open_observations(followers: dict[AgentID, Any], mdp: MDPState) -> MDPState:
+    """Give every follower a zero observation at the current step.
+
+    Each follower that declares a ``Box`` observation space and holds no
+    observation at ``mdp.t`` yet receives zeros of that shape. A follower
+    that already holds one is left alone, so nothing written earlier is
+    overwritten, and a follower without a ``Box`` space is skipped.
+
+    The mechanisms' ``on_reset`` hooks run before the followers observe, and
+    a hook cannot know the size of an observation that does not exist yet.
+    Without this entry, the first writer would fix that size by itself, for
+    instance with a fallback of its own, and the observation would silently
+    miss the entries the declared space promises. Observations are flows,
+    so the zeros are neutral: every later writer adds its contribution.
+
+    Parameters
+    ----------
+    followers : dict[AgentID, Agent]
+        The followers of the environment, keyed by agent identifier.
+    mdp : MDPState
+        State at the step being opened. It is not modified.
+
+    Returns
+    -------
+    MDPState
+        A new state in which every follower holds an observation at
+        ``mdp.t`` of the declared shape.
+    """
+
+    opened = {
+        aid: np.zeros(agent.observation_space.shape, dtype=np.float32)
+        for aid, agent in followers.items()
+        if isinstance(getattr(agent, "observation_space", None), spaces.Box)
+        and len(mdp.obs.data.get(aid, ())) <= mdp.t
+    }
+
+    return mdp.add(MDPState(obs=opened)) if opened else mdp
 
 
 class MultiAgentEnv(ABC):
@@ -267,6 +302,7 @@ class MultiAgentEnv(ABC):
 
         # Bilevel Multi-agent environment
         self.followers = {aid: cfg.build() for aid, cfg in agents_cfg_dict.items()}
+        leaders_cfg_dict = leaders_cfg_dict or {}
         self.leaders = {aid: cfg.build() for aid, cfg in leaders_cfg_dict.items()}
         self.lids = set(leaders_cfg_dict.keys())
         self.agents = {**self.leaders, **self.followers}
@@ -279,15 +315,18 @@ class MultiAgentEnv(ABC):
         # reporter
         reporting_env_id = (
             f"{env_name}"
-            f"|mode={mode}"
-            f"{f'|m={self.mechanism_id}' if self.mechanism_id is not None else ''}"
-            f"|ps={policy_seed}"
-            f"|ss={self.seed}"
+            + f"|mode={mode}"
+            + f"{f'|m={self.mechanism_id}' if self.mechanism_id is not None else ''}"
+            + f"|ps={policy_seed}"
+            + f"|ss={self.seed}"
         )
-        self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
-        self.reporter.schema = schema
+        self.reporter: Optional[Reporter] = None
 
-        self.reporter.add_query(*(queries or ()))
+        if reporter_cfg is not None:
+            self.reporter = reporter_cfg.build(label=reporting_env_id)
+            self.reporter.schema = schema
+
+            self.reporter.add_query(*(queries or ()))
 
     def __init_subclass__(cls, **kwargs):
         """Record the names of the methods marked with a hook decorator.
@@ -308,12 +347,21 @@ class MultiAgentEnv(ABC):
 
         super().__init_subclass__(**kwargs)
 
-        for name, func in tuple(cls.__dict__.items()):
-            if getattr(func, "reset", False):
-                cls._reset = name
+        marked: dict[str, str] = {}
 
-            if getattr(func, "transition", False):
-                cls._transition = name  # S_{t+1} = T(S_t, A_t)
+        for name, func in tuple(cls.__dict__.items()):
+            for hook in ("reset", "transition"):
+                if not getattr(func, hook, False):
+                    continue
+
+                if hook in marked:
+                    raise TypeError(
+                        f"{cls.__name__} marks both {marked[hook]!r} and {name!r} "
+                        + f"as the {hook!r} hook; a class can have only one."
+                    )
+
+                marked[hook] = name
+                setattr(cls, f"_{hook}", name)
 
             if getattr(func, "state_space", False):
                 cls._state_space = name
@@ -355,7 +403,6 @@ class MultiAgentEnv(ABC):
 
         self._opt_id = opt_id
 
-    @override(gym.Env)
     def reset(self, mdp: MDPState) -> MDPState:
         """Start an episode: log its identity, fetch the candidate, observe.
 
@@ -376,10 +423,16 @@ class MultiAgentEnv(ABC):
         mechanisms that has one (logged at INFO); a mechanism without a default
         holds no action. A default never counts as a published candidate:
         ``mechanism`` stays ``None`` and ``published_mechanism_assigned``
-        ``False``. The ``reset`` hook, when the subclass
+        ``False``. Every follower that declares a ``Box`` observation space is
+        then given an observation of zeros of that shape, so that whatever
+        writes first into the initial observation finds an entry of the
+        declared size. The ``reset`` hook, when the subclass
         declares one, is called with the state and its result is added. The
-        initial observation is built last, from the followers' ``observation``
-        and the leaders' ``mechanism_observations``.
+        leaders' actions are decoded here, once, before they are stored. Every
+        agent then runs ``Agent.action(mdp, reset=True)``, which calls the
+        ``on_reset`` method of each of its mechanisms and lets a mechanism
+        contribute to the initial state. The initial observation is built
+        last, from the followers' ``observation``.
 
         Parameters
         ----------
@@ -413,37 +466,38 @@ class MultiAgentEnv(ABC):
             self.logger.push(key=("policy_seed",), value=self.policy_seed)
 
         # Get regulator Agent
-        # Try to fetch a new mechanism if one is available (published)
-        # Otherwise keep the current mechanism for subsequent episodes
         if self.mechanism_id is None:
             raise RuntimeError(
                 "RegulatedEnv has no mechanism_id. "
-                "mechanism_id must be injected at env creation."
+                + "mechanism_id must be injected at env creation."
             )
 
-        if not self.published_mechanism_assigned:
-            try:
-                new_ctx: MechanismContext = ray.get(
-                    self.world.get_mechanism_by_id.remote(
-                        mechanism_id=self.mechanism_id,
-                        seed=self.policy_seed,
-                        mode=self.mode,
-                    )
+        # The World hands a training candidate out only on its first fetch and
+        # returns None afterwards. Fetch at every reset, so that a newly
+        # published candidate replaces the kept one (an environment outlives a
+        # publication when the inner policy persists across regulator
+        # episodes), and keep the current one otherwise.
+        try:
+            new_ctx: MechanismContext = ray.get(
+                self.world.get_mechanism_by_id.remote(
+                    mechanism_id=self.mechanism_id,
+                    seed=self.policy_seed,
+                    mode=self.mode,
                 )
-            except Exception as e:
-                self._debug_remote(
-                    "pre_reset_fetch_failed",
-                    {"error_type": type(e).__name__, "error_repr": repr(e)},
-                )
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not fetch mechanism_id={self.mechanism_id} from World."
+            ) from e
 
-                raise RuntimeError(
-                    f"Could not fetch mechanism_id={self.mechanism_id} from World."
-                ) from e
+        if new_ctx is not None:
+            self.m_ctx = new_ctx
+            self.m = new_ctx.mechanism
+            self._using_default_mechanism = False
 
-            if new_ctx is not None:
-                self.m_ctx = new_ctx
-                self.m = new_ctx.mechanism
-                self._using_default_mechanism = False
+        # Open the followers' observations first, so that the reset hook and the
+        # mechanisms' on_reset find an entry of the declared size to add to.
+        mdp = _open_observations(self.followers, mdp)
 
         # Optional benchmark Reset hook to initialize state and add to observation
         if self._reset is not None:
@@ -464,7 +518,8 @@ class MultiAgentEnv(ABC):
         if decoded:
             mdp = mdp.add(MDPState(actions=decoded))
 
-        # TODO raising error if training started and default mechanism is still on - leads to silent error
+        # TODO raising error if training started and default mechanism is still on -
+        #   leads to silent error
 
         mdp: MDPState = mdp.add(
             [agent.action(mdp, reset=True) for agent in self.agents.values()]
@@ -542,10 +597,15 @@ class MultiAgentEnv(ABC):
            ``reward_mean``, ``reward_min``, ``reward_max`` and
            ``reward_terminal``). Leaders do not count in that mean, and rewards
            are per-step values, never running sums;
-        4. rebuilds the observations on the new step from the followers'
-           ``observation`` and the leaders' ``mechanism_observations``, so the
-           contribution of the leaders' mechanisms reaches the policies at the
-           next step.
+        4. gives every follower that declares a ``Box`` observation space and
+           holds no observation on the new step an observation of zeros of that
+           shape, so that the mechanisms write into an entry of the declared
+           size;
+        5. runs a second pass of ``Agent.action(mdp, reset=True)``, which calls
+           the ``on_reset`` method of every mechanism on the new step, and then
+           rebuilds the observations from the followers' ``observation``, so
+           the contribution of the leaders' mechanisms reaches the policies at
+           the next step.
 
         Nothing is published to the ``World`` by this method.
 
@@ -566,12 +626,30 @@ class MultiAgentEnv(ABC):
         mdp = mdp.add([agent.reward(mdp) for agent in self.agents.values()])
         mdp = self.transition(mdp)
 
-        mdp.update(rewards={aid: 0.0 for aid in mdp.rewards.data})
-
         mdp = self.termination(mdp)
 
-        self.logger.push(key=("iter",), value=mdp.t)
+        if self.logger is not None:
+            self.logger.push(key=("iter",), value=mdp.t)
 
+            # Mean over followers of the rewards RLlib receives for this step
+            # (the RLlib adapter reads the same ``rewards[aid][t - 1]``). Every
+            # reward field of the schema reduces this one per-step series.
+            step_reward = float(
+                np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
+            )
+
+            for key in (
+                "reward_total",
+                "reward_mean",
+                "reward_min",
+                "reward_max",
+                "reward_terminal",
+            ):
+                self.logger.push(key=(key,), value=step_reward)
+
+        # Same as at reset: the observation of the new step exists, at its
+        # declared size, before the first on_reset writes into it.
+        mdp = _open_observations(self.followers, mdp)
         mdp = mdp.add([agent.action(mdp, reset=True) for agent in self.agents.values()])
         mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])
         self._t += 1

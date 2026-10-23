@@ -1,16 +1,25 @@
 """The slots of one policy seed differ only by their mechanism, end to end.
 
 The outer ES compares the fitness of the four slots of a generation, which
-train their fishers against four candidate quotas under one policy seed. On
-2026-10-05 the shrunk fishery returned the same four slot-dependent values
-(spread about 0.008) for every candidate below the binding range, because the
-output layers and the exploration draws of each slot came from torch's global
-stream. With seeded heads and keyed exploration draws, four candidates that
-differ by a negligible spread must return four identical fitness values: the
-quota does not bind there, so nothing but the slot could tell them apart.
+train their fishers against four candidate mechanisms under one policy seed. On
+2026-10-05 the shrunk fishery returned four slot-dependent values (spread about
+0.008) for four candidates that could not be told apart, because the output
+layers and the exploration draws of each slot came from torch's global stream.
+With seeded heads and keyed exploration draws, four identical candidates must
+return four identical fitness values: nothing but the slot tells them apart.
+
+The ES spread is forced to 1e-9, which float32 rounds away around the initial
+mean of 0.5, so the four candidates of each generation are equal bit for bit.
+The test used a spread of 1e-4 while the fishery searched only the quota, which
+does not bind in that range. The debug script now also searches the restoration
+subsidy, whose effect on the reward is continuous, and its quota has a soft
+transition, so a spread of 1e-4 moves the fitness in its sixth decimal through
+the mechanism alone. Measured on 2026-10-13 with that spread, generation 0 gave
+2.3980112, 2.3980119, 2.3980114 and 2.3980107; with identical candidates the
+four values are equal.
 
 The run is the debug script in a child process (it starts its own Ray
-runtime), with the ES spread forced to 1e-4 by a small driver that patches
+runtime), with the ES spread forced by a small driver that patches
 ``ESConfig.training`` before calling the script's ``main``. The driver is code
 passed with ``-c``, so the restart that ``ensure_hash_seed`` may perform
 replays the patch.
@@ -18,6 +27,7 @@ replays the patch.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess
@@ -28,7 +38,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHILD_TIMEOUT_S = 180
-NEGLIGIBLE_SIGMA = 1e-4
+NEGLIGIBLE_SIGMA = 1e-9
 SCRIPT_ARGS = [
     "--outer-iters",
     "2",
@@ -57,7 +67,8 @@ ESConfig.training = training
 debug.main({SCRIPT_ARGS!r})
 """
 FITNESS_LINE = re.compile(
-    r"\[ES\] BEFORE UPDATE \| gen=(\d+) .*\| fitness=\[([^\]]*)\]"
+    r"\[ES\] BEFORE UPDATE \| gen=(\d+) .*"
+    + r"\| population=(\[\[.*\]\]) \| fitness=\[([^\]]*)\]"
 )
 
 
@@ -94,7 +105,7 @@ def negligible_spread_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
 
 
 @pytest.mark.integration
-def test_slots_of_one_seed_return_identical_fitness_without_a_binding_quota(
+def test_identical_candidates_of_one_seed_return_identical_fitness(
     negligible_spread_run,
 ):
     assert negligible_spread_run["returncode"] == 0, negligible_spread_run["output"][
@@ -103,10 +114,12 @@ def test_slots_of_one_seed_return_identical_fitness_without_a_binding_quota(
 
     generations = FITNESS_LINE.findall(negligible_spread_run["output"])
 
-    assert [int(gen) for gen, _ in generations] == [0, 1]
+    assert [int(gen) for gen, _, _ in generations] == [0, 1]
 
-    for gen, values in generations:
+    for gen, population, values in generations:
+        candidates = ast.literal_eval(population)
         fitness = [float(value) for value in values.split(",")]
 
         assert len(fitness) == 4
+        assert candidates == [candidates[0]] * 4, f"generation {gen}: {candidates}"
         assert fitness == [fitness[0]] * 4, f"generation {gen}: {fitness}"

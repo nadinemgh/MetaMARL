@@ -76,8 +76,8 @@ class Fee(Mechanism):
     def apply(self, mdp: MDPState, action: float) -> MDPState:
         return MDPState(rewards={aid: -action for aid in mdp.aids})
 
-    def observe(self, mdp: MDPState) -> MDPState:
-        fee = float(np.asarray(mdp.actions[self.aid][self.id][-1]).reshape(-1)[0])
+    def on_reset(self, mdp: MDPState, action: Any = None) -> MDPState:
+        fee = 0.0 if action is None else float(np.asarray(action).reshape(-1)[0])
 
         return MDPState(
             obs={aid: np.asarray([0.0, fee], dtype=np.float32) for aid in mdp.aids}
