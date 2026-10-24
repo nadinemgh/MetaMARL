@@ -30,12 +30,11 @@ import logging
 from abc import ABC
 from typing import ClassVar, Optional
 
-import gymnasium as gym
 import numpy as np
 import ray
+from gymnasium import spaces
 
 from core.agents.base import AgentConfig
-from core.annotations import override
 from core.mechanism.base import ActType, MDPState, StateType
 from core.metrics.logger import MetricLogger
 from core.metrics.schemas import MetricSchema
@@ -45,10 +44,6 @@ from core.reporting.query import Query
 from core.types import AgentID, MechanismID, OptimizerID
 from core.world.base import World
 from core.world.context import MechanismContext, MechanismStatus
-
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
 
 logger = logging.getLogger(__name__)
 
@@ -279,15 +274,18 @@ class MultiAgentEnv(ABC):
         # reporter
         reporting_env_id = (
             f"{env_name}"
-            f"|mode={mode}"
-            f"{f'|m={self.mechanism_id}' if self.mechanism_id is not None else ''}"
-            f"|ps={policy_seed}"
-            f"|ss={self.seed}"
+            + f"|mode={mode}"
+            + f"{f'|m={self.mechanism_id}' if self.mechanism_id is not None else ''}"
+            + f"|ps={policy_seed}"
+            + f"|ss={self.seed}"
         )
-        self.reporter: Reporter = reporter_cfg.build(label=reporting_env_id)
-        self.reporter.schema = schema
+        self.reporter: Optional[Reporter] = None
 
-        self.reporter.add_query(*(queries or ()))
+        if reporter_cfg is not None:
+            self.reporter = reporter_cfg.build(label=reporting_env_id)
+            self.reporter.schema = schema
+
+            self.reporter.add_query(*(queries or ()))
 
     def __init_subclass__(cls, **kwargs):
         """Record the names of the methods marked with a hook decorator.
@@ -308,12 +306,21 @@ class MultiAgentEnv(ABC):
 
         super().__init_subclass__(**kwargs)
 
-        for name, func in tuple(cls.__dict__.items()):
-            if getattr(func, "reset", False):
-                cls._reset = name
+        marked: dict[str, str] = {}
 
-            if getattr(func, "transition", False):
-                cls._transition = name  # S_{t+1} = T(S_t, A_t)
+        for name, func in tuple(cls.__dict__.items()):
+            for hook in ("reset", "transition"):
+                if not getattr(func, hook, False):
+                    continue
+
+                if hook in marked:
+                    raise TypeError(
+                        f"{cls.__name__} marks both {marked[hook]!r} and {name!r} "
+                        + f"as the {hook!r} hook; a class can have only one."
+                    )
+
+                marked[hook] = name
+                setattr(cls, f"_{hook}", name)
 
             if getattr(func, "state_space", False):
                 cls._state_space = name
@@ -355,7 +362,6 @@ class MultiAgentEnv(ABC):
 
         self._opt_id = opt_id
 
-    @override(gym.Env)
     def reset(self, mdp: MDPState) -> MDPState:
         """Start an episode: log its identity, fetch the candidate, observe.
 
@@ -376,10 +382,16 @@ class MultiAgentEnv(ABC):
         mechanisms that has one (logged at INFO); a mechanism without a default
         holds no action. A default never counts as a published candidate:
         ``mechanism`` stays ``None`` and ``published_mechanism_assigned``
-        ``False``. The ``reset`` hook, when the subclass
+        ``False``. Every follower that declares a ``Box`` observation space is
+        then given an observation of zeros of that shape, so that whatever
+        writes first into the initial observation finds an entry of the
+        declared size. The ``reset`` hook, when the subclass
         declares one, is called with the state and its result is added. The
-        initial observation is built last, from the followers' ``observation``
-        and the leaders' ``mechanism_observations``.
+        leaders' actions are decoded here, once, before they are stored. Every
+        agent then runs ``Agent.action(mdp, reset=True)``, which calls the
+        ``on_reset`` method of each of its mechanisms and lets a mechanism
+        contribute to the initial state. The initial observation is built
+        last, from the followers' ``observation``.
 
         Parameters
         ----------
@@ -413,12 +425,10 @@ class MultiAgentEnv(ABC):
             self.logger.push(key=("policy_seed",), value=self.policy_seed)
 
         # Get regulator Agent
-        # Try to fetch a new mechanism if one is available (published)
-        # Otherwise keep the current mechanism for subsequent episodes
         if self.mechanism_id is None:
             raise RuntimeError(
                 "RegulatedEnv has no mechanism_id. "
-                "mechanism_id must be injected at env creation."
+                + "mechanism_id must be injected at env creation."
             )
 
         if not self.published_mechanism_assigned:
@@ -431,11 +441,6 @@ class MultiAgentEnv(ABC):
                     )
                 )
             except Exception as e:
-                self._debug_remote(
-                    "pre_reset_fetch_failed",
-                    {"error_type": type(e).__name__, "error_repr": repr(e)},
-                )
-
                 raise RuntimeError(
                     f"Could not fetch mechanism_id={self.mechanism_id} from World."
                 ) from e
@@ -464,7 +469,8 @@ class MultiAgentEnv(ABC):
         if decoded:
             mdp = mdp.add(MDPState(actions=decoded))
 
-        # TODO raising error if training started and default mechanism is still on - leads to silent error
+        # TODO raising error if training started and default mechanism is still on -
+        #   leads to silent error
 
         mdp: MDPState = mdp.add(
             [agent.action(mdp, reset=True) for agent in self.agents.values()]
@@ -493,8 +499,10 @@ class MultiAgentEnv(ABC):
         """
 
         if self._transition is not None:
-            return getattr(self, self._transition)(mdp=mdp)
-
+            mdp = getattr(self, self._transition)(mdp=mdp)
+        mdp.update(obs={aid: np.zeros_like(o[-1]) for aid, o in mdp.obs.data.items() if o})
+        self._t += 1
+        self.logger.push(key=("iter",), value=mdp.t)
         return mdp
 
     def termination(self, mdp: MDPState) -> MDPState:
@@ -542,10 +550,15 @@ class MultiAgentEnv(ABC):
            ``reward_mean``, ``reward_min``, ``reward_max`` and
            ``reward_terminal``). Leaders do not count in that mean, and rewards
            are per-step values, never running sums;
-        4. rebuilds the observations on the new step from the followers'
-           ``observation`` and the leaders' ``mechanism_observations``, so the
-           contribution of the leaders' mechanisms reaches the policies at the
-           next step.
+        4. gives every follower that declares a ``Box`` observation space and
+           holds no observation on the new step an observation of zeros of that
+           shape, so that the mechanisms write into an entry of the declared
+           size;
+        5. runs a second pass of ``Agent.action(mdp, reset=True)``, which calls
+           the ``on_reset`` method of every mechanism on the new step, and then
+           rebuilds the observations from the followers' ``observation``, so
+           the contribution of the leaders' mechanisms reaches the policies at
+           the next step.
 
         Nothing is published to the ``World`` by this method.
 
@@ -570,8 +583,18 @@ class MultiAgentEnv(ABC):
 
         mdp = self.termination(mdp)
 
-        self.logger.push(key=("iter",), value=mdp.t)
+        if self.logger is not None:
+            self.logger.push(key=("iter",), value=mdp.t)
+            step_reward = float(np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers]))
 
+            for key in (
+                "reward_total",
+                "reward_mean",
+                "reward_min",
+                "reward_max",
+                "reward_terminal",
+            ):
+                self.logger.push(key=(key,), value=step_reward)
         mdp = mdp.add([agent.action(mdp, reset=True) for agent in self.agents.values()])
         mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])
         self._t += 1
