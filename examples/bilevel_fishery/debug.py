@@ -25,10 +25,10 @@ from core.agents.base import AgentConfig
 from core.callbacks import log_and_report_episode_metrics, tag_episode_with_env_idx
 from core.mechanism.algorithms.incentive import Incentive
 from core.mechanism.algorithms.quota import Quota
-from core.optimizers.appo.config import APPOptimizerConfig
 from core.optimizers.bilevel import BilevelConfig
 from core.optimizers.es.config import ESConfig
 from core.optimizers.es.schema import ESSchema
+from core.optimizers.ppo.config import PPOptimizerConfig
 from core.reporting.wandb import WandbConfig
 from examples.bilevel_fishery.metric_schema import FisheryMetricSchema
 from examples.bilevel_fishery.queries import (
@@ -147,7 +147,7 @@ bilevel_opt_cfg: BilevelConfig = (
         .reporting(schema=ESSchema, queries=ES_QUERIES)
     )
     .society(
-        APPOptimizerConfig()
+        PPOptimizerConfig()
         .resources(num_cpus_for_main_process=1)
         .framework(framework="torch")
         .api_stack(
@@ -191,15 +191,9 @@ bilevel_opt_cfg: BilevelConfig = (
         )
         .training(
             episodes=50,
-            vtrace=True,
-            circular_buffer_num_batches=4,
-            circular_buffer_iterations_per_batch=1,
-            broadcast_interval=1,
-            timeout_s_sampler_manager=10,
-            timeout_s_aggregator_manager=10,
             gamma=0.99,
             lr=0.001,
-            train_batch_size_per_learner=100,
+            train_batch_size_per_learner=400,
             minibatch_size=100,
             num_epochs=1,
             entropy_coeff=0.001,
