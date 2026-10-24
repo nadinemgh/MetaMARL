@@ -10,7 +10,7 @@ bookkeeping (inner iteration counter, per-iteration return and loss) for logs.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import ray

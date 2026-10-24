@@ -28,6 +28,7 @@ creator with ``ray.tune`` and returns a ``RayOptimizer``; the ``Algorithm``
 itself is only built later, inside the ``PolicyActor``.
 """
 
+from types import MethodType
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
@@ -44,6 +45,7 @@ from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.tune.registry import register_env
+from core.adaptors.ray.iid_get_actions import build_iid_module_to_env_connector
 
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.adaptors.ray.optimizer import RayOptimizer
@@ -365,7 +367,6 @@ class RayOptimizerConfig(OptimizerConfig):
     @rllib_config_mutator
     def _env_runners(cfg, **kwargs: Any) -> AlgorithmConfig:
         """Record a deferred ``AlgorithmConfig.env_runners`` call (raw pass-through)."""
-
         return cfg.env_runners(**kwargs)
 
     def _scale_env_count_by_seeds(self) -> None:
@@ -1022,6 +1023,12 @@ class RayOptimizerConfig(OptimizerConfig):
 
         if self.rllib_cfg is None:
             self.rllib_cfg = self.algo_class.get_default_config()
+
+            # (nadine) revert to subclassing
+            self.rllib_cfg.build_module_to_env_connector = MethodType(
+                build_iid_module_to_env_connector,
+                self.rllib_cfg,
+            )
 
             for op in self._cfg_ops.values():
                 self.rllib_cfg = op(self.rllib_cfg)
