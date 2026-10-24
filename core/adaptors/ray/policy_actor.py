@@ -9,6 +9,7 @@ touching the driver.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import logging
 
 import numpy as np
@@ -75,11 +76,11 @@ class PolicyActor:
         # Store config for reset capability
         self.algo_config = algo_config
 
-        # Build Algorithm INSIDE actor (critical)
-        self.algo: Algorithm = algo_config.build_algo()
-
         # Store initial weights
-        self._init_weights = self.algo.get_weights()
+        self._init_weights = None
+
+        # Build Algorithm INSIDE actor (critical)
+        self.reset()
 
     def train(self) -> ResultDict:
         """Run one ``Algorithm.train()`` iteration.
@@ -174,10 +175,21 @@ class PolicyActor:
             previous algorithm (for example ``TimeoutError``); the algorithm
             is stopped all the same and no new one is built.
         """
-
-        # TODO verify reset is using the same seed
-        # self.algo.set_weights(self._init_weights)
         self.algo = self.algo_config.build_algo()
+
+        # TODO (nadine) deprecate this. use PPO catalog subclass
+        weights_by_seed = {}
+
+        if self._init_weights is None:
+            weights = self.algo.get_weights()
+            for policy_id in weights:
+                seed = policy_id.rsplit("_s", 1)[1]
+                if seed not in weights_by_seed:
+                    weights_by_seed[seed] = deepcopy(weights[policy_id])
+                weights[policy_id] = deepcopy(weights_by_seed[seed])
+            self.algo.set_weights(weights)
+            self._init_weights = deepcopy(weights)
+            return
 
         # TODO tie the init_weights with seeding
         self.algo.set_weights(self._init_weights)
