@@ -27,8 +27,8 @@ are created with ``env_seed`` drawn from the evaluation seeds while
 creator with ``ray.tune`` and returns a ``RayOptimizer``; the ``Algorithm``
 itself is only built later, inside the ``PolicyActor``.
 """
-
 from types import MethodType
+import functools
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
@@ -216,6 +216,7 @@ class RayOptimizerConfig(OptimizerConfig):
             ``self``.
         """
 
+        @functools.wraps(fn)
         def wrapper(self: Self, *args: P.args, **kwargs: P.kwargs) -> Self:
             """Record the call and return ``self`` for chaining."""
 
@@ -416,7 +417,10 @@ class RayOptimizerConfig(OptimizerConfig):
 
         self.num_mechanisms = kwargs.get("num_envs_per_env_runner", 1)
 
-        return self._env_runners(**kwargs)
+        self._env_runners(**kwargs)
+        self._scale_env_count_by_seeds()
+
+        return self
 
     @rllib_config_mutator
     def learners(cfg: AlgorithmConfig, **kwargs: Any) -> AlgorithmConfig:

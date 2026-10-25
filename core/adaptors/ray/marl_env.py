@@ -29,14 +29,11 @@ from core.envs.marl_regulated import MultiAgentEnv
 from core.mechanism.base import MDPState
 from core.types import MultiAgentDict
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-
 logger = logging.getLogger(__name__)
 
 
-# TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+# TODO future enhancement. decouple gym inheritance to support MPC, trajectory
+#   optimization etc.
 
 
 class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):

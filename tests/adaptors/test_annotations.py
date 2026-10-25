@@ -50,6 +50,7 @@ def test_apply_agents_is_declared_to_return_a_list_of_agent_configs():
 @pytest.mark.unit
 def test_marl_adapter_annotates_the_wrapped_environment_and_the_mdp():
     annotations = RLlibMultiAgentEnvAdapter.__annotations__
+
     assert annotations["_mdp"] is MDPState
     assert annotations["_env"] is MultiAgentEnv
     assert "env" not in annotations

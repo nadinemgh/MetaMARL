@@ -12,7 +12,8 @@ functions turn a full result dict into the ``RolloutSchema``,
 """
 
 import hashlib
-from typing import Optional
+from collections.abc import Iterable
+from typing import Optional, get_args
 
 import numpy as np
 import torch
@@ -37,6 +38,16 @@ def _get_env(result: dict) -> dict:
     """Return the ``env_runners`` sub-dict of a result, or ``{}``."""
 
     return result.get("env_runners", {}) or {}
+
+
+def _first_present(*values: Optional[float]) -> Optional[float]:
+    """Return the first value that is not ``None``, keeping a ``0.0`` as is.
+
+    ``a or b`` would skip a legitimate ``0.0``; the result getters need to
+    tell a measured zero from a missing key.
+    """
+
+    return next((value for value in values if value is not None), None)
 
 
 def get_episode_return_mean(result: dict) -> float:
@@ -77,8 +88,9 @@ def get_episode_return_mean(result: dict) -> float:
     if v is not None:
         return v
 
-    v = to_float(result.get("episode_reward_mean")) or to_float(
-        env.get("episode_reward_mean")
+    v = _first_present(
+        to_float(result.get("episode_reward_mean")),
+        to_float(env.get("episode_reward_mean")),
     )
 
     return v if v is not None else 0.0
@@ -120,11 +132,13 @@ def get_env_steps(result: dict) -> tuple[int, int]:
     """
 
     env = _get_env(result)
-    steps_iter = to_float(env.get("num_env_steps_sampled")) or to_float(
-        result.get("timesteps_this_iter")
+    steps_iter = _first_present(
+        to_float(env.get("num_env_steps_sampled")),
+        to_float(result.get("timesteps_this_iter")),
     )
-    steps_life = to_float(env.get("num_env_steps_sampled_lifetime")) or to_float(
-        result.get("timesteps_total")
+    steps_life = _first_present(
+        to_float(env.get("num_env_steps_sampled_lifetime")),
+        to_float(result.get("timesteps_total")),
     )
 
     return int(steps_iter or 0), int(steps_life or 0)
@@ -172,13 +186,23 @@ def get_policy_loss_if_present(result: dict) -> float:
     nan
     """
 
+    learners = result.get("learners") or {}
+    losses = [
+        v
+        for module_id, stats in learners.items()
+        if module_id != "__all_modules__" and isinstance(stats, dict)
+        if (v := finite(stats.get("policy_loss"))) is not None
+    ]
+
+    if losses:
+        return float(np.mean(losses))
+
     learner_info = (result.get("info") or {}).get("learner") or {}
-    losses = []
 
     if isinstance(learner_info, dict):
         for _, policy_stats in learner_info.items():
             ls = (policy_stats or {}).get("learner_stats") or {}
-            v = to_float(ls.get("policy_loss"))
+            v = finite(ls.get("policy_loss"))
 
             if v is not None:
                 losses.append(v)
@@ -291,7 +315,8 @@ def parse_learner_id(learner_id: str) -> tuple[PolicyID, MechanismID, SeedID]:
         policy_id, mechanism_id = policy_and_mechanism.rsplit("_m", 1)
     except ValueError:
         raise ValueError(
-            f"Expected learner ID of the form '<policy>_m<mechanism>_s<seed>', got {learner_id!r}."
+            "Expected learner ID of the form '<policy>_m<mechanism>_s<seed>', "
+            + f"got {learner_id!r}."
         ) from None
 
     return (policy_id, mechanism_id, policy_seed)
@@ -391,9 +416,10 @@ def build_performance(results: ResultDict) -> PerformanceSchema:
     throughput = None
 
     if isinstance(throughput_data, dict):
-        throughput = finite(
-            throughput_data.get("throughput_since_last_reduce")
-        ) or finite(throughput_data.get("throughput_since_last_restore"))
+        throughput = _first_present(
+            finite(throughput_data.get("throughput_since_last_reduce")),
+            finite(throughput_data.get("throughput_since_last_restore")),
+        )
 
     # TODO refactor this to get data from env
     agent_steps = env.get("num_agent_steps_sampled")
@@ -484,19 +510,40 @@ def build_rollout(results: ResultDict) -> RolloutSchema:
 
     by_mechanism: dict[MechanismID, MechanismRolloutSchema] = {}
 
-    for episode_id, episode in episodes.items():
-        mechanism_id = str(episode.mechanism_id)
-        seed = str(episode.seed)
-        mechanism = by_mechanism.setdefault(mechanism_id, MechanismRolloutSchema())
-        seed_rollout = mechanism.by_seed.setdefault(seed, SeedRolloutSchema())
-        seed_rollout.by_episode[episode_id] = episode
+    for prefix, prefix_episodes in episodes.items():
+        if isinstance(prefix_episodes, EpisodeRolloutSchema):
+            prefix_episodes = [prefix_episodes]
+        elif not isinstance(prefix_episodes, list):
+            raise TypeError(
+                f"by_episode entry {prefix!r} is a {type(prefix_episodes).__name__}, "
+                + "expected a list of EpisodeRolloutSchema."
+            )
+
+        for index, episode in enumerate(prefix_episodes):
+            mechanism_id = str(episode.mechanism_id)
+            seed = str(episode.seed)
+            mechanism = by_mechanism.setdefault(mechanism_id, MechanismRolloutSchema())
+            seed_rollout = mechanism.by_seed.setdefault(seed, SeedRolloutSchema())
+            seed_rollout.by_episode[f"{prefix}|n={index}"] = episode
 
     return RolloutSchema(
         aggregate=build_episode_aggregate(results), by_mechanism=by_mechanism
     )
 
 
-def build_learner(results: ResultDict) -> LearnerSchema:
+def _missing_as_nan(metrics: PolicyLearnerSchema) -> PolicyLearnerSchema:
+    """Return a copy of ``metrics`` whose unset float statistics are NaN."""
+
+    missing = {
+        name: float("nan")
+        for name, field in type(metrics).model_fields.items()
+        if getattr(metrics, name) is None and float in get_args(field.annotation)
+    }
+
+    return metrics.model_copy(update=missing)
+
+
+def build_learner(results: ResultDict, module_ids: Iterable[str] = ()) -> LearnerSchema:
     """Build one ``PolicyLearnerSchema`` per module in ``results["learners"]``.
 
     Besides copying the finite scalar stats, it derives
@@ -579,11 +626,17 @@ def build_learner(results: ResultDict) -> LearnerSchema:
     )
 
     by_mechanism: dict[MechanismID, MechanismLearnerSchema] = {}
+    module_stats = {
+        learner_id: stats
+        for learner_id, stats in learners.items()
+        if learner_id != "__all_modules__"
+    }
+    expected = set(module_ids)
 
-    for learner_id, stats in learners.items():
-        if learner_id == "__all_modules__":
-            continue
+    for module_id in module_ids:
+        module_stats.setdefault(module_id, {})
 
+    for learner_id, stats in module_stats.items():
         policy_id, mechanism_id, policy_seed = parse_learner_id(learner_id)
 
         m: dict[str, Optional[float]] = {}
@@ -635,11 +688,15 @@ def build_learner(results: ResultDict) -> LearnerSchema:
             value_loss=m.get("vf_loss"),
             value_mean=m.get("value_mean"),
             value_target=m.get("value_target"),
-            gradient_norm=(
-                m.get("gradients_default_optimizer_global_norm") or m.get("grad_gnorm")
+            gradient_norm=_first_present(
+                m.get("gradients_default_optimizer_global_norm"), m.get("grad_gnorm")
             ),
             gradient_noise=m.get("gradient_noise"),
         )
+
+        if learner_id in expected:
+            policy_metrics = _missing_as_nan(policy_metrics)
+
         mechanism = by_mechanism.setdefault(mechanism_id, MechanismLearnerSchema())
         seed = mechanism.by_seed.setdefault(policy_seed, SeedLearnerSchema())
         seed.by_policy[policy_id] = policy_metrics
