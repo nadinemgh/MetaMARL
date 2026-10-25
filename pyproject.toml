@@ -66,10 +66,20 @@ requires = ["setuptools>=77.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-# Only the framework is installed. Most directories of core/ are namespace packages
-# (no __init__.py), so discovery without this filter also takes every other
-# top-level directory (docs, tutorials, wandb, ...) as a package name.
-include = ["core*"]
+# Install the framework and released benchmark modules only.
+# Namespace-package discovery is required because some directories
+# do not contain __init__.py.
+include = [
+    "core*",
+    "examples",
+    "examples.bilevel_fishery*",
+    "examples.cartpole*",
+]
+namespaces = true
+
+[tool.setuptools.package-data]
+"examples.bilevel_fishery" = ["*.yaml", "*.yml"]
+"examples.cartpole" = ["*.yaml", "*.yml"]
 
 [tool.coverage.report]
 # Most directories of core/ are namespace packages (no __init__.py). Without this
