@@ -271,10 +271,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 ),
                 count=10,
                 observation_space=spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(9,),
-                    dtype=np.float32,
+                    low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32
                 ),
             )
         )
