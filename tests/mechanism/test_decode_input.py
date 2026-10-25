@@ -89,13 +89,13 @@ def run_as_an_environment(agent, mdp, steps, followers=None):
         reached.append(mdp)
 
         mdp = mdp.advance(state={"fish": mdp.state["fish"][mdp.t] * 0.9})
+
         mdp.update(rewards={aid: 0.0 for aid in mdp.rewards.data})
 
         if followers is not None:
             # Writing at the new step carries the other actions forward, as the
             # adaptor does when it stores the followers' actions.
             new = followers(step + 1)
-
             mdp = (
                 decode_actions(agent, mdp, new[agent.id])
                 if agent.id in new
@@ -180,7 +180,6 @@ class TestActionsTrajectory:
     def test_calling_a_mechanism_leaves_the_stored_action_alone(self):
         halver = Halver(aid="a", id="m", action_space=UNIT, acts_on=("f", "h"))
         mdp = MDPState(actions={"a": {"m": 0.4}})
-
         residual = halver(mdp, 0.4)
 
         # The call uses the action as given: it does not decode it again and

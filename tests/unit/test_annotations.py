@@ -52,7 +52,6 @@ def test_override_accepts_non_method_attribute_names():
 @pytest.mark.unit
 def test_override_raises_name_error_for_unknown_method():
     with pytest.raises(NameError, match="missing must override"):
-
         class Child(_Parent):  # noqa: F841
             @override(_Parent)
             def missing(self):

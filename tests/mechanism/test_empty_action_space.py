@@ -32,6 +32,7 @@ def test_sampling_and_membership_use_an_empty_array():
 
     assert sample.size == 0
     assert space.contains(sample)
+
     assert space.contains(np.zeros(0, dtype=np.float32))
     assert not space.contains(np.zeros(1, dtype=np.float32))
 

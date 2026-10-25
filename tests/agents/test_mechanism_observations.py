@@ -70,6 +70,5 @@ def test_no_contribution_without_an_action_for_the_mechanism():
     other_mechanism = MDPState(
         aids={"fisherman:0"}, actions={"regulator": {"silent": np.array([0.5])}}
     )
-
     assert regulator.action(no_action, reset=True).obs.data == {}
     assert regulator.action(other_mechanism, reset=True).obs.data == {}
