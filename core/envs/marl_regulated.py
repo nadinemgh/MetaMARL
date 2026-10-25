@@ -262,6 +262,7 @@ class MultiAgentEnv(ABC):
 
         # Bilevel Multi-agent environment
         self.followers = {aid: cfg.build() for aid, cfg in agents_cfg_dict.items()}
+        leaders_cfg_dict = leaders_cfg_dict or {}
         self.leaders = {aid: cfg.build() for aid, cfg in leaders_cfg_dict.items()}
         self.lids = set(leaders_cfg_dict.keys())
         self.agents = {**self.leaders, **self.followers}
@@ -425,13 +426,15 @@ class MultiAgentEnv(ABC):
             self.logger.push(key=("policy_seed",), value=self.policy_seed)
 
         # Get regulator Agent
-        if self.mechanism_id is None:
+        # Try to fetch a new mechanism if one is available (published)
+        # Otherwise keep the current mechanism for subsequent episodes
+        if self.leaders and self.mechanism_id is None:
             raise RuntimeError(
                 "RegulatedEnv has no mechanism_id. "
                 + "mechanism_id must be injected at env creation."
             )
 
-        if not self.published_mechanism_assigned:
+        if self.leaders and not self.published_mechanism_assigned:
             try:
                 new_ctx: MechanismContext = ray.get(
                     self.world.get_mechanism_by_id.remote(
@@ -502,7 +505,6 @@ class MultiAgentEnv(ABC):
             mdp = getattr(self, self._transition)(mdp=mdp)
         mdp.update(obs={aid: np.zeros_like(o[-1]) for aid, o in mdp.obs.data.items() if o})
         self._t += 1
-        self.logger.push(key=("iter",), value=mdp.t)
         return mdp
 
     def termination(self, mdp: MDPState) -> MDPState:
