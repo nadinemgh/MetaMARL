@@ -1,7 +1,8 @@
 [project]
 name = "metamarl"
 version = "0.1.0"
-description = "A modular framework for mechanism design and multi-agent reinforcement learning, supporting composable mechanisms, realistic benchmarks, and bilevel optimization."readme = "README.md"
+description = "A modular framework for mechanism design and multi-agent reinforcement learning, supporting composable mechanisms, realistic benchmarks, and bilevel optimization."
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
