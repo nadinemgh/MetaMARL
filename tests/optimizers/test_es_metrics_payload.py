@@ -1,10 +1,10 @@
+
 """``ESOptimizer._to_logger_payload`` and the ES metric schema.
 
 The payload turns one finished generation into an ``ESSchema``. The tests call
 it directly with chosen arrays, push several payloads into a ``MetricLogger``
-and check that every series grows by one value per generation. The payload
-stores the generation index in ``iter``, the field shared by all schemas, and
-in the ``generation`` field of ``ESSchema``.
+and check that every series grows by one value per generation. The generation
+index is stored in ``iter``, the field shared by all metric schemas.
 """
 
 import numpy as np
@@ -63,7 +63,6 @@ class TestPopulationPayload:
         )
 
         assert payload.iter == 5
-        assert payload.generation == 5
         assert payload.sigma == 0.12
         assert payload.population_size == 4
         assert payload.fitness_mean == pytest.approx(2.5)
@@ -74,7 +73,9 @@ class TestPopulationPayload:
     def test_every_candidate_is_keyed_by_its_index_and_parameter_name(
         self, two_parameter_es
     ):
-        payload = self.make_payload(two_parameter_es, np.array([1.0, 4.0, 2.0, 3.0]))
+        payload = self.make_payload(
+            two_parameter_es, np.array([1.0, 4.0, 2.0, 3.0])
+        )
 
         assert set(payload.by_mechanism) == {"0", "1", "2", "3"}
 
@@ -88,7 +89,9 @@ class TestPopulationPayload:
         self, two_parameter_es
     ):
         payload = self.make_payload(
-            two_parameter_es, np.array([1.0, 4.0, 2.0, 3.0]), mean=(0.4, 0.5)
+            two_parameter_es,
+            np.array([1.0, 4.0, 2.0, 3.0]),
+            mean=(0.4, 0.5),
         )
 
         assert payload.search_mean["quota"].value == pytest.approx(0.4)
@@ -105,6 +108,7 @@ class TestPopulationPayload:
     def test_global_best_can_differ_from_the_generation_best(self, two_parameter_es):
         two_parameter_es.best_fitness = 99.0
         two_parameter_es.best_candidate = np.array([0.9, 0.9], dtype=np.float32)
+
         payload = two_parameter_es._to_logger_payload(
             generation=3,
             inner=InnerSchema(),
@@ -124,6 +128,7 @@ class TestPopulationPayload:
     ):
         opt = es_factory({"quota": unit_box(2)}, population=2)
         opt.best_candidate = np.array([0.2, 0.3], dtype=np.float32)
+
         payload = opt._to_logger_payload(
             generation=0,
             inner=InnerSchema(),
@@ -142,7 +147,10 @@ class TestPopulationPayload:
         logger = MetricLogger.from_schema(ESSchema)
 
         for generation, fitness in enumerate(
-            [np.array([1.0, 4.0, 2.0, 3.0]), np.array([2.0, 1.0, 5.0, 0.0])]
+            [
+                np.array([1.0, 4.0, 2.0, 3.0]),
+                np.array([2.0, 1.0, 5.0, 0.0]),
+            ]
         ):
             logger.push_data(
                 self.make_payload(two_parameter_es, fitness, generation=generation)
@@ -151,7 +159,6 @@ class TestPopulationPayload:
         peeked = logger.peek()
 
         assert peeked.iter == [0, 1]
-        assert peeked.generation == [0, 1]
         assert peeked.fitness_best == [4.0, 5.0]
         assert peeked.best_fitness_global == [4.0, 5.0]
         assert peeked.best_mechanism_idx == [1, 2]
@@ -166,7 +173,9 @@ class TestPopulationPayload:
     def test_peeking_does_not_consume_the_series(self, two_parameter_es):
         logger = MetricLogger.from_schema(ESSchema)
 
-        logger.push_data(self.make_payload(two_parameter_es, np.array([1.0, 4, 2, 3])))
+        logger.push_data(
+            self.make_payload(two_parameter_es, np.array([1.0, 4, 2, 3]))
+        )
 
         first = logger.peek()
         second = logger.peek()
