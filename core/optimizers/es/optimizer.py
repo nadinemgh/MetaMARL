@@ -272,6 +272,8 @@ class ESOptimizer(Optimizer):
         self.min_sigma = float(config.min_sigma)
         self.max_sigma = float(config.max_sigma)
         self.break_symmetry = config.break_symmetry
+        self.convergence_eps = float(config.convergence_eps)
+        self.convergence_patience = int(config.convergence_patience)
 
         if self.dimension < 0:
             raise ValueError("dimension must be non-negative")
@@ -294,6 +296,15 @@ class ESOptimizer(Optimizer):
 
         if self.max_sigma < self.min_sigma:
             raise ValueError("max_sigma must be >= min_sigma")
+
+        if self.convergence_eps < 0.0:
+            raise ValueError(
+                "convergence_eps must be non-negative. Use 0 to disable the "
+                + "convergence stop."
+            )
+
+        if self.convergence_patience < 1:
+            raise ValueError("convergence_patience must be at least 1")
 
         # --- Runtime state ---
         if config.initial_mean is not None:
@@ -326,6 +337,7 @@ class ESOptimizer(Optimizer):
         self.best_candidate = self.mean.copy()
         self.best_mechanism_idx: int | None = None
         self.population_history: list[tuple[np.ndarray, np.ndarray]] = []
+        self.stalled_generations = 0
 
         # This is explicitly the average fitness of the sampled population,
         # not the fitness of the distribution mean.
@@ -831,8 +843,53 @@ class ESOptimizer(Optimizer):
         )
 
     # TODO (nadine) implement early stopping criteria
-    def _has_converged(self):
+    def _update_convergence(self, previous_mean: np.ndarray) -> bool:
+        """Update the stall streak after a generation and test the stop rule.
+
+        The displacement is the Euclidean norm of ``self.mean - previous_mean``
+        in the normalized ``[0, 1]^dimension`` space. A displacement below
+        ``convergence_eps`` extends the streak, any other resets it, and the
+        search has converged when the streak reaches ``convergence_patience``.
+        This is a heuristic stopping rule, not taken from a paper. It is
+        inactive in fixed mode, where the mean is empty, and when
+        ``convergence_eps`` is ``0``.
+
+        Parameters
+        ----------
+        previous_mean : numpy.ndarray
+            Search mean before the generation's update, shape ``(dimension,)``,
+            values in ``[0, 1]``.
+
+        Returns
+        -------
+        bool
+            ``True`` when the streak has reached ``convergence_patience``.
+        """
+
+        if self.fixed_mode:
             return False
+
+        displacement = float(
+            np.linalg.norm(
+                np.asarray(self.mean, dtype=np.float64)
+                - np.asarray(previous_mean, dtype=np.float64)
+            )
+        )
+
+        if displacement < self.convergence_eps:
+            self.stalled_generations += 1
+        else:
+            self.stalled_generations = 0
+
+        logger.info(
+            "[ES] CONVERGENCE CHECK | displacement=%.3e | eps=%.3e | stalled=%d/%d",
+            displacement,
+            self.convergence_eps,
+            self.stalled_generations,
+            self.convergence_patience,
+        )
+
+        return self.stalled_generations >= self.convergence_patience
 
     def train(self) -> dict[str, Any]:
         """Run ``self.episodes`` generations and return a summary.
@@ -888,6 +945,7 @@ class ESOptimizer(Optimizer):
             )
 
         converged = False
+        self.stalled_generations = 0
 
         for generation in range(self.episodes):
             logger.info(
@@ -988,19 +1046,21 @@ class ESOptimizer(Optimizer):
                 self.sigma,
             )
 
-            converged = self._has_converged()
+            converged = self._update_convergence(pre_update_mean)
 
             if converged:
                 logger.info(
-                    "[ES] Converged | gen=%d | sigma=%.6f | min_sigma=%.6f",
+                    "[ES] Converged | gen=%d | stalled=%d | eps=%.3e | sigma=%.6f",
                     generation,
+                    self.stalled_generations,
+                    self.convergence_eps,
                     self.sigma,
-                    self.min_sigma,
                 )
                 break
 
         return {
-            "episode": generation,
+            "episodes": generation,
+            "converged": converged,
             "best_fitness": self.best_fitness,
             "best_mechanism": self.best_candidate,
             "population_history": self.population_history,
