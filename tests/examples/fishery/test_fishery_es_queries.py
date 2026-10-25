@@ -18,7 +18,9 @@ from core.optimizers.es.optimizer import ESOptimizer
 from core.reporting.base import Reporter
 from examples.bilevel_fishery.queries import ES_QUERIES
 
-CONFIG = Path(__file__).parents[2] / "examples" / "bilevel_fishery" / "config.yaml"
+CONFIG = (
+    Path(__file__).resolve().parents[3] / "examples" / "bilevel_fishery" / "config.yaml"
+)
 POPULATION_SIZE = 4
 GENERATIONS = 2
 

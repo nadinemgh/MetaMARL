@@ -35,8 +35,8 @@ class FisheryAgentMetricSchema(AgentEnvStepSchema):
         mechanisms (biomass units per step).
     delivered_harvest : float or None
         Harvest the fisher actually received: its request, or its pro-rata
-        share of the stock when the total request exceeds the stock (biomass
-        units per step).
+        share of the biomass available when the total request exceeds it
+        (biomass units per step).
 
     All fields are reduced with ``MEAN`` and inherit the generic per-step
     fields of ``AgentEnvStepSchema``.
@@ -87,17 +87,17 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
         Biomass ``B(t)`` the step starts with, before the catches and the
         restoration of that step (biomass units).
     growth : float or None
-        Surplus production ``g(B(t))`` plus process noise computed by the
-        transition (biomass units per step). Restoration is not part of it.
+        Surplus production ``g(B(t))`` plus process noise plus the restoration
+        of the step, computed by the transition (biomass units per step).
     growth_noise : float or None
         The process-noise part of ``growth`` (biomass units per step).
     H_attempted : float or None
         Total harvest the fishers requested (biomass units per step).
     H_realized : float or None
         Total catch ``C(t)`` actually delivered to the fishers (biomass units
-        per step): the total request, or the whole stock ``B(t)`` when the
-        request exceeds it. It is the sum of the per-fisher
-        ``delivered_harvest`` and is never negative.
+        per step): the total request, or the biomass available (``B(t)`` plus
+        the growth of the step) when the request exceeds it. It is the sum of
+        the per-fisher ``delivered_harvest`` and is never negative.
     total_usage_norm : float or None
         ``H_realized`` divided by the carrying capacity ``K`` (dimensionless).
     B_msy : float or None
@@ -196,7 +196,7 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
         json_schema_extra={"reduce": ReduceProtocol.MAX}
     )
     fish_norm_next_last: Optional[float] = Field(
-        json_schema_extra={"reduce": ReduceProtocol.MAX}
+        json_schema_extra={"reduce": ReduceProtocol.LAST}
     )
 
     # full_required_harvest: float = Field(
@@ -211,4 +211,13 @@ class FisheryMetricSchema(EpisodeRolloutSchema):
     #     json_schema_extra={"reduce": ReduceProtocol.MEAN},
     # )
 
+    fish_norm_next_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    H_realized_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
+    reward_series: Optional[list[float]] = Field(
+        default=None, json_schema_extra={"reduce": ReduceProtocol.SERIES}
+    )
     by_agent: dict[AgentID, FisheryAgentMetricSchema] = Field(default_factory=dict)
