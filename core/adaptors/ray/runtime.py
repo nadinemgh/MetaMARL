@@ -143,6 +143,7 @@ class RayRuntimeConfig:
         """
 
         self._apply_env_vars()
+
         ray_constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV = False
 
         # Silence noisy loggers globally

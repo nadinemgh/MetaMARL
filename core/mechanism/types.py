@@ -92,6 +92,7 @@ class Trajectory(Generic[T]):
         Equivalent to ``cls._length(node) >= t`` for ``t > 0``, but it stops at
         the first leaf long enough, where the length visits every leaf.
         """
+
         if isinstance(node, dict):
             return any(cls._reaches(value, t) for value in node.values())
 
@@ -181,6 +182,7 @@ class Trajectory(Generic[T]):
             if isinstance(value, dict):
                 if key not in destination:
                     destination[key] = {}
+
                     owned.add(id(destination[key]))
 
                 if not isinstance(destination[key], dict):
@@ -191,6 +193,7 @@ class Trajectory(Generic[T]):
 
                 if id(destination[key]) not in owned:
                     destination[key] = dict(destination[key])
+
                     owned.add(id(destination[key]))
 
                 cls._add_at_t(destination[key], value, t, owned)
@@ -200,8 +203,8 @@ class Trajectory(Generic[T]):
 
             if key not in destination:
                 destination[key] = [0] * t + [latest]
-                owned.add(id(destination[key]))
 
+                owned.add(id(destination[key]))
                 continue
 
             if isinstance(destination[key], dict):
@@ -212,6 +215,7 @@ class Trajectory(Generic[T]):
 
             if id(destination[key]) not in owned:
                 destination[key] = destination[key].copy()
+
                 owned.add(id(destination[key]))
 
             history = destination[key]
@@ -235,13 +239,16 @@ class Trajectory(Generic[T]):
         The lists are copied, so appending to the copy leaves the original
         alone. The values inside the lists, such as NumPy arrays, are shared.
         """
+
         return self._from_tree(self._copy_tree(self.data))
 
     @classmethod
     def _from_tree(cls, tree: dict[Any, Any]) -> "Trajectory[T]":
         """Wrap a tree that is already normalised, without walking it again."""
+
         trajectory = cls.__new__(cls)
         trajectory.data = tree
+
         return trajectory
 
     def write(self, path: tuple[Any, ...], t: int, value: Any) -> None:
@@ -284,6 +291,7 @@ class Trajectory(Generic[T]):
         >>> after["f0"]["harvest"], before["f0"]["harvest"]
         ([0.25], [0.5])
         """
+
         node = self.data
 
         for key in path[:-1]:
@@ -300,6 +308,7 @@ class Trajectory(Generic[T]):
 
         An empty trajectory has length ``0``.
         """
+
         return self._length(self.data)
 
     def add(self, t: int, deltas: list["Trajectory[T]"]) -> "Trajectory[T]":
@@ -342,6 +351,7 @@ class Trajectory(Generic[T]):
         TypeError
             If a path is a leaf in one tree and a branch in the other.
         """
+
         if any(delta.length for delta in deltas):
             if t < 0:
                 raise ValueError("t must be non-negative")
@@ -404,6 +414,7 @@ class Trajectory(Generic[T]):
         TypeError
             If a path is a leaf in one tree and a branch in the other.
         """
+
         result = self.copy()
 
         if t < 0:

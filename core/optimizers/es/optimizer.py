@@ -792,7 +792,6 @@ class ESOptimizer(Optimizer):
         logged_population = population
         logged_mean = mean
         logged_best = self.best_candidate
-
         best_idx = int(np.argmax(fitness))
 
         return ESSchema(

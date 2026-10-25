@@ -126,7 +126,6 @@ class RayOptimizer(Optimizer):
             )
 
         self.eval_episodes = config.rllib_cfg.evaluation_duration // fragment_length
-
         self._module_ids: tuple[str, ...] = tuple(config.rllib_cfg.policies)
 
         from core.adaptors.ray.policy_actor import PolicyActor

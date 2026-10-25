@@ -32,6 +32,7 @@ from core.agents.base import Agent
 from core.mechanism.algorithms import quota as quota_module
 from core.mechanism.algorithms.quota import Quota, QuotaMechanism
 from core.mechanism.base import MDPState
+from tests.issues import KNOWN_ISSUES
 
 REGULATOR = "regulator"
 K = 5_000.0
@@ -825,14 +826,7 @@ class TestTargeting:
         assert delta.rewards.data == {}
         assert delta.obs.data == {}
 
-    @pytest.mark.skip(
-        reason=(
-            "TODO: Define a robust observation composition contract. The quota mechanism currently "
-            "assumes targeted agents already have an initialized observation, but observation "
-            "dimensions depend on the underlying environment. Avoid hardcoding observation sizes "
-            "inside mechanisms."
-        )
-    )
+    @pytest.mark.skip(reason=KNOWN_ISSUES["OBS-001"])
     def test_a_targeted_agent_without_an_observation_starts_from_zeros(self):
         # TODO: Re-enable once observation initialization and dimension
         # ownership are defined across environments and mechanisms.

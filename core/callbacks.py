@@ -225,7 +225,7 @@ def log_and_report_episode_metrics(
 
     # TODO could we just have the EnvRolloutSchema here ?
     metrics_logger.log_value(
-        key=("by_episode", episode_id), value=reduced, reduce="item"
+        key=("by_episode", episode_id), value=reduced, reduce="item_series"
     )
 
 

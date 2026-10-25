@@ -255,18 +255,21 @@ def test_reset_after_steps_starts_a_new_episode_at_time_zero(adapter):
 
 
 @pytest.mark.unit
-def test_reset_fetches_the_candidate_by_mechanism_id_policy_seed_and_mode():
-    world = ScriptedWorld([None])
+def test_reset_fetches_the_candidate_only_until_assigned():
+    world = ScriptedWorld([candidate(0.3)])
+    adapter = RLlibMultiAgentEnvAdapter(StepEnv(world, with_leader=True))
 
-    RLlibMultiAgentEnvAdapter(StepEnv(world)).reset()
+    adapter.reset()
     assert world.fetches == [
         {"mechanism_id": "7", "seed": 22, "mode": MechanismStatus.train}
     ]
-
-
-# ---------------------------------------------------------------------------
-# step
-# ---------------------------------------------------------------------------
+    assert adapter.env.published_mechanism_assigned
+    adapter.reset()
+    adapter.reset()
+    assert len(world.fetches) == 1
+    np.testing.assert_array_equal(
+        adapter.env.mechanism["quota"], np.array([0.3], dtype=np.float32)
+    )
 
 
 @pytest.mark.unit

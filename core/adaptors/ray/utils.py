@@ -626,6 +626,7 @@ def build_learner(results: ResultDict, module_ids: Iterable[str] = ()) -> Learne
     )
 
     by_mechanism: dict[MechanismID, MechanismLearnerSchema] = {}
+
     module_stats = {
         learner_id: stats
         for learner_id, stats in learners.items()

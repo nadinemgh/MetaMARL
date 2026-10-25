@@ -32,12 +32,11 @@ class FisheryRegulatorEnv(RegulatorEnv):
 
     The fitness of a candidate is computed from the inner rollouts of the
     ``train`` or ``eval`` split selected by ``aggregation_status``. For each
-    mechanism, seed and episode the environment reads the step-by-step series
-    that the inner environment logged for that episode, ``reward_series``,
-    ``fish_norm_next_series`` and ``H_realized_series``, and the episode's
-    ``MSY``, keeps the last ``fitness_tail_steps`` steps of each series, and
-    summarizes them. The statistics of every episode and seed of a candidate
-    are then averaged and folded into a ``FitnessContext``, whose objective is
+    mechanism, seed and episode the environment reads the reduced metrics
+    ``reward_mean``, ``fish_norm_next_mean``, ``H_realized`` and ``MSY``.
+    It keeps the last ``fitness_tail_steps`` entries, summarizes them,
+    and averages the statistics across episodes and seeds into a
+    ``FitnessContext``, whose objective is
     ``harvest_score + sustainability_weight * mean_fish``.
 
     The tail window measures the steady state of the last steps of an episode:
@@ -118,9 +117,9 @@ class FisheryRegulatorEnv(RegulatorEnv):
     ...     ecology_cfg={"K": 5000.0, "sustainability_weight": 2.0},
     ... )
     >>> episode = SimpleNamespace(
-    ...     reward_series=[[0.5, 0.5]],
-    ...     fish_norm_next_series=[[0.5, 0.5]],
-    ...     H_realized_series=[[37.5, 37.5]],
+    ...     reward_mean=[0.5],
+    ...     fish_norm_next_mean=[0.5],
+    ...     H_realized=[37.5],
     ...     MSY=[75.0],
     ... )
     >>> seed = SimpleNamespace(by_episode={"0": episode})

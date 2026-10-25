@@ -107,6 +107,7 @@ def test_two_methods_with_the_same_hook_mark_are_rejected(hook):
     decorator = getattr(hooks, hook)
 
     with pytest.raises(TypeError, match=rf"Twice.*'first'.*'second'.*'{hook}'"):
+
         class Twice(MultiAgentEnv):
             @decorator
             def first(self, mdp):

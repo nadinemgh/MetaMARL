@@ -27,6 +27,7 @@ are created with ``env_seed`` drawn from the evaluation seeds while
 creator with ``ray.tune`` and returns a ``RayOptimizer``; the ``Algorithm``
 itself is only built later, inside the ``PolicyActor``.
 """
+
 from types import MethodType
 import functools
 import uuid
@@ -368,6 +369,7 @@ class RayOptimizerConfig(OptimizerConfig):
     @rllib_config_mutator
     def _env_runners(cfg, **kwargs: Any) -> AlgorithmConfig:
         """Record a deferred ``AlgorithmConfig.env_runners`` call (raw pass-through)."""
+
         return cfg.env_runners(**kwargs)
 
     def _scale_env_count_by_seeds(self) -> None:
@@ -1022,9 +1024,11 @@ class RayOptimizerConfig(OptimizerConfig):
             num_eval_runners = num_eval_seeds * num_train_seeds
             num_eval_episodes = num_eval_runners * self.num_mechanisms
             evaluation_op.kwargs["evaluation_num_env_runners"] = num_eval_runners
+
             evaluation_op.kwargs.setdefault("evaluation_config", {})[
                 "num_envs_per_env_runner"
             ] = self.num_mechanisms
+
             evaluation_op.kwargs["evaluation_duration"] = num_eval_episodes
             evaluation_op.kwargs["custom_evaluation_function"] = (
                 _evaluate_with_fixed_duration_once
@@ -1035,8 +1039,7 @@ class RayOptimizerConfig(OptimizerConfig):
 
             # (nadine) revert to subclassing
             self.rllib_cfg.build_module_to_env_connector = MethodType(
-                build_iid_module_to_env_connector,
-                self.rllib_cfg,
+                build_iid_module_to_env_connector, self.rllib_cfg
             )
 
             for op in self._cfg_ops.values():
@@ -1142,7 +1145,6 @@ class RayOptimizerConfig(OptimizerConfig):
             env=env_name, env_config=self.env_config
         )
         cfg = self.copy(copy_frozen=True)
-
         reporting = None
 
         if self._reporter_cfg is not None:
@@ -1263,7 +1265,6 @@ class RayOptimizerConfig(OptimizerConfig):
         """
 
         super().debugging(seed=seed, num_seeds=num_seeds)
-
         self._scale_env_count_by_seeds()
 
         # Lazy construction

@@ -12,6 +12,7 @@ import ray
 
 from examples.bilevel_fishery.contexts import FitnessContext
 from examples.bilevel_fishery.regulator_env import FisheryRegulatorEnv
+from tests.issues import KNOWN_ISSUES
 
 K = 1000.0
 MSY = 100.0
@@ -109,10 +110,7 @@ def test_the_tail_statistics_are_averaged_over_episodes_and_seeds():
     assert by_leaf == pytest.approx(by_seed)
 
 
-@pytest.mark.skip(
-    reason="Regulator missing-metric handling is not implemented yet; the reducer does not "
-    "skip None/NaN gaps in reduced episode metrics."
-)
+@pytest.mark.skip(reason=KNOWN_ISSUES["MET-002"])
 def test_the_gaps_of_the_metric_logger_are_skipped():
     env = make_env(fitness_tail_steps=2)
     gapped = SimpleNamespace(

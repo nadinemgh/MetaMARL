@@ -52,6 +52,7 @@ from examples.cartpole.regulated_env import (
     Push,
     PushConfig,
 )
+from tests.issues import KNOWN_ISSUES
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG = REPO_ROOT / "examples" / "cartpole" / "config.yaml"
@@ -735,11 +736,7 @@ def test_appo_run_writes_outer_csv_reports(appo_run):
 
 
 @pytest.mark.integration
-@pytest.mark.skip(
-    reason="Known APPO thread-locking issue: inner RayOptimizer query rendering "
-    "fails and its training CSV files are not generated. "
-    "Keep skipped in CI until the APPO synchronization issue is resolved."
-)
+@pytest.mark.skip(reason=KNOWN_ISSUES["APPO-001"])
 def test_appo_run_writes_inner_csv_reports(appo_run):
     """Verify that the inner Ray optimizer exports its training queries."""
 

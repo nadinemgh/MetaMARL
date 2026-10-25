@@ -46,6 +46,7 @@ from examples.bilevel_fishery.regulated_env import (
     FishingConfig,
     RestoreConfig,
 )
+from tests.issues import KNOWN_ISSUES
 
 UNBOUNDED = spaces.Box(-np.inf, np.inf, (1,), np.float32)
 OBSERVATION = spaces.Box(-np.inf, np.inf, (5,), np.float32)
@@ -366,10 +367,7 @@ def test_the_first_step_already_delivers_its_catch():
     assert env.logger.peek().H_realized == pytest.approx([120.0])
 
 
-@pytest.mark.skip(
-    reason="FisheryRegulatedEnv does not support schema=None yet; pella_tomlinson() attempts "
-    "to write to a missing logger."
-)
+@pytest.mark.skip(reason=KNOWN_ISSUES["MET-001"])
 def test_an_env_without_a_schema_steps_without_logging():
     ...
 

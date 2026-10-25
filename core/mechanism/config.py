@@ -44,6 +44,7 @@ def empty_action_space() -> spaces.Box:
     >>> space.sample().size
     0
     """
+
     return spaces.Box(low=0.0, high=1.0, shape=(0,), dtype=np.float32)
 
 

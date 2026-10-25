@@ -17,6 +17,8 @@ from core.agents.base import AgentConfig
 from core.mechanism.base import MDPState, Mechanism
 from core.mechanism.config import MechanismConfig
 
+from tests.issues import KNOWN_ISSUES
+
 from .conftest import FEE_SPACE, UNBOUNDED, Fisher, FisherConfig, HarvestConfig
 
 DECLARED_SIZE = 11
@@ -109,14 +111,7 @@ def make_sized_env(toy):
 
 
 @pytest.mark.unit
-@pytest.mark.skip(
-    reason=(
-        "TODO: Revisit observation-space architecture. "
-        "Leader observation contributions can be smaller than their declared "
-        "size, causing a mismatch between actual and expected observation dimensions. "
-        "Define consistent padding and observation composition semantics."
-    )
-)
+@pytest.mark.skip(reason=(KNOWN_ISSUES["OBS-001"]))
 def test_a_smaller_leader_residual_does_not_shrink_the_declared_observation(
     toy, identity_ray_get
 ):

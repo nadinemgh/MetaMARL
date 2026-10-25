@@ -321,6 +321,7 @@ class MultiAgentEnv(ABC):
                     )
 
                 marked[hook] = name
+
                 setattr(cls, f"_{hook}", name)
 
             if getattr(func, "state_space", False):
@@ -503,8 +504,16 @@ class MultiAgentEnv(ABC):
 
         if self._transition is not None:
             mdp = getattr(self, self._transition)(mdp=mdp)
-        mdp.update(obs={aid: np.zeros_like(o[-1]) for aid, o in mdp.obs.data.items() if o})
+
+        observations = {
+            aid: np.zeros_like(o[-1]) for aid, o in mdp.obs.data.items() if o
+        }
+
+        if observations:
+            mdp.update(obs=observations)
+
         self._t += 1
+
         return mdp
 
     def termination(self, mdp: MDPState) -> MDPState:
@@ -587,7 +596,10 @@ class MultiAgentEnv(ABC):
 
         if self.logger is not None:
             self.logger.push(key=("iter",), value=mdp.t)
-            step_reward = float(np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers]))
+
+            step_reward = float(
+                np.mean([mdp.rewards[aid][mdp.t - 1] for aid in self.followers])
+            )
 
             for key in (
                 "reward_total",
@@ -597,6 +609,7 @@ class MultiAgentEnv(ABC):
                 "reward_terminal",
             ):
                 self.logger.push(key=(key,), value=step_reward)
+
         mdp = mdp.add([agent.action(mdp, reset=True) for agent in self.agents.values()])
         mdp = mdp.add([agent.observation(mdp) for agent in self.followers.values()])
         self._t += 1

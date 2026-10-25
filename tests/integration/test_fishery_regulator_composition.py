@@ -43,6 +43,7 @@ from core.mechanism.algorithms.penalty import ThresholdPenalty
 from core.mechanism.algorithms.quota import FINE_AMOUNT, MAX_DEMAND_FRAC, Quota
 from core.mechanism.algorithms.social_influence import SocialInfluence
 from examples.bilevel_fishery.regulated_env import RestoreConfig
+from tests.issues import KNOWN_ISSUES
 
 CAPACITY = 5_000.0
 HORIZON = 20
@@ -338,10 +339,7 @@ class TestRewardComposition:
 
 
 @pytest.mark.unit
-@pytest.mark.skip(
-    reason="Known observation architecture limitation: dynamic observation sizes "
-    "are not yet supported; social influence requires 11 slots instead of 9."
-)
+@pytest.mark.skip(reason=KNOWN_ISSUES["OBS-001"])
 class TestSocialObservations:
     def play(self, build_fishery, answers, steps=HORIZON):
         fishery = build_fishery(
@@ -606,10 +604,7 @@ class TestEpisodeShape:
             assert obs.shape == (LEGACY_SLOTS,)
             assert np.isfinite(obs).all()
 
-    @pytest.mark.skip(
-        reason="Known observation architecture limitation: dynamic observation "
-        "sizes are not yet supported; this test requires 11 slots instead of 9."
-    )
+    @pytest.mark.skip(reason=KNOWN_ISSUES["OBS-001"])
     def test_observations_and_rewards_are_finite_and_the_stock_stays_in_range(
         self, build_fishery, candidate_context
     ):

@@ -643,11 +643,10 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         Otherwise it is drawn from a lognormal distribution with median
         ``fish_init`` and log-scale spread ``initial_stock_log_sigma``, using
         the environment's seeded generator, and clipped to ``[1e-8, K]``. The
-        harvest recorded for the step starts at 0. The stock is stored twice,
-        in ``state["fish"]``, which the fishers' mechanisms modify in place
-        during the step, and in ``state["fish_start"]``, which they leave
-        untouched so that the transition can read the stock the step started
-        with.
+        harvest recorded for the step starts at 0. The stock is stored in
+        ``state["fish"]``, which the fishers' mechanisms modify during the step.
+        The transition reconstructs the stock at the start of the step from
+        the modified stock, harvest and restoration.
 
         Parameters
         ----------
@@ -657,10 +656,9 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         Returns
         -------
         MDPState
-            A residual with ``state["fish"]`` and ``state["fish_start"]``
-            (biomass units, both the initial stock), ``state["harvest"]``
-            (biomass units per step) and ``params`` set to
-            the ``ecology`` dictionary itself, not a copy.
+            A residual with ``state["fish"]`` (initial biomass),
+            ``state["harvest"]`` (biomass units per step) and ``params`` set
+            to the ``ecology`` dictionary itself, not a copy.
 
         Examples
         --------
@@ -676,10 +674,8 @@ class FisheryRegulatedEnv(MultiAgentEnv):
         ...                  "initial_stock_log_sigma": 0.0},
         ... )
         >>> residual = env.reset_fishery(MDPState())
-        >>> residual.state["fish"], residual.state["fish_start"]
-        ([800.0], [800.0])
-        >>> residual.state["harvest"]
-        [0.0]
+        >>> residual.state["fish"], residual.state["harvest"]
+        ([800.0], [0.0])
         """
 
         if self.initial_stock_log_sigma == 0.0:
