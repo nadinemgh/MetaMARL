@@ -100,7 +100,7 @@ class TestPush:
         _, Rich, _, _ = metric_schemas
 
         class ConfiguredGroup(MetricSchema):
-            by_id: dict[str, Rich] = Field(default_factory=dict)
+            by_id: dict[str, Rich] = Field(default_factory=dict) # type: ignore
 
         class ConfiguredRoot(MetricSchema):
             group: ConfiguredGroup = Field(default_factory=ConfiguredGroup)
@@ -151,7 +151,7 @@ class TestPush:
         _, Rich, _, _ = metric_schemas
 
         class ConfiguredRoot(MetricSchema):
-            inner: Rich = Field(default_factory=Rich)
+            inner: Rich = Field(default_factory=Rich) # type: ignore
 
         logger = MetricLogger.from_schema(ConfiguredRoot)
 
@@ -236,7 +236,7 @@ class TestFixedSchemasPreservePushedValues:
         _, Rich, _, _ = metric_schemas
 
         class ConfiguredRoot(MetricSchema):
-            inner: Rich = Field(default_factory=Rich)
+            inner: Rich = Field(default_factory=Rich) # type: ignore
 
         logger = MetricLogger.from_schema(ConfiguredRoot)
 
@@ -257,7 +257,7 @@ class TestFixedSchemasPreservePushedValues:
         _, Rich, _, _ = metric_schemas
 
         class ConfiguredRoot(MetricSchema):
-            inner: Rich = Field(default_factory=Rich)
+            inner: Rich = Field(default_factory=Rich) # type: ignore
 
         logger = MetricLogger.from_schema(ConfiguredRoot)
 
@@ -297,7 +297,7 @@ class TestFixedSchemasPreservePushedValues:
         _, Rich, _, _ = metric_schemas
 
         class ConfiguredRoot(MetricSchema):
-            inner: Rich = Field(default_factory=Rich)
+            inner: Rich = Field(default_factory=Rich) # type: ignore
 
         logger = MetricLogger.from_schema(ConfiguredRoot)
 
