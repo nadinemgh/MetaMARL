@@ -1,143 +1,144 @@
 # Quickstart
 
-This page takes you from a fresh clone to a first bilevel run of the fishery
-benchmark, then shows where its results are and how to change the experiment. It
-needs no Weights & Biases account and no GPU. The figures quoted below come from a
-run on a laptop; yours may differ in the last digits if your hardware does.
+This guide takes you from a fresh clone to a first **bilevel fishery experiment** using MetaMARL's YAML command-line interface. It also explains how to inspect results and modify a configuration.
 
-## 1. Install and check
+The fishery benchmark is a theoretical common-pool resource model, not a calibrated real-world fishery. **Freshwater and hydrological benchmarks are not included in this release**; they are under development on `dev`.
+
+## 1. Install and validate
+
+Install [uv](https://docs.astral.sh/uv/) and Python 3.12, then run:
 
 ```bash
-git clone git@github.com:deep-introspection/MetaMARL.git
+git clone https://github.com/nadinemgh/MetaMARL.git
 cd MetaMARL
-uv sync
+uv sync --group dev
 WANDB_MODE=offline uv run metamarl check examples/bilevel_fishery/config.yaml
 ```
 
-`uv sync` creates `.venv/` with Python 3.12, the runtime dependencies and the
-development tools. The `check` command builds the fishery experiment described in
-`examples/bilevel_fishery/config.yaml` without training it. Its first two log lines
-show the hash-seed guard restarting the process with `PYTHONHASHSEED=0`, and its
-last line is `Config OK: core.optimizers.bilevel.BilevelConfig`.
+The project requires Python `>=3.12,<3.13`. `uv sync --group dev` installs its runtime dependencies and the developer tools, including pytest and Ruff.
 
-The unit tests, with the doctests, confirm the installation in about forty
-seconds:
+The `check` command **constructs and validates** the YAML experiment without training. It should report successful configuration validation. If a YAML object or import is invalid, the configuration loader reports the affected path.
+
+You can also invoke the CLI as a Python module:
 
 ```bash
-uv run python -m pytest -m "not integration and not notebook" -q
+WANDB_MODE=offline uv run python -m core.config.cli check examples/bilevel_fishery/config.yaml
 ```
 
-## 2. A first bilevel run
+The `PYTHONHASHSEED` initialization used by the CLI helps standardize Python hash behavior across runs. It is only one part of reproducibility; identical runs are not guaranteed across distributed configurations or different hardware.
+
+## 2. Run the fishery experiment
 
 ```bash
-WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \
-    --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20 --reporter csv
+WANDB_MODE=offline uv run metamarl run examples/bilevel_fishery/config.yaml
 ```
 
-This runs two generations of the outer Evolution Strategies optimizer. In each
-generation the regulator proposes four values of the fishing quota, and for each
-of them the inner APPO optimizer trains two fishers for two iterations on
-20-step episodes, then evaluates them. The run takes about fifteen seconds.
+The command runs the experiment described by the YAML file. **The checked-in configuration may specify a substantial training budget**, so for a short local smoke run, make a copy and reduce the relevant settings before launching it:
 
-The lines worth reading are the ones the ES prints at every generation. The
-`BEFORE UPDATE` line lists the quotas of the generation and the fitness of each:
-
-```text
-[ES] BEFORE UPDATE | gen=0 | mean=[0.5] | sigma=0.15000 | population=[[0.5053...], [0.4377...], [0.4946...], [0.5622...]] | fitness=[2.5979..., 2.5989..., 2.5978..., 2.6060...]
-[ES] gen=0 | best=2.6060 | mean=2.6002+/-0.0034 | var=0.0000 | sigma=0.1500
-...
-[Bilevel] Run finished | iters=2 | converged=False | mechanism=[0.5622445] | best_fitness=2.6060
+```bash
+cp examples/bilevel_fishery/config.yaml examples/bilevel_fishery/config.local.yaml
 ```
 
-The quota is a fraction of the stock, so the candidates live in `[0, 1]`; `mean`
-is the centre of the search and `sigma` its spread, both in that space. The fitness
-of a candidate is the realised harvest relative to the maximum sustainable yield
-plus twice the mean normalised biomass, both measured over the last steps of the
-evaluation episodes (see `examples/bilevel_fishery/regulator_env.py`). The last line reports
-the best candidate of the whole run. `converged=False` is expected: the
-convergence stop is off unless `convergence_eps` is set in the ES configuration.
+Edit `config.local.yaml` to reduce the outer ES generations, inner PPO/APPO training iterations, agent population, and episode horizon as appropriate for the actual keys and builder calls in that file. Keep the number of sampled candidates, seeds, and environment slots consistent with the configured optimizer. Validate the copy first:
 
-The run is reproducible. Running the same command again gives the same `fitness`
-vectors to the last digit, because the seeds are fixed and the hash-seed guard
-fixes the order in which RLlib batches the agents.
-
-## 3. Read the outputs
-
-With `--reporter csv` every plot of the run is written as a CSV file. The files of
-the regulator and those of the inner optimizer go to two directories named after
-the run's world and the optimizer class:
-
-```text
-results/bilevel/fishery_world_<id>-ESOptimizer/     7 files
-results/bilevel/fishery_world_<id>-RayOptimizer/    9 files
+```bash
+WANDB_MODE=offline uv run metamarl check examples/bilevel_fishery/config.local.yaml
+WANDB_MODE=offline uv run metamarl run examples/bilevel_fishery/config.local.yaml
 ```
 
-The ES directory holds the fitness over the generations, the fitness of every
-candidate against its quota, and the comparison of training and evaluation for the
-return and the normalised biomass. The inner directory holds the training curves:
-episode return, biomass statistics, policy entropy and the losses. Every file has
-the same long format, one row per point:
+Do not commit your local experiment configuration or generated outputs unless they are intended as reproducible examples.
 
-```text
-query,x,series,value,error,color
-Candidate fitness vs quota,0.5622444748878479,Evaluated mechanisms [by_mechanism=3],2.6060359477996826,,0
-```
+### What happens during a run?
 
-`series` names the curve a point belongs to and `color` carries the generation for
-the scatter plots, so a file loads directly into pandas and pivots on `series`.
-The plots themselves are declared in `examples/bilevel_fishery/queries.py`; each
-`Query` names the logged metrics it reads and how to reduce them. Without
-`--reporter csv` the same queries are rendered as Plotly figures in Weights &
-Biases (under `wandb/` when offline). In a run this short the policy-loss file holds
-only `nan` values, because APPO reports its losses only once every twenty
-gradient updates.
+In the bilevel fishery example:
+
+1. The outer **Evolution Strategies (ES)** optimizer proposes candidate mechanisms.
+2. The regulator publishes these candidates to the shared `World`.
+3. Fishers learn with the configured RLlib optimizer (PPO or APPO) under their assigned mechanisms.
+4. The inner optimizer evaluates the trained policies and collects episode metrics.
+5. The regulator aggregates fishery outcomes, scores the candidates, and returns fitness to ES.
+6. ES updates its search distribution and repeats according to the configured budget or stopping criterion.
+
+A candidate is installed in a follower environment for its assigned slot; after a published mechanism is assigned, ordinary episode resets **do not replace it**. This is important when comparing repeated training episodes under a fixed candidate.
+
+The fishery objective combines **realized harvest relative to maximum sustainable yield** with a weighted measure of **normalized fish biomass**. The weight, sustainability threshold, and metric aggregation window are configurable. See `examples/bilevel_fishery/regulator_env.py` for the actual scoring implementation.
+
+## 3. Read the results
+
+MetaMARL supports three reporter backends:
+
+| Reporter | Use |
+| --- | --- |
+| CSV | Export structured observations and metrics for plotting or post-processing |
+| TensorBoard | Inspect scalar learning and optimization curves locally |
+| Weights & Biases | Track runs, dashboards, and comparisons; supports offline mode |
+
+The selected reporter and its output directory are defined **in YAML**. The old `--reporter` option from `examples/bilevel_fishery/debug.py` is no longer part of the execution workflow.
+
+For CSV reporting, the default output directory is `results/`, organized by the configured project, world, reporter label, and query title. Exported data typically includes a query label, x-coordinate, series, value, and optional error or color fields. The exact files depend on the configured queries.
+
+For offline W&B runs, `WANDB_MODE=offline` writes local W&B data instead of requiring online synchronization.
+
+Metrics and visualizations are defined separately from optimization in `core/metrics/` and `core/reporting/`. The fishery's reporting queries are defined with its example configuration and reporting code. Not every query can be rendered identically by every backend; in particular, a scatter plot may not map directly to a TensorBoard scalar.
 
 ## 4. Change the experiment
 
-The YAML file and the debug script describe the same experiment in two ways. The
-YAML file is the declarative form: every mapping with a `_target_` key is built by
-calling that class, `_calls_` lists the builder methods applied to it in order,
-`_symbol_` imports an object without calling it, and `_tuple_` builds a tuple. The
-`run` section at the end lists the calls `metamarl run` applies to the built
-experiment. For instance, the searched mechanism is declared inside the
-regulator's agent:
+The YAML file declares the optimizer, environment, agent population, mechanisms, evaluation procedure, and reporting configuration. MetaMARL's configuration loader recognizes:
+
+| YAML key | Meaning |
+| --- | --- |
+| `_target_` | Construct an object from an importable Python target |
+| `_args_` | Supply positional arguments to that target |
+| `_calls_` | Apply configured builder methods in order |
+| `_symbol_` | Import a symbol without constructing it |
+| `_tuple_` | Construct a tuple |
+
+The experiment definition and optional `run` section determine what is built and which methods are invoked during execution.
+
+For example, the fishery can include a quota mechanism that targets the fishers' harvest actions:
 
 ```yaml
-- _target_: core.mechanism.algorithms.quota.Quota
-  id: quota
-  acts_on:
-    _tuple_: [fisherman, harvest]
-  obs_map:
-    resource_level: fish
-  default:
-    _target_: numpy.asarray
-    _args_: [0.56224]
+_target_: core.mechanism.algorithms.quota.Quota
+id: quota
+acts_on:
+  _tuple_: [fisherman, harvest]
+obs_map:
+  resource_level: fish
 ```
 
-`acts_on` says which mechanism of which agents the quota constrains, `obs_map`
-which state variable it reads, and `default` the quota the fishers face before
-the regulator's first candidate arrives. The ES settings (`sigma`, `mean_lr`, the
-number of generations under `episodes`) sit in the `training` call of the
-regulator, and the fishery's ecology under the society's `env_config`. After an
-edit, `metamarl check` tells you whether the file still builds; a configuration
-error names the YAML path that failed and its cause.
+This fragment illustrates the quota's role; its full construction also depends on the surrounding agent and mechanism configuration. Consult the checked-in YAML for a complete runnable definition.
 
-The debug script, `examples/bilevel_fishery/debug.py`, builds the same experiment
-with the Python builders of `BilevelConfig`, and its options change the sizes
-without editing anything: `--outer-iters`, `--train-iters`, `--num-agents`,
-`--horizon` and `--reporter`. `--help` lists them with their defaults, which are
-the full experiment.
+The CLI also accepts **configuration overrides** after the YAML path:
 
-## 5. Where to go next
+```text
+uv run metamarl run examples/bilevel_fishery/config.yaml path.to.setting=value
+```
 
-The other two benchmarks run the same way: `python -m examples.cartpole.debug`
-checks the whole pipeline on a task whose fitness is known in advance, and
-`python -m examples.fresh_water.debug` searches the eight rules of a water policy
-for a reservoir shared by farms. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-explains what happens inside a generation and how to write your own benchmark or
-mechanism. The notebooks in `tutorials/` present the abstractions on the fishery
-(`metamarl_fishery_tutorial.ipynb`), the mechanism algorithms
-(`mechanism_algorithms.ipynb`), the creation of a custom benchmark
-(`custom_benchmark_creation.ipynb`), the plotting layer (`visualization.ipynb`) and
-a research note on mechanisms in continuous time
-(`continuous_time_mechanism_vector_fields.ipynb`).
+`path.to.setting=value` is a syntax illustration, **not a literal key in the example configuration**. Use an actual path present in your YAML and validate it with `metamarl check` before training.
+
+## 5. Validate your changes
+
+Run the test suite and lint checks from the repository root:
+
+```bash
+uv run python -m pytest
+uv run ruff check --no-fix .
+uv run ruff format --check .
+```
+
+For a faster test selection that excludes the integration and notebook markers:
+
+```bash
+uv run python -m pytest -m "not integration and not notebook"
+```
+
+Some tests are skipped for tracked limitations, with stable IDs such as `OBS-001`, `MET-001`, `MET-002`, and `APPO-001`. These are documented test gaps, not evidence that every corresponding edge case works.
+
+## 6. Next steps
+
+- Explore the CartPole example under `examples/cartpole/` for a simpler end-to-end learning and reporting pipeline. Use its available YAML configuration, rather than the removed `debug.py` entry point.
+- Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) to learn how the optimizer, `World`, RLlib environment adapter, mechanisms, and metric schemas interact.
+- Open the notebooks in [`tutorials/`](tutorials/) to study mechanism construction, custom environments, and reporting.
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a new benchmark or algorithm adapter.
+
+The project is released under [Apache License 2.0](LICENSE). Please use [CITATION.cff](CITATION.cff) when citing MetaMARL in research.

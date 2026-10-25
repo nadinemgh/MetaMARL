@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use MetaMARL in research, please cite this software and its associated publication."
+type: software
+
+title: "MetaMARL"
+abstract: >-
+  A framework for developing and evaluating mechanisms
+  in multi-agent dynamical systems, supporting bilevel
+  optimization and independent mechanism evaluation.
+
+authors:
+  - given-names: Nadine
+    family-names: Abdelghani
+    affiliation: "Mila – Quebec AI Institute; Université de Montréal; PPSP Lab"
+  
+  - given-names: Guillaume
+    family-names: Dumas
+    affiliation: "Mila – Quebec AI Institute; Université de Montréal; PPSP Lab"
+
+  - given-names: Elise
+    family-names: Devoie
+
+  - given-names: Benjamin
+    family-names: Rosman
+
+  - given-names: Christof
+    family-names: Brandtner
+
+repository-code: "https://github.com/nadinemgh/MetaMARL"
+license: Apache-2.0

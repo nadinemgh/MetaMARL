@@ -1,146 +1,203 @@
 # MetaMARL
 
-MetaMARL is an extensible research framework for **multi-agent reinforcement learning, bilevel mechanism design, and agent alignment**. It provides a modular environment for studying how adaptive agents interact, how their individual incentives shape collective outcomes, and how mechanisms or additional learning agents can influence the resulting dynamics.
+**MetaMARL** is an extensible, algorithm-agnostic research framework for **multi-agent learning, mechanism design, and the evaluation of interventions in interacting dynamical systems**.
 
-In a typical bilevel experiment, a regulator (leader) searches over the rules governing an environment, such as fishing quotas, monitoring penalties, or water-allocation policies, while a society of learning agents (followers) adapts its policies under each candidate mechanism. The regulator evaluates mechanisms based on the collective behavior that emerges from the trained society, allowing it to search for interventions that improve system-level outcomes while accounting for self-interested adaptation.
+It supports experiments in which multiple adaptive agents interact through a shared environment, with or without a separate regulator or outer optimization loop. Researchers can define agent behaviors, mechanisms, environment dynamics, and evaluation objectives independently, then combine them to study how local incentives and interventions affect collective outcomes.
 
-**The framework is optimizer-agnostic by design.** Its architecture separates the outer mechanism optimizer, the inner agent-learning algorithms, and the environment dynamics. The current release implements Evolution Strategies (ES) for outer-loop optimization and RLlib-based APPO and PPO for inner-loop learning. The interfaces are designed to accommodate alternative optimization and control algorithms, including reinforcement learning, genetic and evolutionary algorithms, model predictive control (MPC), and other numerical or learning-based solvers in future releases.
+MetaMARL is designed for **both multi-agent experimentation and bilevel optimization**; optimizing a mechanism is an optional experimental setup, not a requirement of the framework.
 
-Beyond conventional bilevel optimization, MetaMARL is designed to accommodate different modes of multi-agent adaptation:
+## What MetaMARL provides
 
-- **Bilevel optimization and meta-learning:** Leader agents or regulators evaluate candidate mechanisms through a shared `World` abstraction that coordinates environments, policy training, evaluation, and feedback across optimization levels.
-- **Simultaneous multi-agent learning:** Multiple agents interact within a shared Markov decision process (MDP), selecting actions from the same initial state at each discrete time step. Their combined effects determine the subsequent transition, supporting the study of coupled learning dynamics and strategic interactions.
-- **Composable mechanisms and agent behaviors:** Agent and mechanism objects can be independently defined, configured, and combined. Actions and interventions are expressed through a vectorized decomposition, enabling multiple mechanisms to contribute to the evolution of a shared state and supporting heterogeneous agent roles.
-- **Leader–follower experimentation:** Environments can incorporate regulators, meta-learning agents, and followers, providing building blocks for investigating incentive design, adaptive regulation, and alignment in non-stationary multi-agent systems.
+- **Multi-agent environments:** Define heterogeneous agents, observations, actions, rewards, and shared state transitions. Agents can interact within the same Markov decision process (MDP), with their actions jointly influencing the next state.
+- **Composable mechanisms:** Define and combine regulatory or behavioral mechanisms independently of the environment and learning algorithm. Mechanisms can affect what agents observe, how their actions change the environment, or the incentives they receive.
+- **Optional bilevel optimization:** Evaluate candidate mechanisms against populations of learning agents. A regulator can optimize a mechanism based on the behavior and system-level outcomes that emerge after agent adaptation.
+- **Interchangeable optimization components:** Keep the environment, agent-learning algorithm, and mechanism optimizer separate. The current release includes Evolution Strategies (ES) for outer-loop optimization and RLlib-based PPO and APPO for agent learning; other solvers can be integrated through the framework's abstractions.
+- **Experiment coordination:** Use the shared `World` abstraction to coordinate mechanism candidates, training and evaluation contexts, and feedback between optimization levels.
+- **Reproducible configuration and reporting:** Specify experiments in YAML, override configuration values at the command line, collect structured metrics, and export results through CSV, TensorBoard, or Weights & Biases (W&B).
 
-The framework's core abstractions live in `core/` and remain independent of domain-specific models. Users can construct custom multi-agent environments by defining agent objects, mechanism objects, shared state dynamics, observations, rewards, and evaluation objectives without rewriting the optimization and reporting infrastructure.
+A common bilevel experiment consists of a **regulator (leader)** proposing a rule, such as a fishing quota or incentive, and a population of **agents (followers)** adapting their policies under that rule. The regulator scores the resulting outcomes and uses them to evaluate or improve the mechanism. The same environment and agent abstractions can also be used without an outer regulator, for example to study multi-agent learning under a fixed mechanism.
 
-MetaMARL currently provides three example environments:
+The core framework lives in `core/` and is independent of any particular environmental model.
 
-| Example | What the regulator searches | What the society learns |
+## Included examples
+
+This release includes **two examples**:
+
+| Example | Purpose | What it demonstrates |
 | --- | --- | --- |
-| `examples/bilevel_fishery` | Fishing regulations, including harvest quotas and configurable mechanisms | How much each fisher harvests and how much it restores the stock |
-| `examples/fresh_water` | Water-allocation policies for a reservoir | How much water each farm requests each day |
-| `examples/cartpole` | An inert mechanism parameter | How to balance the pole; a pipeline check whose fitness is the constant 1.0 |
+| [`examples/bilevel_fishery/`](examples/bilevel_fishery/) | Common-pool resource management | Learning fishers interacting with a renewable resource under configurable mechanisms, including harvesting constraints and incentives; optional optimization of regulatory parameters |
+| [`examples/cartpole/`](examples/cartpole/) | End-to-end pipeline validation | PPO/APPO training and the bilevel execution and reporting pipeline in a simple environment with a constant outer fitness objective |
 
-The **fresh-water benchmark is a work in progress**, under development as a richer multi-agent alignment testbed. It aims to investigate adaptive resource management, heterogeneous agents, competing objectives, and cooperation under environmental constraints. The benchmark is intended to extend beyond simple mechanism optimization toward more complex settings involving dynamically coupled decisions and collective resource sustainability.
+### Fishery benchmark
 
-## Research scope and long-term vision
+The fishery example models interacting agents harvesting from a renewable fish stock. Individual agents seek rewards from resource use, while their combined actions affect the stock available in subsequent steps. Mechanisms can modify their incentives and constraints, making the environment useful for investigating strategic adaptation, resource sustainability, and the effects of regulatory interventions.
 
-MetaMARL is currently oriented toward **policy makers and researchers working on mechanism design**, providing flexible tools for constructing environments, defining regulatory interventions, and evaluating how adaptive populations respond to different incentive structures.
+The benchmark is a **theoretical proof of concept**, not a calibrated representation of a particular real-world fishery. It is intended to exercise the framework and enable controlled experiments.
 
-Its longer-term objective is to evolve into an open, extensible research ecosystem bringing together:
+### CartPole example
 
-- **Mechanism-design algorithms:** A collection of interchangeable optimization, control, and learning approaches for designing and evaluating interventions in multi-agent systems.
-- **Agent-alignment testbeds:** Configurable environments for studying coordination, cooperation, competition, strategic adaptation, and the effects of regulatory or alignment agents.
-- **Multi-agent learning benchmarks:** Reproducible tasks and evaluation protocols for comparing algorithms across different environments, agent populations, mechanism classes, and objectives.
-- **Multi-agent AI safety research:** Infrastructure for developing and evaluating approaches to aligning adaptive agents when their objectives, policies, and interactions evolve over time.
+The CartPole example provides a compact way to exercise the learning, optimization, and reporting infrastructure. Its outer objective is deliberately constant; it is a pipeline-validation example rather than a substantive mechanism-design benchmark.
 
-Of particular interest is the investigation of **multi-agent alignment as a dynamical problem**: how the introduction of a mechanism, incentive, or additional agent changes the behavior of an interacting population, and under what conditions these interventions can steer the system toward more desirable or stable outcomes.
+### Freshwater development
 
-The broader aim is to support a collaborative research ecosystem of algorithms and benchmarks rather than a framework tied to one optimization method, environmental model, or definition of alignment.
+**Freshwater and hydrological applications are not included in this release.** A water-management benchmark is under active development on the `dev` branch, including work on hydrological simulation and interacting water users. Its interfaces and experimental setup are not part of the released API or supported examples described here.
+
+## Architecture
+
+MetaMARL separates domain-specific dynamics from learning and optimization infrastructure:
+
+| Component | Responsibility |
+| --- | --- |
+| `core/agents/` | Agent abstractions and configurations |
+| `core/mechanism/` | Composable mechanisms and their effects on observations, actions, and incentives |
+| `core/envs/` | Environment interfaces, shared MDP state, transition and reset hooks, and regulator/follower environments |
+| `core/optimizers/` | Agent-learning and outer-optimization configurations, including bilevel composition and ES |
+| `core/adaptors/ray/` | Ray/RLlib integration, policy and environment adapters, and distributed execution |
+| `core/world/` | Coordination of mechanism candidates, runs, and evaluation contexts |
+| `core/metrics/` | Structured metric schemas, collection, and aggregation |
+| `core/reporting/` | CSV, TensorBoard, and W&B reporting backends |
+| `core/config/` | YAML configuration loading, command-line execution, and reproducibility utilities |
+
+The framework supports **shared or independent policies**, depending on the experimental configuration. Mechanism design and agent training are intentionally decoupled: a mechanism can be evaluated under a fixed population, while bilevel experiments can retrain or evaluate agents under candidate rules.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for more detail on the execution model.
 
 ## Installation
 
-The project uses [uv](https://docs.astral.sh/uv/) and Python 3.12, which `pyproject.toml` requires (`>=3.12,<3.13`). From the repository root:
+MetaMARL uses **Python 3.12** (`>=3.12,<3.13`) and [uv](https://docs.astral.sh/uv/) for dependency management.
+
+From the repository root:
 
 ```bash
-uv sync
+uv sync --group dev
 ```
 
-This installs the runtime dependencies (Ray 2.53 with RLlib, PyTorch, Weights & Biases and the scientific stack) together with the `dev` group, which holds pytest, ruff, nbconvert, the Jupyter kernel and TensorBoard. An installation without the `dev` group gets the TensorBoard reporter through the optional `tensorboard` extra.
-
-The fresh-water example runs on a built-in lake model by default. Its `--hydrology raven` option drives the external Raven hydrological model instead; Raven is not a Python dependency, and its executable and model directory are given on the command line (see the docstring of `examples/fresh_water/debug.py`).
+This installs the project's runtime dependencies and developer tools, including pytest, coverage, Ruff, and notebook tooling. The runtime includes Ray/RLlib, PyTorch, and scientific Python dependencies. Reporter availability depends on the selected dependencies and configuration.
 
 ## Running an experiment
 
-Every entry point fixes the string-hash seed before it does any work: when `PYTHONHASHSEED` is unset, the process restarts itself with `PYTHONHASHSEED=0`, which the first two log lines report. This standardizes Python's hash behavior across runs and supports reproducibility when used alongside fixed random seeds and deterministic settings. Other sources of nondeterminism, including distributed execution and numerical operations, may still affect results.
+Experiments are described in YAML and launched through the `metamarl` CLI. The old per-example `debug.py` entry points are **no longer part of the workflow**.
 
-Set `WANDB_MODE=offline` to run without a Weights & Biases account; the runs are then stored under `wandb/`.
-
-An experiment described in YAML runs through the `metamarl` command, which `uv sync` installs:
+### Validate a configuration
 
 ```bash
 WANDB_MODE=offline uv run metamarl check examples/bilevel_fishery/config.yaml
+```
+
+`check` constructs and validates the configuration without starting training.
+
+### Run the fishery example
+
+```bash
 WANDB_MODE=offline uv run metamarl run examples/bilevel_fishery/config.yaml
 ```
 
-`check` builds the experiment without running it and prints `Config OK: core.optimizers.bilevel.BilevelConfig`; `run` builds it and trains it. The same command is available as `uv run python -m core.config.cli`.
-
-Each example also has a script that builds the same kind of experiment in Python and exposes its main sizes as options. Run the scripts as modules from the repository root:
+The CLI is also available through its Python module:
 
 ```bash
-WANDB_MODE=offline uv run python -m examples.bilevel_fishery.debug \
-    --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20 --reporter csv
-
-WANDB_MODE=offline uv run python -m examples.cartpole.debug --algo appo \
-    --outer-iters 2 --train-iters 2 --horizon 20 --reporter csv
-
-WANDB_MODE=offline uv run python -m examples.fresh_water.debug \
-    --outer-iters 2 --train-iters 2 --horizon 30 --num-agents 20 --reporter csv
+WANDB_MODE=offline uv run python -m core.config.cli run examples/bilevel_fishery/config.yaml
 ```
 
-These smoke configurations are intended for quick validation on a development machine. Without options, the scripts run substantially larger experiments: the fishery, for instance, runs 1000 generations of 50 APPO iterations with ten fishers.
+### Run the CartPole example
 
-### Reporting and visualization
+```bash
+WANDB_MODE=offline uv run metamarl run examples/cartpole/config.yaml
+```
 
-MetaMARL includes a modular metrics, reporting, and visualization infrastructure designed to separate experiment execution from the tools used to inspect and analyze results.
+### Override YAML settings
 
-The reporting layer supports multiple backends:
+The CLI accepts command-line configuration overrides in `path.to.parameter=value` form, after the YAML filename. For example, to change an experiment setting, use:
+
+```bash
+uv run metamarl run examples/bilevel_fishery/config.yaml path.to.parameter=value
+```
+
+Here `path.to.parameter` is a placeholder: replace it with an actual key path from the selected YAML configuration. This avoids changing the configuration file for every experiment variation.
+
+Setting `WANDB_MODE=offline` prevents W&B from requiring an online account and stores W&B run data locally. Select a different reporter in the experiment's YAML configuration if desired.
+
+### Reproducibility
+
+MetaMARL provides explicit seeds and utilities for deterministic configuration. Its entry-point tooling also initializes `PYTHONHASHSEED` when needed. These measures support reproducible comparisons, but **distributed execution, floating-point operations, and the order in which random numbers are consumed can still affect exact repeatability**. In particular, matching policy seeds alone does not guarantee matched action samples when policies consume different numbers of random draws.
+
+## Reporting and visualization
+
+Metrics are defined through schemas and can be collected at multiple levels: individual agents and policies, shared environment dynamics, and mechanism evaluation or outer-loop fitness.
 
 | Backend | Purpose |
 | --- | --- |
-| **Weights & Biases (W&B)** | Experiment tracking, metrics visualization, comparison across runs, and monitoring optimization |
-| **TensorBoard** | Local visualization of training curves, optimization metrics, and learning progress |
-| **CSV** | Structured export of experiment metrics for independent statistical analysis, plotting, and post-processing |
+| **CSV** | Structured outputs for independent analysis, plotting, and post-processing |
+| **TensorBoard** | Local visualization of learning and optimization curves |
+| **Weights & Biases** | Run tracking, comparisons, dashboards, and experiment monitoring |
 
-The reporting abstractions are designed to allow additional backends without modifying the environment or optimization logic.
+Configure the reporter in YAML rather than passing the legacy `--reporter` flag to a deleted debug script. Output locations and available visualizations depend on the configured reporter and experiment.
 
-Metrics can be collected at different levels of the experiment, including individual agents and policies, environment dynamics, and outer-loop mechanism evaluation. Depending on the benchmark, these can include agent rewards, collective welfare, resource sustainability, mechanism parameters, and optimization fitness.
+The [`tutorials/`](tutorials/) directory contains notebooks illustrating framework abstractions, mechanisms, experiment construction, and result visualization. For an introductory walkthrough, see [QUICKSTART.md](QUICKSTART.md).
 
-With `--reporter csv`, experiment metrics are written under `results/bilevel/<world>-<optimizer>/`. With the default `--reporter wandb`, metrics are sent to Weights & Biases.
+## Research applications and roadmap
 
-The `tutorials/` directory also provides notebooks for exploring framework abstractions and visualizing experiments.
+MetaMARL aims to support research at the intersection of multi-agent reinforcement learning, mechanism design, and dynamical systems. Relevant questions include how agents adapt to shared constraints, how interventions affect collective outcomes, and whether a mechanism remains effective when the agents subject to it learn and respond strategically.
 
-[QUICKSTART.md](QUICKSTART.md) walks through a first run and its outputs.
+Areas of interest include:
+
+- **Mechanism design and evaluation:** Compare fixed or optimized interventions in interacting populations.
+- **Common-pool resource dilemmas:** Investigate sustainability, incentives, and strategic resource use.
+- **Multi-agent coordination and alignment:** Study how local incentives and coupled dynamics lead to cooperation, competition, or undesirable collective behavior.
+- **Algorithm development:** Use modular environments and objective definitions to evaluate new optimizers, learning methods, and control approaches.
+
+The long-term direction is an extensible collection of algorithms and realistic benchmarks, rather than a system tied to a single learning algorithm or environmental domain. Work in progress on the `dev` branch should not be interpreted as functionality available in this release.
 
 ## Repository layout
 
-| Path | Content |
+| Path | Contents |
 | --- | --- |
-| `core/optimizers/` | Bilevel optimization composition (`bilevel.py`), the ES optimizer (`es/`), and configurations for RLlib optimizers (`appo/`, `ppo/`); structured for interchangeable outer and inner solvers |
-| `core/adaptors/ray/` | Ray and RLlib integration: the inner optimizer, RLlib algorithm actors, environment adapter, and distributed runtime |
-| `core/envs/` | Single-agent and multi-agent environment abstractions, regulated environments, and the environments connecting agent learning to mechanism optimization |
-| `core/agents/` | Modular agent objects and interfaces for composing heterogeneous agents and learning roles |
-| `core/mechanism/` | Configurable, composable mechanisms and state-dependent interventions; supports vectorized mechanism and action decomposition |
-| `core/world/` | Shared `World` abstraction coordinating mechanism candidates and environment instances |
-| `core/metrics/` | Structured metric definitions and collection across agents, mechanisms, and optimization levels |
-| `core/reporting/` | Reporting and visualization backends, including CSV, TensorBoard, and Weights & Biases |
-| `core/config/` | YAML configuration loading, the `metamarl` CLI, and reproducibility utilities |
-| `examples/` | Fishery and CartPole benchmarks, alongside the developing fresh-water alignment benchmark |
-| `tests/` | Unit, integration, and benchmark tests covering framework components and examples |
-| `tutorials/` | Notebooks on framework abstractions, environment construction, mechanisms, and visualization |
-| `docs/` | Architecture documentation and maintainer notes |
+| `core/` | Framework abstractions, optimizers, Ray adapters, world coordination, configuration, metrics, and reporting |
+| `examples/bilevel_fishery/` | Fishery environment and YAML experiment configuration |
+| `examples/cartpole/` | CartPole pipeline-validation example |
+| `tests/` | Unit, integration, and example tests |
+| `tutorials/` | Research and instructional notebooks |
+| `docs/` | Architecture and project documentation |
+| `paper/` | Research-software manuscript and publication materials |
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how these pieces work together during a run, and [AGENTS.md](AGENTS.md) is the guide for anyone, human or coding agent, about to change the code. [docs/MERGE_NOTES.md](docs/MERGE_NOTES.md) records what the latest cleanup pass changed and what it left open, and [TODO.md](TODO.md) holds the maintainer's plan and the archived in-code notes.
+See [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md) before contributing, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the principal components and data flow.
 
-## Tests and lint
+## Tests and development
+
+Install the development dependencies as described above, then run:
 
 ```bash
-uv run python -m pytest                                         # whole suite
-uv run python -m pytest -m "not integration and not notebook"   # without the child-process runs
+uv run python -m pytest
+uv run python -m pytest -m "not integration and not notebook"
 uv run ruff check --no-fix .
 uv run ruff format --check .
 ```
 
-The suite runs the doctests of `core/` and `examples/` as well, and measures the coverage of `core/`.
+Pytest also checks executable docstring examples (doctests) and reports coverage for `core/`. Integration tests can launch Ray and example processes and may take longer than unit tests.
 
-Tests marked `integration` start the example scripts and the `metamarl` command in child processes, each with its own Ray runtime. Use the `-m pytest` form, which binds pytest to the project's environment.
+Some tests are intentionally skipped for tracked limitations, including observation-size composition and certain reporting or missing-metric edge cases. Their pytest skip reasons use stable issue IDs so they can be addressed without hiding the rest of the test suite. A high line-coverage percentage does not imply that these outstanding behaviors are verified.
 
-Always pass `--no-fix` to `ruff check`: `ruff.toml` sets `fix = true`, so a plain `ruff check` rewrites files.
+`ruff check --no-fix` is intentional: repository configuration may otherwise allow Ruff to modify files during lint checks.
 
-Continuous integration (`.github/workflows/ci.yml`) runs the lint, the unit tests and the integration tests as three jobs.
+## Authorship, affiliations, and funding
+
+**Principal author and developer:** **Nadine (Mohamed) Abdelghani**, publishing as **Nadine Mohamed**.
+
+**Scientific contributors and publication authors:**
+
+- Nadine Mohamed
+- Elise Devoie
+- Benjamin Rosman
+- Christof Brandtner
+- Guillaume Dumas
+
+The project was developed in affiliation with the **PPSP Lab (PI: Guillaume Dumas)**, **Mila – Quebec AI Institute**, and **Université de Montréal**, with funding from **CIFAR**.
+
+## Citation
+
+If you use MetaMARL in scientific work, please **cite the software and its associated research publication**, when available, and acknowledge the project authors. Software citation metadata can be maintained in a root-level `CITATION.cff` file so GitHub can provide formatted citations.
 
 ## License
 
-BSD 3-Clause; see [LICENSE](LICENSE).
+MetaMARL is released under the **Apache License, Version 2.0**. See [LICENSE](LICENSE) for the full terms and any accompanying attribution notices.
+
+Redistributions and derivative works must preserve applicable copyright, license, and attribution notices as required by that license. Academic citation is requested separately; it is not a universal legal requirement of Apache 2.0.
