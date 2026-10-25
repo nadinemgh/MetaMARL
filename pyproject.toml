@@ -1,10 +1,10 @@
 [project]
 name = "metamarl"
 version = "0.1.0"
-description = "MetaMARL: bilevel mechanism design, where an evolution strategy searches the rules a multi-agent reinforcement learning society is trained under"
-readme = "README.md"
+description = "A modular framework for mechanism design and multi-agent reinforcement learning, supporting composable mechanisms, realistic benchmarks, and bilevel optimization."readme = "README.md"
 requires-python = ">=3.12,<3.13"
-license = {text = "BSD-3-Clause"}
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     {name = "Nadine Abdelghani", email = "nadine.mohamed@umontreal.ca"},
     {name = "Guillaume Dumas", email = "guillaume.dumas@umontreal.ca"}
@@ -13,7 +13,6 @@ keywords = ["bilevel-optimization", "reinforcement-learning", "sustainability", 
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -62,7 +61,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
