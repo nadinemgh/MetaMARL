@@ -38,11 +38,13 @@ from gymnasium import spaces
 
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.agents.base import AgentConfig
+from core.config.yaml import ConfigError, load_experiment, load_yaml
 from core.envs import marl_regulated
 from core.mechanism.base import MDPState
 from core.reporting.csv import CSVConfig
 from core.world.context import MechanismContext, MechanismStatus
 from examples.cartpole.metric_schema import CartpoleMetricSchema
+from examples.cartpole.queries import ES_QUERIES, INNER_QUERIES
 from examples.cartpole.regulated_env import (
     DIAL_SPACE,
     PUSH_SPACE,
@@ -528,12 +530,6 @@ def test_regulator_reward_refuses_an_unknown_split_and_empty_metrics():
         env.reward(empty)
 
 
-# --- YAML configuration and end to end, as child processes ------------------------
-
-from core.config.yaml import ConfigError, load_experiment, load_yaml
-from examples.cartpole.queries import ES_QUERIES, INNER_QUERIES
-
-
 def _calls_of(config: dict, method: str) -> dict:
     """Find the arguments of a method in a declarative builder's calls."""
 
@@ -750,8 +746,8 @@ def test_appo_run_writes_inner_csv_reports(appo_run):
 
     assert expected <= actual, (
         f"Missing inner reports: {sorted(expected - actual)}\n"
-        f"Found: {sorted(actual)}\n"
-        f"Results directory: {results_dir}"
+        + f"Found: {sorted(actual)}\n"
+        + f"Results directory: {results_dir}"
     )
 
 

@@ -32,7 +32,6 @@ from typing import ClassVar, Optional
 
 import numpy as np
 import ray
-from gymnasium import spaces
 
 from core.agents.base import AgentConfig
 from core.mechanism.base import ActType, MDPState, StateType
@@ -53,7 +52,7 @@ logger = logging.getLogger(__name__)
 # TODO wrapper for MultiAgentEnv adaptor to work with ray
 
 
-# TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+# TODO future enhancement. support MPC, trajectory optimization, ...
 
 
 class MultiAgentEnv(ABC):

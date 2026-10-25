@@ -18,9 +18,9 @@ import importlib
 from pathlib import Path
 from typing import Any
 
+import yaml
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
-import yaml
 
 _RESERVED = {"_target_", "_symbol_", "_args_", "_calls_", "_tuple_"}
 

@@ -1,4 +1,5 @@
 from typing import Any, Optional
+
 import torch
 from ray.rllib.connectors.module_to_env import GetActions
 from ray.rllib.core.rl_module.rl_module import RLModule
