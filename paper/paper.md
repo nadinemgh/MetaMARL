@@ -1,6 +1,6 @@
 
 ---
-title: "MetaMARL: A Framework for Mechanism Design in Multi-Agent Reinforcement Learning"
+title: "MetaMARL: A Framework for Mechanism Design in Multi-Agent Reinforcement Systems"
 
 tags:
   - Python
