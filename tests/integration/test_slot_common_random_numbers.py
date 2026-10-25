@@ -29,7 +29,7 @@ OVERRIDES = (
 )
 FITNESS_LINE = re.compile(
     r"\[ES\] BEFORE UPDATE \| gen=(\d+) .*"
-    r"\| population=(\[\[.*\]\]) \| fitness=\[([^\]]*)\]"
+    + r"\| population=(\[\[.*\]\]) \| fitness=\[([^\]]*)\]"
 )
 
 
@@ -81,7 +81,7 @@ def negligible_spread_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
 
 @pytest.mark.integration
 def test_identical_candidates_of_one_seed_return_identical_fitness(
-    negligible_spread_run,
+    negligible_spread_run: dict,
 ):
     assert negligible_spread_run["returncode"] == 0, negligible_spread_run["output"][
         -4000:

@@ -10,7 +10,6 @@ import torch
 
 from core.adaptors.ray.policy_actor import PolicyActor
 
-
 # Access the underlying Python class without starting a Ray actor.
 ActorClass = PolicyActor.__ray_metadata__.modified_class
 

@@ -1,7 +1,7 @@
 {
-  "python.pythonPath": "${workspaceFolder}/venv/bin/python",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   "jupyter.notebookFileRoot": "${workspaceFolder}",
-  "python.dataScience.notebookFileRoot": "${workspaceFolder}",
+
   "debug.hover.enabled": false,
   "debug.variables.autoExpand": false,
   "debug.javascript.evaluateGetters": false,
@@ -9,5 +9,15 @@
     "evaluateGetters": false
   },
   "debug.console.closeOnEnd": true,
-  "debug.toolBarLocation": "docked"
+  "debug.toolBarLocation": "docked",
+
+  "ruff.enable": true,
+  "ruff.lint.enable": true,
+  "ruff.importStrategy": "fromEnvironment",
+  "ruff.interpreter": ["${workspaceFolder}/.venv/bin/python"],
+
+  "editor.formatOnSave": true,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  }
 }

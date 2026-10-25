@@ -148,7 +148,8 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         self.logger = env.logger
         self.reporter = env.reporter
 
-        # TODO (nadine) env serialization with numpy to avoid using MDPState and faster computation
+        # TODO (nadine) env serialization with numpy to avoid using MDPState and faster
+        # computation
 
     @override(RllibMultiAgentEnv)
     def reset(

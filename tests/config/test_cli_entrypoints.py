@@ -275,6 +275,7 @@ def test_python_run_module_builds_and_trains_without_starting_ray(monkeypatch):
     """The independent run.py must still run without delegating to the YAML CLI."""
 
     import ray
+
     from core.optimizers.bilevel import BilevelConfig
 
     calls = []

@@ -129,7 +129,6 @@ bilevel_opt_cfg: BilevelConfig = (
                             dtype=np.float32,
                         ),
                         # TODO (nadine) better name ?
-                        # TODO (nadine) what if acts on another type of object such as observation ?
                         acts_on=("fisherman", "harvest"),
                         obs_map={"resource_level": "fish"},
                         default=np.asarray(0.56224),
@@ -139,7 +138,8 @@ bilevel_opt_cfg: BilevelConfig = (
                         id="restoration_subsidy",
                         action_space=spaces.Box(
                             low=0,
-                            high=1.0,  # TODO (nadine) temp val / max_subsidy for migration set to 0.5 later
+                            # TODO (nadine) temp val / max_subsidy. must be 0.5
+                            high=1.0,
                             shape=(1,),  # TODO maybe constrain this to always be (1,)
                             dtype=np.float32,
                         ),
@@ -271,12 +271,7 @@ bilevel_opt_cfg: BilevelConfig = (
                 ),
                 count=10,
                 observation_space=spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(
-                        9,
-                    ),  # TODO (nadine) maybe an observation object needed to avoid hardcoding this
-                    dtype=np.float32,
+                    low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32
                 ),
             )
         )

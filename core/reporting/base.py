@@ -16,10 +16,10 @@ is a tuple of ``(junction, dynamic_id)`` pairs, for example
 when the path crosses no dynamic node.
 """
 
-from enum import Enum
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Literal, Optional, TypeAlias
 
 import numpy as np
@@ -337,7 +337,7 @@ class Reporter(ABC):
 
                     values = np.asarray(series, dtype=np.float64)
 
-                    # TODO (nadine) Allow users to choose whether NaNs are ignored or propagated.
+                    # TODO (nadine) Allow user choice if NaNs are ignored or propagated.
                     if np.isnan(values).any():
                         logger.error(
                             "NaN ignored during reporting aggregation: %s", path

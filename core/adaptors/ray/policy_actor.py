@@ -9,12 +9,11 @@ touching the driver.
 
 from __future__ import annotations
 
-from copy import deepcopy
 import logging
+from copy import deepcopy
 
 import numpy as np
 import ray
-from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.rllib.utils.typing import ResultDict
 

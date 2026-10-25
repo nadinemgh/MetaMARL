@@ -28,10 +28,10 @@ creator with ``ray.tune`` and returns a ``RayOptimizer``; the ``Algorithm``
 itself is only built later, inside the ``PolicyActor``.
 """
 
-from types import MethodType
 import functools
 import uuid
 from dataclasses import dataclass, replace
+from types import MethodType
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, Self, TypeAlias
 
 import numpy as np
@@ -46,8 +46,8 @@ from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.env.multi_agent_episode import MultiAgentEpisode
 from ray.tune.registry import register_env
-from core.adaptors.ray.iid_get_actions import build_iid_module_to_env_connector
 
+from core.adaptors.ray.iid_get_actions import build_iid_module_to_env_connector
 from core.adaptors.ray.marl_env import RLlibMultiAgentEnvAdapter
 from core.adaptors.ray.optimizer import RayOptimizer
 from core.agents.base import AgentConfig
@@ -179,7 +179,8 @@ class RayOptimizerConfig(OptimizerConfig):
 
         super().__init__(opt_class=RayOptimizer)
 
-        # TODO (nadine) termporary setting until find out how to share world context accross runners
+        # TODO (nadine) termporary setting until find out how to share world context
+        # accross runners
         self._cfg_ops: dict[FnID, RLlibConfigOp] = {}
         self.rllib_cfg: AlgorithmConfig | None = None
         self.world_name: Optional[str] = None

@@ -1,10 +1,10 @@
 """``core.config.yaml``: Hydra composition plus MetaMARL object resolution.
 
 Every document is a small YAML text written under ``tmp_path`` or a Python
-value passed to ``resolve``. Hydra supplies overrides and interpolation. Targets are standard-library classes
-(``fractions.Fraction``, ``collections.OrderedDict``) and the ``Builder`` class
-below, which has fluent methods for the ``_calls_`` forms. Errors carry the
-YAML path of the failing node, so the tests assert on the paths too.
+value passed to ``resolve``. Hydra supplies overrides and interpolation. Targets are
+standard-library classes(``fractions.Fraction``, ``collections.OrderedDict``) and the
+``Builder`` class below, which has fluent methods for the ``_calls_`` forms. Errors
+carry the YAML path of the failing node, so the tests assert on the paths too.
 """
 
 import collections

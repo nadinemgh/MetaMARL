@@ -242,7 +242,8 @@ class FisheryRegulatorEnv(RegulatorEnv):
                 seed = int(seed_id)
 
                 for episode_metrics in seed_metrics.by_episode.values():
-                    # TODO this is the mean however this is not good representation for late learning mechanisms
+                    # TODO (nadine) this is the mean however this is not good
+                    # representation for late learning mechanisms
                     rewards = np.atleast_1d(
                         np.asarray(episode_metrics.reward_mean, dtype=np.float32)
                     )
