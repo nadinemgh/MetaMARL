@@ -26,6 +26,7 @@ from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 import core.adaptors.ray.optimizer_config as optimizer_config_module
 import core.adaptors.ray.policy_actor as policy_actor_module
 from core.adaptors.ray.optimizer import RayOptimizer
+from core.adaptors.ray.schema import RaySchema
 from core.agents.base import AgentConfig
 from core.callbacks import _evaluate_with_fixed_duration_once
 from core.mechanism.config import MechanismConfig
@@ -218,9 +219,8 @@ class RecordingEnv:
 class WrappedEnv:
     """Stand-in for ``RLlibMultiAgentEnvAdapter``: keeps the wrapped env."""
 
-    def __init__(self, env, worker_index=0):
+    def __init__(self, env):
         self.env = env
-        self.worker_index = worker_index
 
 
 class RecordingReporter(Reporter):
@@ -342,7 +342,7 @@ def society(
         )
 
     if reporting:
-        cfg.reporting(queries=(OPT_QUERY,))
+        cfg.reporting(queries=(OPT_QUERY,), schema=RaySchema)
 
     if reporter:
         cfg.reporter_cfg = RecordingReporterConfig(project="unit")
@@ -570,8 +570,6 @@ def test_evaluation_envs_take_their_seeds_from_the_runner_index(
         )
         env = wrapped.env
 
-        # The exploration keys read the runner index from the adapter.
-        assert wrapped.worker_index == worker_index
         assert env.kwargs["mode"] == "eval"
         assert env.kwargs["mechanism_id"] == mechanism_idx
         assert env.kwargs["policy_seed"] == policy_seed

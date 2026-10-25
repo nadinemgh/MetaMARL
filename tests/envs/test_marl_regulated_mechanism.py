@@ -33,18 +33,36 @@ class ScriptedWorld:
         return self.answers.pop(0)
 
 
+class QuotaLeader:
+    """Leader with one ``quota`` mechanism whose decoding is the identity.
+
+    ``reset`` decodes the candidate with the mechanisms of the leaders and
+    writes the result as their action, so the leader must hold the mechanism.
+    """
+
+    def __init__(self) -> None:
+        self.mechanisms = {
+            "quota": SimpleNamespace(decode=lambda mdp, action: action, _u=None)
+        }
+
+    def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
+        return MDPState()
+
+
 def make_env(world: ScriptedWorld) -> MultiAgentEnv:
     """``MultiAgentEnv`` with only the attributes ``reset`` touches."""
 
     env = MultiAgentEnv.__new__(MultiAgentEnv)
     env.world = world
     env.logger = MetricLogger.from_schema(EpisodeRolloutSchema)
+    env.env_id = None
     env.mechanism_id = 0
     env.seed = env.policy_seed = 1
     env.mode = MechanismStatus.train
     env.lids = {"regulator"}
-    env.leaders = {}
+    env.leaders = {"regulator": QuotaLeader()}
     env.followers = {}
+    env.agents = dict(env.leaders)
     env.m = env.m_ctx = None
     env._using_default_mechanism = True
 
@@ -78,12 +96,12 @@ def test_later_episodes_keep_the_fetched_candidate():
 
 
 @pytest.mark.unit
-def test_a_newly_published_candidate_replaces_the_kept_one():
+def test_episode_resets_keep_the_fetched_candidate():
     env = make_env(ScriptedWorld([candidate(0.3), None, candidate(0.7), None]))
     quotas = [quota_at_reset(env) for _ in range(4)]
 
-    assert quotas == pytest.approx([0.3, 0.3, 0.7, 0.7])
-    assert env.world.calls == 4
+    assert quotas == pytest.approx([0.3, 0.3, 0.3, 0.3])
+    assert env.world.calls == 1
 
 
 @pytest.mark.unit

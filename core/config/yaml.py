@@ -1,6 +1,6 @@
 """Declarative YAML loader that turns a configuration file into live objects.
 
-A configuration is a YAML mapping with an ``experiment`` section describing an
+Hydra composes a YAML mapping with an ``experiment`` section describing an
 object to build and an optional ``run`` section listing method calls to apply
 to it. Nodes are resolved recursively with a small set of reserved keys
 (``_target_``, ``_symbol_``, ``_args_``, ``_calls_``, ``_tuple_``), in the
@@ -15,10 +15,11 @@ can be called directly from Python or notebooks.
 from __future__ import annotations
 
 import importlib
-import os
 from pathlib import Path
 from typing import Any
 
+from hydra import compose, initialize_config_dir
+from omegaconf import OmegaConf
 import yaml
 
 _RESERVED = {"_target_", "_symbol_", "_args_", "_calls_", "_tuple_"}
@@ -292,54 +293,57 @@ def apply_calls(
     return obj
 
 
-def load_yaml(path: str | Path) -> dict[str, Any]:
-    """Read a YAML file into a dict with safe parsing and variable expansion.
+def load_yaml(
+    path: str | Path, *, overrides: list[str] | None = None
+) -> dict[str, Any]:
+    """Compose a YAML file with Hydra and return a plain Python mapping.
 
-    Environment variables (``$NAME`` and ``${NAME}``) are expanded over the
-    whole file text with ``os.path.expandvars`` before parsing; a reference to
-    an undefined variable is left as written. The text is then parsed with
-    ``yaml.safe_load``, which refuses Python object tags.
+    Hydra supports command-line overrides, configuration groups and OmegaConf
+    interpolation. The file's directory is the configuration search path.
+    Use ``${oc.env:NAME}`` for environment variables.
 
     Parameters
     ----------
-    path : str or pathlib.Path
-        Location of the YAML file.
+    path : str or Path
+        Location of the YAML configuration.
+    overrides : list[str] or None, optional
+        Hydra overrides, e.g. ``["params.learning_rate=0.0003"]``.
 
     Returns
     -------
     dict[str, Any]
-        The top-level mapping of the document.
+        Composed and fully resolved YAML configuration.
 
     Raises
     ------
     ConfigError
-        If ``path`` is not an existing file, if the YAML is invalid (the parser
-        error is chained), or if the top level is not a mapping.
-
-    When to use: to read a configuration file without building anything.
-
-    Examples
-    --------
-    >>> import tempfile
-    >>> from pathlib import Path
-    >>> with tempfile.TemporaryDirectory() as tmp:
-    ...     path = Path(tmp) / "config.yaml"
-    ...     _ = path.write_text("seeds: [1, 2]\\nname: demo\\n")
-    ...     load_yaml(path)
-    {'seeds': [1, 2], 'name': 'demo'}
+        If the file is missing, composition or an override fails, or the top
+        level is not a mapping.
     """
 
-    path = Path(path)
+    path = Path(path).resolve()
 
     if not path.is_file():
         raise ConfigError(f"Config file not found: {path}")
 
-    text = os.path.expandvars(path.read_text())
-
+    # Preserve the original loader's strict top-level YAML contract.
     try:
-        data = yaml.safe_load(text)
+        raw = yaml.safe_load(path.read_text())
     except yaml.YAMLError as exc:
         raise ConfigError(f"Invalid YAML in {path}") from exc
+
+    if not isinstance(raw, dict):
+        raise ConfigError("Top-level YAML document must be a mapping")
+
+    try:
+        with initialize_config_dir(
+            version_base=None, config_dir=str(path.parent), job_name="metamarl"
+        ):
+            config = compose(config_name=path.stem, overrides=overrides or [])
+
+        data = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+    except Exception as exc:
+        raise ConfigError(f"Could not compose configuration {path}: {exc}") from exc
 
     if not isinstance(data, dict):
         raise ConfigError("Top-level YAML document must be a mapping")
@@ -347,14 +351,18 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
     return data
 
 
-def load_experiment(path: str | Path) -> Any:
+def load_experiment(path: str | Path, *, overrides: list[str] | None = None) -> Any:
     """Construct the configured experiment without running it.
+
+    Hydra composes the file and applies ``overrides`` first; the ``run`` section
+    is ignored. This checks construction, not whether training will succeed.
 
     Parameters
     ----------
-    path : str or pathlib.Path
-        Location of the YAML file; its ``experiment`` section is resolved.
-        The ``run`` section is ignored.
+    path : str or Path
+        Location of the YAML configuration.
+    overrides : list[str] or None, optional
+        Hydra command-line overrides.
 
     Returns
     -------
@@ -364,27 +372,10 @@ def load_experiment(path: str | Path) -> Any:
     Raises
     ------
     ConfigError
-        If the file cannot be loaded (see ``load_yaml``), if it has no
-        top-level ``experiment`` key, or if resolving it fails; nested errors
-        carry paths starting with ``$.experiment``.
-
-    When to use: to validate a configuration or to obtain the experiment object
-    in a notebook; the ``check`` command of ``core.config.cli`` is built on it.
-
-    Examples
-    --------
-    >>> import tempfile
-    >>> from pathlib import Path
-    >>> with tempfile.TemporaryDirectory() as tmp:
-    ...     path = Path(tmp) / "config.yaml"
-    ...     _ = path.write_text(
-    ...         "experiment:\\n  _target_: fractions.Fraction\\n  _args_: [3, 6]\\n"
-    ...     )
-    ...     load_experiment(path)
-    Fraction(1, 2)
+        If composition or experiment construction fails.
     """
 
-    data = load_yaml(path)
+    data = load_yaml(path, overrides=overrides)
 
     if "experiment" not in data:
         raise ConfigError("Config requires a top-level 'experiment:' section")
@@ -392,51 +383,31 @@ def load_experiment(path: str | Path) -> Any:
     return resolve(data["experiment"], path="$.experiment")
 
 
-def run_experiment(path: str | Path) -> Any:
+def run_experiment(path: str | Path, *, overrides: list[str] | None = None) -> Any:
     """Construct the experiment, then apply the ``run`` section to it.
 
-    The ``experiment`` section is resolved as in ``load_experiment``, and the
-    optional top-level ``run`` list is applied with ``apply_calls`` (under the
-    path ``$.run``).
+    Hydra composes the YAML with the specified overrides, then the existing
+    MetaMARL resolver constructs the experiment and applies its ``run`` calls.
 
     Parameters
     ----------
-    path : str or pathlib.Path
-        Location of the YAML file.
+    path : str or Path
+        Location of the YAML configuration.
+    overrides : list[str] or None, optional
+        Hydra command-line overrides.
 
     Returns
     -------
     Any
-        The experiment after the last ``run`` call, or the last non-``None``
-        value returned by a call (see ``apply_calls``). Without a ``run``
-        section, the constructed experiment itself.
+        The result of the final ``run`` call, or the constructed experiment.
 
     Raises
     ------
     ConfigError
-        If the file cannot be loaded, if it has no ``experiment`` key, or if
-        constructing the experiment or one of the ``run`` calls fails.
-
-    When to use: to execute a full configuration, for example a training run
-    whose last call is ``train``; the ``run`` command of ``core.config.cli``
-    calls it.
-
-    Examples
-    --------
-    >>> import tempfile
-    >>> from pathlib import Path
-    >>> text = (
-    ...     "experiment:\\n  _target_: fractions.Fraction\\n  _args_: [7, 3]\\n"
-    ...     "run:\\n  - limit_denominator:\\n      max_denominator: 2\\n"
-    ... )
-    >>> with tempfile.TemporaryDirectory() as tmp:
-    ...     path = Path(tmp) / "config.yaml"
-    ...     _ = path.write_text(text)
-    ...     run_experiment(path)
-    Fraction(5, 2)
+        If composition, construction or execution fails.
     """
 
-    data = load_yaml(path)
+    data = load_yaml(path, overrides=overrides)
 
     if "experiment" not in data:
         raise ConfigError("Config requires a top-level 'experiment:' section")

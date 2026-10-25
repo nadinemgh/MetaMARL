@@ -175,6 +175,7 @@ class PolicyActor:
             previous algorithm (for example ``TimeoutError``); the algorithm
             is stopped all the same and no new one is built.
         """
+
         self.algo = self.algo_config.build_algo()
 
         # TODO (nadine) deprecate this. use PPO catalog subclass
@@ -182,13 +183,19 @@ class PolicyActor:
 
         if self._init_weights is None:
             weights = self.algo.get_weights()
+
             for policy_id in weights:
                 seed = policy_id.rsplit("_s", 1)[1]
+
                 if seed not in weights_by_seed:
                     weights_by_seed[seed] = deepcopy(weights[policy_id])
+
                 weights[policy_id] = deepcopy(weights_by_seed[seed])
+
             self.algo.set_weights(weights)
+
             self._init_weights = deepcopy(weights)
+
             return
 
         # TODO tie the init_weights with seeding

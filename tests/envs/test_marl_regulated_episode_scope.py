@@ -26,8 +26,8 @@ class SettableRewardAgent:
         self.aid = aid
         self.value = reward
 
-    def action(self, mdp: MDPState) -> MDPState:
-        return mdp
+    def action(self, mdp: MDPState, *, reset: bool = False) -> MDPState:
+        return MDPState()
 
     def reward(self, mdp: MDPState) -> MDPState:
         return MDPState(rewards={self.aid: self.value})
@@ -44,6 +44,7 @@ def make_env(follower: SettableRewardAgent) -> MultiAgentEnv:
         get_mechanism_by_id=SimpleNamespace(remote=lambda **kwargs: None)
     )
     env.logger = MetricLogger.from_schema(EpisodeRolloutSchema)
+    env.env_id = None
     env.mechanism_id = 0
     env.seed = env.policy_seed = 1
     env.mode = MechanismStatus.eval

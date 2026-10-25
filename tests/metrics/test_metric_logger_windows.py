@@ -204,10 +204,11 @@ class TestEpisodeWindow:
 
 @pytest.mark.unit
 class TestNonFiniteThroughTheLogger:
-    def test_nan_pushed_to_a_mean_comes_out_as_nan(self, logger):
+    def test_nan_pushed_to_a_mean_is_ignored_during_aggregation(self, logger, caplog):
         logger.push(MEAN, 1.0)
         logger.push(MEAN, float("nan"))
-        assert math.isnan(logger.reduce().static.mean_value)
+        assert logger.reduce().static.mean_value == 1.0
+        assert "NaN ignored during aggregation" in caplog.text
 
     def test_nan_in_one_window_does_not_poison_the_next(self, logger):
         logger.push(MEAN, float("nan"))

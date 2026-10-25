@@ -456,8 +456,13 @@ class TestBuildOptimizer:
         assert opt.reporting is None
         assert opt.env.kwargs["reporter_cfg"] is None
 
-    def test_a_build_without_a_world_leaves_the_id_unset(self, reporter_config):
-        opt = self.make(reporter_config).build_optimizer(world=None)
+    def test_the_id_assigned_by_the_world_is_stored_and_given_to_the_environment(
+        self, fake_world, reporter_config
+    ):
+        # The optimizer id is mandatory since ``Optimizer.id`` raises while it
+        # is unset, so a build without a world no longer yields an optimizer
+        # whose environment receives ``opt_id=None``: the world must assign it.
+        opt = self.make(reporter_config).build_optimizer(world=fake_world)
 
-        assert opt.opt_id is None
-        assert opt.env.kwargs["opt_id"] is None
+        assert opt.opt_id == fake_world.opt_ids[0]
+        assert opt.env.kwargs["opt_id"] == opt.opt_id

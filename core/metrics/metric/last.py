@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import logging
+import math
+from numbers import Real
+
 from core.metrics.metric.base import PrimitiveType
 from core.metrics.metric.series import SeriesMetric
 
 
 class LastMetric(SeriesMetric):
-    """Metric reducing to the most recently pushed value.
+    """Metric reducing to the most recently pushed non-NaN value.
 
     Any primitive type is accepted; ``peek`` returns the last value that is
-    not a gap, and ``None`` while there is none.
+    not NaN, and ``None`` while empty. NaNs are logged and ignored during
+    aggregation; all-NaN returns NaN.
 
     When to use: for counters and state where only the latest value matters
     (``iter``, a generation index, the current best fitness).
@@ -29,20 +34,19 @@ class LastMetric(SeriesMetric):
     """
 
     def peek(self, compile: bool = True) -> PrimitiveType | list[PrimitiveType] | None:
-        """Return the last value (``None`` when empty).
+        """Return the last non-NaN value (``None`` when empty).
 
         When ``compile`` is false, the history is returned instead.
 
         Parameters
         ----------
         compile : bool, default True
-            If true, the most recent value; if false, a copy of the history.
+            If true, the most recent non-NaN value; if false, a copy of the history.
 
         Returns
         -------
         int or float or bool or str or list or None
-            The last pushed value that is not a gap, ``None`` while there
-            is none, or the history.
+            The last pushed non-NaN value, ``None`` while empty, or the history.
         """
 
         if not compile:
@@ -51,7 +55,15 @@ class LastMetric(SeriesMetric):
         if not self.values:
             return None
 
-        return self.values[-1]
+        # TODO (nadine) Add a user-configurable NaN policy (ignore or propagate).
+        values = [v for v in self.values if not (isinstance(v, Real) and math.isnan(v))]
+
+        if len(values) != len(self.values):
+            logging.getLogger(__name__).error(
+                "LastMetric: NaN ignored during aggregation."
+            )
+
+        return values[-1] if values else math.nan
 
     # (nadine) TODO move to base cls
     def reduce(self, compile: bool = True) -> PrimitiveType | LastMetric | None:

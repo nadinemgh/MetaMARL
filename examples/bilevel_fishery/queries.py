@@ -22,9 +22,11 @@ pushes at every step.
 Examples
 --------
 >>> len(ES_QUERIES), len(INNER_QUERIES), len(FISHERY_ENV_QUERIES)
-(7, 9, 1)
->>> [q.title for q in ES_QUERIES if q.y_paths[0][0] != "inner"]
-['Fitness over outer optimization iterations', 'Candidate fitness vs quota']
+(10, 11, 3)
+>>> titles = [q.title for q in ES_QUERIES if q.y_paths[0][0] != "inner"]
+>>> titles  # doctest: +NORMALIZE_WHITESPACE
+['Fitness over outer optimization iterations', 'Candidate fitness vs quota',
+ 'Restoration subsidy vs quota']
 """
 
 from core.metrics.enums import ReduceProtocol
@@ -316,9 +318,10 @@ INNER_QUERIES = (
     ),
     # TODO two ways over junction : either plot them in separete line or mean over
     # TODO what if you wanna avergae over specific type of agent ?
-    # TODO seeding : is error bar, by_episode is mean, by_agent is mean -> for that we leave the separation int he mapping. ID should be by type strictly
+    # TODO seeding : is error bar, by_episode is mean, by_agent is mean -> for that we
+    #   leave the separation int he mapping. ID should be by type strictly
     Query(
-        title="Quota penalty mean over training episdoes",
+        title="Quota penalty mean over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -348,7 +351,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Intrinsic utility mean over training episdoes",
+        title="Intrinsic utility mean over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -378,7 +381,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Mean normalized fish biomass over training episdoes",
+        title="Mean normalized fish biomass over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -406,7 +409,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Min normalized fish biomass over training episdoes",
+        title="Min normalized fish biomass over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -434,7 +437,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Max normalized fish biomass over training episdoes",
+        title="Max normalized fish biomass over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -462,7 +465,7 @@ INNER_QUERIES = (
         ),
     ),
     Query(
-        title="Terminal rollout normalized fish biomass over training episdoes",
+        title="Terminal rollout normalized fish biomass over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(
@@ -491,7 +494,7 @@ INNER_QUERIES = (
     ),
     # TODO Again seeding over policy ? error bars ?
     Query(
-        title="Value loss over training episdoes",
+        title="Value loss over training episodes",
         legend_labels=("train",),
         x=("iter",),
         y=(

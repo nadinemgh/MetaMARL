@@ -111,4 +111,5 @@ examples/fresh_water/raven/
 geojsons/
 
 !TODO.md
-!tutorials/*
+/tutorials/*
+!/tutorials/*.ipynb

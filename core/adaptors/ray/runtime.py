@@ -15,6 +15,7 @@ from typing import Any, Dict, Literal, Optional
 
 import ray
 import torch
+from ray._private import ray_constants
 
 DeviceType = Literal["cpu", "cuda", "mps"]
 
@@ -142,6 +143,8 @@ class RayRuntimeConfig:
         """
 
         self._apply_env_vars()
+
+        ray_constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV = False
 
         # Silence noisy loggers globally
         # # logging.getLogger().setLevel(logging.WARNING)

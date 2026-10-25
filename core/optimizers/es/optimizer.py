@@ -182,7 +182,7 @@ class ESOptimizer(Optimizer):
     ...     def reset(self):
     ...         return None, {}
     ...     def step(self, actions):
-    ...         fitness = [-((a["quota"][0] - 0.8) ** 2) for a in actions]
+    ...         fitness = [-((a["quota"] - 0.8) ** 2) for a in actions]
     ...         return None, fitness, True, False, {}
     >>> opt.env = ToyRegulatorEnv()
     >>> summary = opt.train()
@@ -233,19 +233,20 @@ class ESOptimizer(Optimizer):
             if not isinstance(action_space, spaces.Box):
                 raise TypeError(
                     "ESOptimizer requires continuous Box action spaces; "
-                    f"{mechanism_id!r} has {type(action_space).__name__}."
+                    + f"{mechanism_id!r} has {type(action_space).__name__}."
                 )
 
         self.search_space = flatten_space(self.action_space)
         self.dimension = flatdim(self.action_space)
 
         # TODO (nadine) built-in normalization not supported yet
-        if not np.allclose(self.search_space.low, 0.0) and np.allclose(
-            self.search_space.high, 1.0
+        if not (
+            np.allclose(self.search_space.low, 0.0)
+            and np.allclose(self.search_space.high, 1.0)
         ):
             raise ValueError(
                 "ESOptimizer currently requires action bounds in [0, 1]. "
-                f"Got low={self.search_space.low}, high={self.search_space.high}."
+                + f"Got low={self.search_space.low}, high={self.search_space.high}."
             )
 
         self.parameter_names: list[str] = []
@@ -263,7 +264,7 @@ class ESOptimizer(Optimizer):
         if len(self.parameter_names) != self.dimension:
             raise RuntimeError(
                 "Action-space parameter count does not match ES dimension: "
-                f"{len(self.parameter_names)} != {self.dimension}."
+                + f"{len(self.parameter_names)} != {self.dimension}."
             )
 
         self.mean_lr = config.mean_lr
@@ -272,6 +273,8 @@ class ESOptimizer(Optimizer):
         self.min_sigma = float(config.min_sigma)
         self.max_sigma = float(config.max_sigma)
         self.break_symmetry = config.break_symmetry
+        self.convergence_eps = float(config.convergence_eps)
+        self.convergence_patience = int(config.convergence_patience)
 
         if self.dimension < 0:
             raise ValueError("dimension must be non-negative")
@@ -295,6 +298,15 @@ class ESOptimizer(Optimizer):
         if self.max_sigma < self.min_sigma:
             raise ValueError("max_sigma must be >= min_sigma")
 
+        if self.convergence_eps < 0.0:
+            raise ValueError(
+                "convergence_eps must be non-negative. Use 0 to disable the "
+                + "convergence stop."
+            )
+
+        if self.convergence_patience < 1:
+            raise ValueError("convergence_patience must be at least 1")
+
         # --- Runtime state ---
         if config.initial_mean is not None:
             initial_mean = np.asarray(config.initial_mean, dtype=np.float32)
@@ -302,7 +314,7 @@ class ESOptimizer(Optimizer):
             if initial_mean.shape != (self.dimension,):
                 raise ValueError(
                     "initial_mean must have shape "
-                    f"({self.dimension},), got {initial_mean.shape}"
+                    + f"({self.dimension},), got {initial_mean.shape}"
                 )
 
             if not np.all(np.isfinite(initial_mean)):
@@ -326,6 +338,7 @@ class ESOptimizer(Optimizer):
         self.best_candidate = self.mean.copy()
         self.best_mechanism_idx: int | None = None
         self.population_history: list[tuple[np.ndarray, np.ndarray]] = []
+        self.stalled_generations = 0
 
         # This is explicitly the average fitness of the sampled population,
         # not the fitness of the distribution mean.
@@ -434,13 +447,13 @@ class ESOptimizer(Optimizer):
         """
 
         if self.fixed_mode:
-            return np.empty((self._batch_capacity, 0), dtype=np.float32)
+            return np.empty((self.batch_capacity, 0), dtype=np.float32)
 
-        if self._batch_capacity == 1 and self.fitness_baseline is None:
+        if self.batch_capacity == 1 and self.fitness_baseline is None:
             return self.mean[None, :].copy()
 
-        half_pop = self._batch_capacity // 2
-        remaining = self._batch_capacity - (2 * half_pop)
+        half_pop = self.batch_capacity // 2
+        remaining = self.batch_capacity - (2 * half_pop)
         noise_half = self.rng.standard_normal(
             (half_pop, self.dimension), dtype=np.float32
         )
@@ -458,7 +471,7 @@ class ESOptimizer(Optimizer):
 
         # When requested, replace one mirrored sample with an independent
         # sample so the population is no longer strictly antithetic.
-        if self.break_symmetry and self._batch_capacity % 2 == 0 and half_pop > 0:
+        if self.break_symmetry and self.batch_capacity % 2 == 0 and half_pop > 0:
             noise_matrix[-1] = self.rng.standard_normal(
                 self.dimension, dtype=np.float32
             )
@@ -530,11 +543,11 @@ class ESOptimizer(Optimizer):
 
         logger.info(
             "[ES] SIGMA UPDATE | "
-            "action=%s | previous_population_mean_fitness=%.6f | "
-            "current_population_mean_fitness=%.6f | "
-            "improvement=%+.6f | tolerance=%.6f | "
-            "sigma=%.6f->%.6f | sigma_lr=%.6f | "
-            "sigma_decay=%.6f",
+            + "action=%s | previous_population_mean_fitness=%.6f | "
+            + "current_population_mean_fitness=%.6f | "
+            + "improvement=%+.6f | tolerance=%.6f | "
+            + "sigma=%.6f->%.6f | sigma_lr=%.6f | "
+            + "sigma_decay=%.6f",
             action,
             previous,
             generation_mean_fitness,
@@ -611,12 +624,12 @@ class ESOptimizer(Optimizer):
 
         logger.info(
             "[ES] SINGLE UPDATE | "
-            "accepted=%s | "
-            "parent_fitness=%.6f | "
-            "candidate_fitness=%.6f | "
-            "improvement=%+.6f | "
-            "mean=%s->%s | "
-            "sigma=%.6f->%.6f",
+            + "accepted=%s | "
+            + "parent_fitness=%.6f | "
+            + "candidate_fitness=%.6f | "
+            + "improvement=%+.6f | "
+            + "mean=%s->%s | "
+            + "sigma=%.6f->%.6f",
             accepted,
             parent_fitness,
             fitness,
@@ -639,8 +652,8 @@ class ESOptimizer(Optimizer):
         if population.shape != (fitness_scores_array.size, self.dimension):
             raise ValueError(
                 "population shape and fitness count do not match: "
-                f"{population.shape} versus "
-                f"{fitness_scores_array.size} fitness values"
+                + f"{population.shape} versus "
+                + f"{fitness_scores_array.size} fitness values"
             )
 
         if fitness_scores_array.size == 0:
@@ -655,8 +668,8 @@ class ESOptimizer(Optimizer):
             if fitness_scores_array.size != expected_size:
                 raise ValueError(
                     "Fixed-mechanism mode expected "
-                    f"{expected_size} fitness values, got "
-                    f"{fitness_scores_array.size}."
+                    + f"{expected_size} fitness values, got "
+                    + f"{fitness_scores_array.size}."
                 )
 
             generation_mean_fitness = float(np.mean(fitness_scores_array))
@@ -672,8 +685,8 @@ class ESOptimizer(Optimizer):
 
             logger.info(
                 "[ES] FIXED MECHANISM BATCH | "
-                "fitness=%s | mean=%.6f | "
-                "std=%.6f | min=%.6f | max=%.6f",
+                + "fitness=%s | mean=%.6f | "
+                + "std=%.6f | min=%.6f | max=%.6f",
                 fitness_scores_array.tolist(),
                 generation_mean_fitness,
                 float(np.std(fitness_scores_array)),
@@ -772,21 +785,13 @@ class ESOptimizer(Optimizer):
     ) -> ESSchema:
         """Convert one completed ES generation to its metric schema."""
 
-        if self.fixed_mode:
-            mechanism = self.env.m_space.default()
-            parameter_names = mechanism.param_names()
-            default_vector = np.asarray(mechanism.to_vector(), dtype=np.float32)
-            logged_population = np.repeat(
-                default_vector[None, :], repeats=population.shape[0], axis=0
-            )
-            logged_mean = default_vector
-            logged_best = default_vector
-        else:
-            parameter_names = self.parameter_names
-            logged_population = population
-            logged_mean = mean
-            logged_best = self.best_candidate
-
+        # In fixed mode the dimension is 0: the parameter names, the mean and
+        # the candidates are empty, so the payload only carries the fitness
+        # values of the evaluated batch.
+        parameter_names = self.parameter_names
+        logged_population = population
+        logged_mean = mean
+        logged_best = self.best_candidate
         best_idx = int(np.argmax(fitness))
 
         return ESSchema(
@@ -831,8 +836,53 @@ class ESOptimizer(Optimizer):
         )
 
     # TODO (nadine) implement early stopping criteria
-    def _has_converged(self):
-        return False
+    def _update_convergence(self, previous_mean: np.ndarray) -> bool:
+        """Update the stall streak after a generation and test the stop rule.
+
+        The displacement is the Euclidean norm of ``self.mean - previous_mean``
+        in the normalized ``[0, 1]^dimension`` space. A displacement below
+        ``convergence_eps`` extends the streak, any other resets it, and the
+        search has converged when the streak reaches ``convergence_patience``.
+        This is a heuristic stopping rule, not taken from a paper. It is
+        inactive in fixed mode, where the mean is empty, and when
+        ``convergence_eps`` is ``0``.
+
+        Parameters
+        ----------
+        previous_mean : numpy.ndarray
+            Search mean before the generation's update, shape ``(dimension,)``,
+            values in ``[0, 1]``.
+
+        Returns
+        -------
+        bool
+            ``True`` when the streak has reached ``convergence_patience``.
+        """
+
+        if self.fixed_mode:
+            return False
+
+        displacement = float(
+            np.linalg.norm(
+                np.asarray(self.mean, dtype=np.float64)
+                - np.asarray(previous_mean, dtype=np.float64)
+            )
+        )
+
+        if displacement < self.convergence_eps:
+            self.stalled_generations += 1
+        else:
+            self.stalled_generations = 0
+
+        logger.info(
+            "[ES] CONVERGENCE CHECK | displacement=%.3e | eps=%.3e | stalled=%d/%d",
+            displacement,
+            self.convergence_eps,
+            self.stalled_generations,
+            self.convergence_patience,
+        )
+
+        return self.stalled_generations >= self.convergence_patience
 
     def train(self) -> dict[str, Any]:
         """Run ``self.episodes`` generations and return a summary.
@@ -883,10 +933,12 @@ class ESOptimizer(Optimizer):
         # generation loop below cannot handle.
         if getattr(self.env, "horizon", 1) is None:
             raise ValueError(
-                "ESOptimizer requires a regulator with a finite horizon; got horizon=None"
+                "ESOptimizer requires a regulator with a finite horizon; "
+                + "got horizon=None"
             )
 
         converged = False
+        self.stalled_generations = 0
 
         for generation in range(self.episodes):
             logger.info(
@@ -933,7 +985,7 @@ class ESOptimizer(Optimizer):
                 if fitness.size != population.shape[0]:
                     raise RuntimeError(
                         f"The environment returned {fitness.size} fitness values for "
-                        f"{population.shape[0]} candidates"
+                        + f"{population.shape[0]} candidates"
                     )
 
             if truncated and not terminated:
@@ -949,7 +1001,8 @@ class ESOptimizer(Optimizer):
             fitness_variance = float(fitness.var())
 
             logger.info(
-                "[ES] BEFORE UPDATE | gen=%d | mean=%s | sigma=%.5f | population=%s | fitness=%s",
+                "[ES] BEFORE UPDATE | gen=%d | mean=%s | sigma=%.5f | "
+                + "population=%s | fitness=%s",
                 generation,
                 pre_update_mean.tolist(),
                 pre_update_sigma,
@@ -986,19 +1039,21 @@ class ESOptimizer(Optimizer):
                 self.sigma,
             )
 
-            converged = self._has_converged()
+            converged = self._update_convergence(pre_update_mean)
 
             if converged:
                 logger.info(
-                    "[ES] Converged | gen=%d | sigma=%.6f | min_sigma=%.6f",
+                    "[ES] Converged | gen=%d | stalled=%d | eps=%.3e | sigma=%.6f",
                     generation,
+                    self.stalled_generations,
+                    self.convergence_eps,
                     self.sigma,
-                    self.min_sigma,
                 )
                 break
 
         return {
-            "episode": generation,
+            "episodes": generation + 1 if self.episodes > 0 else 0,
+            "converged": converged,
             "best_fitness": self.best_fitness,
             "best_mechanism": self.best_candidate,
             "population_history": self.population_history,

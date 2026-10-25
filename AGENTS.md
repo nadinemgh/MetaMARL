@@ -1,154 +1,108 @@
 # AGENTS.md
 
-This repository is MetaMARL, a research framework for bilevel mechanism design. An
-outer Evolution Strategies optimizer searches the parameters of a regulatory mechanism
-(a quota, a subsidy, a penalty or a social-influence rule). For every candidate, an
-inner RLlib society of learning agents is trained and evaluated under that mechanism,
-and the society's outcome becomes the candidate's fitness. The reference benchmark is
-the fishery in `examples/bilevel_fishery/`. This file is for a coding agent or a new
-contributor; the design rationale lives in `docs/ARCHITECTURE.md`.
+This file guides coding agents and contributors working on **MetaMARL**. It records practical project conventions and boundaries; the architecture and scientific motivation are documented in [README.md](README.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where to read first
+MetaMARL is an algorithm-agnostic framework for multi-agent learning, mechanism design, and experiments in interacting dynamical systems. **Bilevel optimization is optional.** The current release includes Evolution Strategies (ES) for mechanism optimization and RLlib-based PPO/APPO for agent learning. The released examples are `examples/bilevel_fishery/` and `examples/cartpole/`. **Freshwater is under development on `dev` and is not included in this release.** Do not add freshwater commands or functionality to release-facing documentation unless explicitly requested.
 
-Start with `README.md` for the scientific picture and `QUICKSTART.md` for a first
-run that finishes in about fifteen seconds. Then read `docs/ARCHITECTURE.md` for how
-the two levels, the `World` actor and the metric pipeline fit together, and
-`docs/MERGE_NOTES.md` for what the latest cleanup pass changed and what it left open.
-`TODO.md` holds the maintainer's open plan, two handoff checklists ranked P0 to P2,
-and in its last section the in-code TODO notes that the cleanup pass archived, some
-marked as resolved; check an item against the code before acting on it.
-`docs/REPRISE.md` is the status board of the cleanup pass and is only needed to
-resume that work.
+## Before making changes
 
-## Module map
+1. Read [README.md](README.md), [QUICKSTART.md](QUICKSTART.md), and the relevant portion of [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+2. Inspect the current implementation, nearby tests, and YAML configuration before proposing an interface change. Do not assume old examples or comments are accurate.
+3. Consult [CONTRIBUTING.md](CONTRIBUTING.md) for contribution and review expectations. `TODO.md` is a planning document, not proof that a feature is implemented or still broken; check the code.
+4. Preserve existing maintainer `# TODO (nadine)` notes unless the requested change directly resolves them. Do not silently delete, rewrite, or create broad speculative TODO lists.
 
-| Path | What it holds |
+## Repository map
+
+| Path | Responsibility |
 | --- | --- |
-| `core/optimizers/` | `Optimizer` base class, `BilevelConfig` (the composition root), and the `es/`, `appo/` and `ppo/` configurations |
-| `core/adaptors/ray/` | `RayOptimizer`, `PolicyActor`, `RayRuntime`, the seed and policy layout in `optimizer_config.py`, and `learner_drain.py` |
-| `core/envs/` | `MultiAgentEnv` (inner society), `RegulatorEnv` (outer step), and the typed state in `schema.py` |
-| `core/mechanism/` | `Mechanism`, `MechanismConfig`, and the shipped rules in `algorithms/` |
-| `core/world/` | The `World` Ray actor and the `MechanismContext` records it stores |
-| `core/metrics/` | `MetricSchema`, `MetricLogger` and the accumulators in `metric/` |
-| `core/reporting/` | `Query`, `Reporter` and the CSV, TensorBoard and W&B backends |
-| `core/config/` | The `metamarl` command line, the YAML loader and `ensure_hash_seed` |
-| `examples/` | The `bilevel_fishery`, `cartpole` and `fresh_water` benchmarks, each with a `debug.py` |
-| `tests/` | One directory per layer of `core/`, plus `unit/` for the cross-cutting modules (`core/callbacks.py`, `core/annotations.py`, `core/utils.py`), `examples/` and `integration/` |
-| `tutorials/` | Five notebooks that walk through the framework |
+| `core/agents/` | Agent configurations and action, observation, and reward interfaces |
+| `core/mechanism/` | Mechanisms, configuration, residual effects, and composition |
+| `core/envs/` | Multi-agent environments, regulator environments, reset/transition hooks, and schemas |
+| `core/optimizers/` | Optimizer interfaces, ES, PPO/APPO configuration, and optional bilevel composition |
+| `core/adaptors/ray/` | RLlib environment adapter, Ray optimization runtime, policy actors, policy mapping, and action sampling |
+| `core/world/` | Shared `World` and mechanism lifecycle/context records |
+| `core/metrics/` | Metric schemas, loggers, histories, and reductions |
+| `core/reporting/` | Queries and CSV, TensorBoard, and W&B reporters |
+| `core/config/` | YAML configuration, CLI, and hash-seed utilities |
+| `examples/bilevel_fishery/` | Released fishery proof-of-concept benchmark |
+| `examples/cartpole/` | Released RLlib/bilevel pipeline-validation example |
+| `tests/` | Unit, integration, example, and notebook tests |
+| `tutorials/` | Tutorial notebooks |
 
-## Invariants
+## Design invariants
 
-Candidate mechanisms travel from the outer to the inner level only through the `World`
-actor, as `MechanismContext` records. Nothing else carries them, so a change that
-bypasses the `World` breaks the link between a candidate and its trained society.
+- **Keep domain-specific logic outside `core/` where possible.** Reusable interfaces must not depend on fishery-specific ecology or regulatory objectives.
+- **Do not assume a regulator exists.** Support fixed mechanisms and non-bilevel multi-agent experiments as well as leader–follower experiments.
+- **Preserve the `World` coordination contract for bilevel runs.** Published candidates are conveyed to inner environments using `MechanismContext` records. Do not bypass this lifecycle with ad hoc state sharing.
+- **Mechanism assignment is stable after publication.** An environment may initially request its candidate, but after a published mechanism has been installed it must not fetch or replace it during later resets. Distinguish this from use of a default mechanism before assignment.
+- **Preserve simultaneous multi-agent semantics.** Agents act on the same current shared state; mechanisms and actions contribute to the resulting state transition according to explicit composition rules.
+- **Respect state composition.** Mechanisms can contribute residual state, reward, or observation changes. Do not assume every effect is additive: constrained components may be intersected. Read `MDPState` and `Trajectory` implementations before changing composition. Decoded action values belong in `MDPState.actions`.
+- **Preserve observation/action-space contracts.** Do not silently pad or resize observations in production as a workaround. Observation composition and dynamic sizing remain tracked under `OBS-001`.
+- **Keep optimizer and environment concerns separate.** An algorithm-agnostic interface is not evidence that an unimplemented optimizer or benchmark is already supported.
+- **Avoid claiming full determinism.** Matching initial weights and RNG seeds does not guarantee identical distributed RL training trajectories. `IidGetActions` maintains persistent CPU RNG state per policy/module ID **within each connector instance**, not per environment or episode; alignment requires matching random-number consumption.
 
-A mechanism returns a residual of the state, reward or observation of an agent and
-never overwrites what an earlier mechanism or the environment produced, because
-`MDPState.add` composes the residuals of several mechanisms. The only in-place write
-is the decoded action, which a mechanism stores in `actions` at the current step.
+## Configuration and commands
 
-The number of environments per runner must be a multiple of the number of training
-seeds, because environment `k` runs mechanism `k % M` with seed index `k // M`; the
-check is in `core/adaptors/ray/optimizer_config.py`. Separately, the ES population
-must be even, because antithetic sampling builds it from mirrored noise pairs. The
-exceptions are a population of one, which runs a (1+1)-ES, a mechanism with no
-parameter to search, and `break_symmetry`; the check is in the `batch_capacity`
-setter of `core/optimizers/es/optimizer.py`.
+Use YAML configurations and the `metamarl` CLI. **Do not introduce or document the deleted per-example `debug.py` entry points.** Run from the repository root:
 
-Ray runs in `local_mode=True`, hard-coded in `core/adaptors/ray/runtime.py`. Library
-code must not call `ensure_hash_seed`; only entry points do. When `PYTHONHASHSEED` is
-unset it restarts the process with `PYTHONHASHSEED=0` and never returns, so a test
-calls it only with `os.execv` replaced or in a child process.
+```bash
+uv sync --locked --group dev
+WANDB_MODE=offline uv run metamarl check examples/bilevel_fishery/config.yaml
+WANDB_MODE=offline uv run metamarl run examples/bilevel_fishery/config.yaml
+```
 
-`ruff.toml` sets `fix = true`, so a bare `ruff check` rewrites files. Always pass
-`--no-fix` when you only want a report.
+The module entry point is also available:
 
-## Commands
+```bash
+WANDB_MODE=offline uv run python -m core.config.cli run examples/bilevel_fishery/config.yaml
+```
 
-Run each command from any directory by pointing `uv` at the repository. Set
-`WANDB_MODE=offline` so no run tries to reach the network. The results below were
-obtained on this tree at the time of writing.
+The CLI accepts overrides after the configuration path in `path.to.key=value` form. Use keys verified in the actual YAML file; don't invent flags or example override paths. `check` builds a configuration without training. `run` may start a long experiment, so choose a validated small configuration for smoke testing rather than assuming defaults are lightweight.
 
-| Command | Purpose | Result observed |
-| --- | --- | --- |
-| `uv sync --directory <repo> --locked` | Install the locked environment | 169 packages resolved, 147 checked, no change |
-| `uv run --directory <repo> ruff check --no-fix .` | Lint without rewriting | `All checks passed!` |
-| `uv run --directory <repo> ruff format --check .` | Formatting check | `191 files already formatted` |
-| `uv run --directory <repo> python -m pytest -m "not integration and not notebook"` | Unit suite, as in CI | 1925 passed, 1 skipped, 19 deselected in 39 s, 99 % coverage of `core` |
-| `uv run --directory <repo> python -m pytest -m integration --no-cov -q` | Integration suite | 14 passed in 105 s |
-| `uv run --directory <repo> python -m pytest tests/world --no-cov -q` | One layer only | 40 passed in under a second |
-| `uv run --directory <repo> metamarl check examples/bilevel_fishery/config.yaml` | Validate a YAML config | `Config OK: core.optimizers.bilevel.BilevelConfig`, exit 0 |
-| `uv run --directory <repo> python -m examples.bilevel_fishery.debug --outer-iters 2 --train-iters 2 --num-agents 2 --horizon 20 --reporter csv` | Smoke run of the full bilevel loop | Exit 0 in 16 s, ending with `[Bilevel] Run finished` and `best_fitness=2.6060` |
+Configure reporters in YAML rather than using old `--reporter` script flags. `WANDB_MODE=offline` affects W&B runs; choosing CSV or TensorBoard requires the corresponding configuration. Do not assume fixed output paths, file counts, or exact fitness numbers without inspecting the configured queries and reporter.
 
-`metamarl run|check` exits 0 on success, 2 on a configuration error and 130 on an
-interrupt. The default `pytest` options collect the doctests of `core/` and of the three
-example packages, which is why the collected total (1945) is larger than the number
-of test functions.
+## Tests and quality gates
 
-## Conventions
+```bash
+uv run python -m pytest
+uv run python -m pytest -m "not integration and not notebook"
+uv run python -m pytest -m integration --no-cov
+uv run python -m pytest -m notebook --no-cov
+uv run ruff check --no-fix .
+uv run ruff format --check .
+```
 
-Every public function and class carries a NumPy-style docstring that states array shapes
-and units, a "When to use" paragraph, a runnable example and, for a method taken from a
-paper, the reference with its DOI. Because `--doctest-modules` is on, the example is
-executed by the test run and must stay correct.
+- Run relevant targeted tests while iterating; run the full suite for changes affecting shared interfaces, optimization, or reporting. Integration tests may launch Ray and subprocesses.
+- Tests and doctests must reflect the **current implementation**. Fix stale documented APIs instead of introducing deprecated methods merely to satisfy examples.
+- Add assertions for behavior, not only execution or coverage. Test edge cases, failure paths, seeds, and cross-module interactions where they matter.
+- Don't weaken or delete failing tests to obtain a green build without explaining why. A known limitation may be skipped only with a tracked and consistent reason. Use stable identifiers such as `OBS-001`, `MET-001`, `MET-002`, and `APPO-001` from `tests/known_issues.py` where that registry exists. Remove skips when an issue is resolved.
+- The APPO inner CSV-reporting problem is tracked as `APPO-001`; threading or synchronization is a **suspected**, not confirmed, root cause. Keep other APPO coverage active where possible.
+- `ruff.toml` may enable automatic fixes: use `ruff check --no-fix` when only inspecting lint results.
 
-Code, comments, docstrings, documentation, notebooks and commit messages are written in
-English. Commits are imperative and scoped, for example
-`fix(ray): label the Ray optimizer's messages [Ray] instead of [PPO]`.
+## Coding and documentation conventions
 
-An invalid value of a public parameter raises `ValueError` and an unknown argument
-raises `TypeError`; `assert` is not used in `core/`. Comments explain why, not what,
-and neither `TODO` comments nor commented-out code are kept, because the lint
-configuration selects the `ERA`, `FIX` and `TD` rules. Overriding methods use
-`core.annotations.override`, naming a direct base of the class; a test in
-`tests/unit/test_annotations.py` checks every use. Formatting is `ruff format` at 88
-columns with double quotes and no magic trailing comma.
+- Prefer focused changes to sweeping refactors. Maintain compatibility where reasonable; explain deliberate public API changes.
+- Use explicit types, units, shapes, and reset/step semantics for new mechanisms or environments.
+- Use NumPy-style docstrings for public interfaces, with executable `>>>` examples when they are short, stable, and appropriate. Complex distributed behavior belongs in pytest tests rather than fragile doctests.
+- Use clear validation errors for invalid public arguments. Do not use `assert` as a substitute for runtime parameter validation.
+- Explain *why* a non-obvious choice is necessary; avoid redundant comments and commented-out code.
+- Write source, tests, comments, and documentation in English. Keep commits focused and descriptive.
+- Do not commit credentials, `.venv/`, experimental output directories, or generated reporting artifacts.
 
-Tests mirror the layer they cover and use hand-written fakes, such as `FakeWorld`
-and `ScriptedRegulatorEnv` from `tests/optimizers/conftest.py`, rather than starting
-Ray. Only `tests/integration/` starts Ray, and the hook in `tests/conftest.py` runs
-those items last.
+## Debugging guide
 
-## Traps
+- **Config fails:** Run `metamarl check` first and inspect the failing YAML target, builder call, or override path.
+- **Candidate assignment fails:** Check mechanism ID, policy/environment seed, train/eval status, leader configuration, and whether the environment already holds a published mechanism. Do not add repeated fetches after assignment.
+- **Observation dimension mismatch:** Inspect declared spaces, mechanism contributions, and composition order; consult tracked issue `OBS-001` before adding padding.
+- **Inconsistent random streams:** Inspect policy ID seed suffixes, connector instances, module iteration order, batch sizes, and action-sampling draw counts. Do not assume environment-level RNG isolation.
+- **Missing fishery regulator metrics:** The current `reward()` reads reduced episode fields including `reward_mean`, `fish_norm_next_mean`, `H_realized`, and `MSY`; old `*_series`-only mocks may be stale.
+- **APPO reporting failure:** Preserve diagnostic logs, isolate inner CSV query/reporting from training behavior, and reference `APPO-001` instead of attributing the failure to a proven threading bug.
+- **Reproducibility difference:** Check configuration, seeds, `PYTHONHASHSEED`, Ray/RLlib version, policy initialization, sampling order, and nondeterministic operations before concluding that a change is behaviorally equivalent.
 
-The patterns `*.csv` and `*.txt` are gitignored, so a CSV written by the smoke run does
-not show up in `git status`. It lands in `results/<project>/<world>-<label>/`, one file
-per query title.
+## Scientific attribution and release scope
 
-Weights & Biases is the default reporter of the three `debug.py` scripts and of
-`examples/bilevel_fishery/config.yaml`. Pass `--reporter csv` for a local run, and keep
-`WANDB_MODE=offline` otherwise.
+MetaMARL is distributed under **Apache License 2.0**. Follow [LICENSE](LICENSE), any [NOTICE](NOTICE) attribution requirements, and [CITATION.cff](CITATION.cff) for scholarly citation information. Retain applicable copyright notices; do not treat project authorship, institutional affiliation, and ownership of individual code contributions as interchangeable.
 
-`ESConfig` and its builders reject an unknown argument with `TypeError`, and
-`ESConfig.debugging` rejects `num_seeds`: the regulator uses the training seeds of
-the society configuration, so set the count there.
+The principal developer is **Nadine (Mohamed) Abdelghani** (publishing as **Nadine Mohamed**). The research is affiliated with PPSP Lab (PI Guillaume Dumas), Mila – Quebec AI Institute, and Université de Montréal, with CIFAR funding. Consult the README and citation metadata for the full scientific author list.
 
-## Debugging common symptoms
-
-If building the inner optimizer raises `num_envs_per_env_runner=N must be divisible by
-num_seeds=M`, the layout rule above is violated. The check is in
-`core/adaptors/ray/optimizer_config.py`. `.env_runners(num_envs_per_env_runner=N)`
-takes N as the number of mechanism candidates and multiplies it by the number of
-seeds itself, so the usual cause is that `.env_runners(...)` was never called on the
-society configuration, or that the count was set on the RLlib configuration
-directly. Call `.env_runners` with the number of candidates.
-
-If `ESOptimizer` raises `Antithetic ES requires an even batch size`, the population is
-odd. It is the inner optimizer's `batch_capacity`, the `num_envs_per_env_runner`
-given to the society's `.env_runners()`, which `core/optimizers/bilevel.py` copies to
-the ES optimizer. Pass an even number there or enable `break_symmetry`.
-
-If `RayOptimizer` raises `needs an evaluation setup`, `.evaluation(evaluation_config=
-{'rollout_fragment_length': ...})` was never called on the society configuration.
-
-If a callback raises `Env has no seed. It must be assigned at construction`, the
-environment was built without a seed; the raise is in `core/callbacks.py`.
-
-If `PolicyActor` fails with `RLlib's IMPALA/APPO learner no longer exposes the learner
-thread`, the installed RLlib renamed the private attributes read by
-`core/adaptors/ray/learner_drain.py`. Pin the locked version with `uv sync --locked`.
-
-If two runs with the same seeds disagree, first confirm the process ran with
-`PYTHONHASHSEED=0`. The entry points restart themselves with that value when the
-variable is unset, keep a value already set, and log it at INFO level, or at WARNING
-for `random`.
+Only **Fishery** and **CartPole** belong to this release. Describe freshwater/hydrological experiments as **development work on `dev`**, not installed, verified, or supported release functionality.

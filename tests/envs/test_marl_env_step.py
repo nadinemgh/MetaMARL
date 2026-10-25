@@ -7,7 +7,8 @@ values (``FlowTrajectory``): each step's entry holds what was earned or
 observed at that step only, never a running sum.
 
 The tests drive the environment the way the RLlib adapter does: the actions of
-the step are written with ``mdp.update(actions=...)`` before ``step`` is called.
+the step are decoded, then written with ``mdp.update(actions=...)`` before
+``step`` is called.
 """
 
 import numpy as np
@@ -26,7 +27,16 @@ def run_episode(env, toy, harvests):
     states = [mdp]
 
     for amount in harvests:
-        mdp.update(actions=toy.harvest_actions(FOLLOWERS, amount))
+        raw_actions = toy.harvest_actions(FOLLOWERS, amount)
+        decoded = {
+            aid: {
+                mid: env.followers[aid].mechanisms[mid].decode(mdp, action)
+                for mid, action in acts.items()
+            }
+            for aid, acts in raw_actions.items()
+        }
+
+        mdp.update(actions=decoded)
 
         mdp = env.step(mdp)
 
@@ -55,14 +65,14 @@ def test_rewards_are_per_step_values_not_running_sums(unregulated, toy):
     final = states[-1]
 
     for aid in FOLLOWERS:
-        assert final.rewards[aid] == pytest.approx([0.2, 0.2, 0.2])
+        assert final.rewards[aid] == pytest.approx([0.2, 0.2, 0.2, 0.0])
 
 
 @pytest.mark.unit
 def test_rewards_follow_the_harvest_of_each_step(unregulated, toy):
     states = run_episode(unregulated, toy, [0.1, 0.4, 0.3])
 
-    assert states[-1].rewards["f0"] == pytest.approx([0.1, 0.4, 0.3])
+    assert states[-1].rewards["f0"] == pytest.approx([0.1, 0.4, 0.3, 0.0])
 
 
 @pytest.mark.unit
@@ -71,7 +81,7 @@ def test_leader_mechanism_shapes_every_followers_reward(regulated, toy):
     final = states[-1]
 
     for aid in FOLLOWERS:
-        assert final.rewards[aid] == pytest.approx([0.3 - 0.1, 0.3 - 0.1])
+        assert final.rewards[aid] == pytest.approx([0.3 - 0.1, 0.3 - 0.1, 0.0])
 
 
 @pytest.mark.unit
@@ -82,7 +92,7 @@ def test_leader_fee_is_charged_each_step_from_the_kept_candidate(regulated, toy)
 
     second = run_episode(regulated, toy, [0.3, 0.5])
 
-    assert second[-1].rewards["f1"] == pytest.approx([0.2, 0.4])
+    assert second[-1].rewards["f1"] == pytest.approx([0.2, 0.4, 0.0])
 
 
 @pytest.mark.unit
@@ -184,4 +194,4 @@ def test_environment_without_a_schema_steps_without_logging(toy, identity_ray_ge
 
     assert env.logger is None
     assert states[-1].t == 2
-    assert states[-1].rewards["f0"] == pytest.approx([0.2, 0.2])
+    assert states[-1].rewards["f0"] == pytest.approx([0.2, 0.2, 0.0])

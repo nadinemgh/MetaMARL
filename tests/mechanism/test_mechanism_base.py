@@ -1,8 +1,7 @@
 """``Mechanism``: the interface a concrete mechanism inherits.
 
-``__call__`` decodes the action, writes the decoded value back into the
-action trajectory (not into the raw one) and applies it; ``apply`` is abstract
-and ``observe`` contributes nothing by default.
+``__call__`` applies an action that the adapter or the environment already
+decoded; ``apply`` is abstract.
 """
 
 import typing
@@ -57,8 +56,8 @@ class TestInterface:
 
         assert Mechanism.decode(mechanism, MDPState(), 0.25) == 0.25
 
-    def test_the_default_observation_is_empty(self):
-        residual = Recorder().observe(MDPState(t=3))
+    def test_the_default_initial_contribution_is_empty(self):
+        residual = Recorder().on_reset(MDPState(t=3))
 
         assert residual.obs.data == {}
         assert residual.rewards.data == {}
@@ -83,19 +82,21 @@ class TestCall:
     def test_call_applies_the_decoded_action(self):
         mechanism = Recorder(aid="regulator", id="quota")
         mdp = MDPState(actions={"regulator": {"quota": np.array([0.5])}})
-        residual = mechanism(mdp, 0.25)
+        residual = mechanism(mdp, mechanism.decode(mdp, 0.25))
 
         assert mechanism.received == [0.5]
         assert residual.rewards["fisherman:0"] == [0.5]
 
-    def test_call_writes_the_decoded_action_back_at_the_current_step(self):
+    def test_call_leaves_the_action_trajectory_alone(self):
+        # Decoding moved to the adapter and to ``env.reset``: the call uses the
+        # action it is given and no longer writes it back at the current step.
         mechanism = Recorder(aid="regulator", id="quota")
         mdp = MDPState(actions={"regulator": {"quota": [0.0, 0.0]}}, t=1)
 
         mechanism(mdp, 0.25)
-        assert mdp.actions["regulator"]["quota"] == [0.0, 0.5]
+        assert mdp.actions["regulator"]["quota"] == [0.0, 0.0]
 
-    def test_call_does_not_reach_a_state_that_shares_the_action_list(self):
+    def test_call_does_not_modify_a_state_that_shares_the_action_list(self):
         mechanism = Recorder(aid="regulator", id="quota")
         before = MDPState(
             state={"fish": [1.0, 1.0]},
@@ -107,8 +108,8 @@ class TestCall:
         after = before.add(MDPState(state={"fish": -0.5}))
 
         assert after.actions["regulator"] is before.actions["regulator"]
-        mechanism(after, 0.25)
-        assert after.actions["regulator"]["quota"] == [0.0, 0.5]
+        mechanism(after, 0.5)
+        assert after.actions["regulator"]["quota"] == [0.0, 0.25]
         assert before.actions["regulator"]["quota"] == [0.0, 0.25]
 
 
