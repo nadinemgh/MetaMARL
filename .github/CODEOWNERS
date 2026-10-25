@@ -1,0 +1,5 @@
+# Default code owner
+* @nadinemgh
+
+# Protect repository governance
+/.github/ @nadinemgh
