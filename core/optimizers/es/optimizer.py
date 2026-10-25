@@ -240,8 +240,9 @@ class ESOptimizer(Optimizer):
         self.dimension = flatdim(self.action_space)
 
         # TODO (nadine) built-in normalization not supported yet
-        if not np.allclose(self.search_space.low, 0.0) and np.allclose(
-            self.search_space.high, 1.0
+        if not (
+            np.allclose(self.search_space.low, 0.0)
+            and np.allclose(self.search_space.high, 1.0)
         ):
             raise ValueError(
                 "ESOptimizer currently requires action bounds in [0, 1]. "
@@ -784,20 +785,13 @@ class ESOptimizer(Optimizer):
     ) -> ESSchema:
         """Convert one completed ES generation to its metric schema."""
 
-        if self.fixed_mode:
-            mechanism = self.env.m_space.default()
-            parameter_names = mechanism.param_names()
-            default_vector = np.asarray(mechanism.to_vector(), dtype=np.float32)
-            logged_population = np.repeat(
-                default_vector[None, :], repeats=population.shape[0], axis=0
-            )
-            logged_mean = default_vector
-            logged_best = default_vector
-        else:
-            parameter_names = self.parameter_names
-            logged_population = population
-            logged_mean = mean
-            logged_best = self.best_candidate
+        # In fixed mode the dimension is 0: the parameter names, the mean and
+        # the candidates are empty, so the payload only carries the fitness
+        # values of the evaluated batch.
+        parameter_names = self.parameter_names
+        logged_population = population
+        logged_mean = mean
+        logged_best = self.best_candidate
 
         best_idx = int(np.argmax(fitness))
 
@@ -1059,7 +1053,7 @@ class ESOptimizer(Optimizer):
                 break
 
         return {
-            "episodes": generation,
+            "episodes": generation + 1 if self.episodes > 0 else 0,
             "converged": converged,
             "best_fitness": self.best_fitness,
             "best_mechanism": self.best_candidate,
