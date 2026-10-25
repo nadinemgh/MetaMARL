@@ -16,10 +16,11 @@ is a tuple of ``(junction, dynamic_id)`` pairs, for example
 when the path crosses no dynamic node.
 """
 
+from enum import Enum
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, Optional, TypeAlias
 
 import numpy as np
 
@@ -335,11 +336,21 @@ class Reporter(ABC):
                         )
 
                     values = np.asarray(series, dtype=np.float64)
-                    reduced[branch_group] = np.mean(values, axis=0).tolist()
+
+                    # TODO (nadine) Allow users to choose whether NaNs are ignored or propagated.
+                    if np.isnan(values).any():
+                        logger.error(
+                            "NaN ignored during reporting aggregation: %s", path
+                        )
+
+                    values = np.ma.masked_where(np.isnan(values), values)
+                    reduced[branch_group] = values.mean(axis=0).filled(np.nan).tolist()
 
                     if capture_error:
                         if error == "std":
-                            errors[branch_group] = np.std(values, axis=0).tolist()
+                            errors[branch_group] = (
+                                values.std(axis=0).filled(np.nan).tolist()
+                            )
 
                 return PathResolution(values=reduced, errors=errors)
 

@@ -292,10 +292,10 @@ class TestResolvePathMean:
                 ("by_mech", MEAN, "fitness"), reporting_metrics
             )
 
-    def test_mean_and_std_skip_the_gap_entries(
+    def test_mean_and_std_ignore_missing_values(
         self, backendless_reporter, reporting_metrics
     ):
-        # A gap (None) is a push in which the logger had no value for that id.
+        # Explicitly missing values are ignored during aggregation.
         reporting_metrics.by_mech["m0"].fitness = [10.0, None, 12.0]
         result = backendless_reporter._resolve_path(
             ("by_mech", MEAN, "fitness"),
@@ -323,16 +323,16 @@ class TestResolvePathMean:
         assert (mean[0], mean[2]) == (15.0, 17.0) and math.isnan(mean[1])
         assert (std[0], std[2]) == (5.0, 5.0) and math.isnan(std[1])
 
-    def test_a_nan_value_still_propagates_through_the_mean(
-        self, backendless_reporter, reporting_metrics
+    def test_a_nan_value_is_ignored_during_mean(
+        self, backendless_reporter, reporting_metrics, caplog
     ):
-        # NaN is a value (a statistic RLlib did not report), not a gap.
         reporting_metrics.by_mech["m0"].fitness = [10.0, float("nan"), 12.0]
         result = backendless_reporter._resolve_path(
             ("by_mech", MEAN, "fitness"), reporting_metrics
         )
 
-        assert math.isnan(result.values[()][1])
+        assert result.values == {(): [15.0, 21.0, 17.0]}
+        assert "NaN ignored during reporting aggregation" in caplog.text
 
     def test_error_below_another_mean_is_rejected(
         self, backendless_reporter, reporting_metrics
