@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from core.mechanism.base import MDPState
-from core.mechanism.types import FlowTrajectory, Trajectory
+from core.mechanism.types import Trajectory
 
 
 @pytest.mark.unit
@@ -42,11 +42,13 @@ class TestLaggingLeaf:
         assert updated["b"] == [7.0, 7.0, 9.0]
         assert updated["a"] == [1.0, 2.0, 3.0]
 
-    def test_flow_leaf_behind_the_tree_is_filled_with_zero(self):
-        trajectory = FlowTrajectory({"a": [1.0, 2.0, 3.0], "b": [7.0]})
-        updated = trajectory.update(2, {"b": 9.0})
+    def test_lagging_leaf_can_be_explicitly_reset_before_adding(self):
+        trajectory = Trajectory({"a": [1.0, 2.0, 3.0], "b": [7.0]})
+        reset = trajectory.update(2, {"b": 0.0})
+        updated = reset.add(2, [Trajectory({"b": 9.0})])
 
-        assert updated["b"] == [7.0, 0, 9.0]
+        assert reset["b"] == [7.0, 7.0, 0.0]
+        assert updated["b"] == [7.0, 7.0, 9.0]
 
     def test_leaf_one_step_behind_is_appended_to(self):
         trajectory = Trajectory({"a": [1.0, 2.0], "b": [7.0]})
@@ -113,11 +115,10 @@ class TestTime:
         assert str(from_add.value) == str(from_update.value)
 
     def test_adding_nothing_is_allowed_at_any_step(self):
-        # A step at which no agent has a reward adds an empty residual; it
-        # writes nothing, so it skips nothing.
-        trajectory = FlowTrajectory({"a": [1.0]})
+        # An empty residual writes nothing, regardless of the requested step.
+        trajectory = Trajectory({"a": [1.0]})
 
-        assert trajectory.add(7, [FlowTrajectory()])["a"] == [1.0]
+        assert trajectory.add(7, [Trajectory()])["a"] == [1.0]
         assert trajectory.add(7, [])["a"] == [1.0]
 
     def test_mdp_add_rejects_a_clock_that_ran_ahead_of_the_trajectories(self):
@@ -261,11 +262,12 @@ class TestMDPStateAdd:
         mdp = MDPState(t=2, state={"fish": [1.0, 1.0, 1.0]})
         assert mdp.add(MDPState(state={"fish": 1.0})).t == 2
 
-    def test_termination_flags_are_or_ed(self):
+    def test_add_preserves_termination_flags(self):
         mdp = MDPState(terminateds={"a": False, "b": False})
         merged = mdp.add(MDPState(terminateds={"b": True, "c": False}))
 
-        assert merged.terminateds == {"a": False, "b": True, "c": False}
+        assert merged.terminateds == {"a": False, "b": False}
+        assert mdp.terminateds == {"a": False, "b": False}
 
 
 @pytest.mark.unit
@@ -344,9 +346,9 @@ class TestSharing:
             trajectory.write(("f0", "harvest"), 1, 0.25)
 
     def test_copy_does_not_normalise_the_tree_twice_and_keeps_the_type(self):
-        flow = FlowTrajectory({"a": [1.0], "b": {"c": [2.0]}})
-        copy = flow.copy()
+        trajectory = Trajectory({"a": [1.0], "b": {"c": [2.0]}})
+        copy = trajectory.copy()
 
-        assert type(copy) is FlowTrajectory
-        assert copy == flow
-        assert copy["b"]["c"] is not flow["b"]["c"]
+        assert type(copy) is Trajectory
+        assert copy == trajectory
+        assert copy["b"]["c"] is not trajectory["b"]["c"]
