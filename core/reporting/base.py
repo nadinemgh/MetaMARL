@@ -146,6 +146,44 @@ class Reporter(ABC):
 
         self._schema = schema
 
+    @staticmethod
+    def _path_name(path: Path) -> str:
+        """Return a path as ``/``-joined names, without reduction tokens.
+
+        ``ReduceProtocol`` tokens are dropped and an ``Enum`` token is replaced
+        by its value, so ``("by_mech", SERIES, "fitness")`` is named
+        ``"by_mech/fitness"``. The backends use it as the default label of a
+        series and of an axis.
+        """
+
+        return "/".join(
+            str(token.value) if isinstance(token, Enum) else token
+            for token in path
+            if not isinstance(token, ReduceProtocol)
+        )
+
+    @classmethod
+    def _series_label(
+        cls, path: Path, group: Group, label: Optional[str] = None
+    ) -> str:
+        """Return the label of one series of a query.
+
+        The label is ``label`` when given, else the name of ``path``; for a
+        dynamic group it is followed by ``[junction=id, ...]``.
+        """
+
+        # TODO when by_agent followed by add, then skip
+        name = label if label is not None else cls._path_name(path)
+
+        if not group:
+            return name
+
+        group_name = ", ".join(
+            f"{junction}={dynamic_id}" for junction, dynamic_id in group
+        )
+
+        return f"{name} [{group_name}]"
+
     # TODO remove reduction logic from reporting
     def _resolve_path(
         self,
@@ -215,7 +253,8 @@ class Reporter(ABC):
 
             if any(isinstance(value, list) for value in metrics):
                 raise ValueError(
-                    "Path resolves to a nested metric series. A series reduction is required: {path}"
+                    "Path resolves to a nested metric series. "
+                    + f"A series reduction is required: {path}"
                 )
 
             return PathResolution(values={group: metrics}, errors={})
@@ -265,7 +304,8 @@ class Reporter(ABC):
 
                 if any(set(branch.values) != groups for branch in branches[1:]):
                     raise ValueError(
-                        "Cannot compute mean across branches with different SERIES groups."
+                        "Cannot compute mean across branches with different "
+                        + "SERIES groups."
                     )
 
                 reduction_path = path[:index]
@@ -273,21 +313,25 @@ class Reporter(ABC):
 
                 if not capture_error and any(branch.errors for branch in branches):
                     raise ValueError(
-                        "error_path is nested below another MEAN reduction. Error propagation "
-                        "through additional reductions is not defined."
+                        "error_path is nested below another MEAN reduction. "
+                        + "Error propagation "
+                        + "through additional reductions is not defined."
                     )
 
                 reduced: Resolved = {}
                 errors: Resolved = {}
 
-                for branch_group in groups:
+                # Iterate the first branch's groups, which SERIES built in sorted
+                # order, not the set, whose order depends on PYTHONHASHSEED.
+                for branch_group in branches[0].values:
                     series = [branch.values[branch_group] for branch in branches]
                     lengths = {len(values) for values in series}
 
                     if len(lengths) != 1:
                         raise ValueError(
-                            "Cannot compute pointwise mean over series with different lengths: "
-                            f"{sorted(lengths)}."
+                            "Cannot compute pointwise mean over series with "
+                            + "different lengths: "
+                            + f"{sorted(lengths)}."
                         )
 
                     values = np.asarray(series, dtype=np.float64)
@@ -376,21 +420,23 @@ class Reporter(ABC):
                 for group, y in ys.items():
                     if len(x) != len(y):
                         raise ValueError(
-                            "Query series must have equal length: x={query.x} ({len(x)}), "
-                            f"y={path}, group={group} ({len(y)})."
+                            "Query series must have equal length: "
+                            + f"x={query.x} ({len(x)}), "
+                            + f"y={path}, group={group} ({len(y)})."
                         )
             else:
                 if set(xs) != set(ys):
                     raise ValueError(
                         "Dynamic x and y groups do not match: "
-                        f"x={set(xs)}, y={set(ys)}."
+                        + f"x={set(xs)}, y={set(ys)}."
                     )
 
                 for group in xs:
                     if len(xs[group]) != len(ys[group]):
                         raise ValueError(
                             "Query series must have equal "
-                            f"length for group {group}: x={len(xs[group])}, y={len(ys[group])}."
+                            + f"length for group {group}: "
+                            + f"x={len(xs[group])}, y={len(ys[group])}."
                         )
 
             for group, values in errors.items():
@@ -401,7 +447,8 @@ class Reporter(ABC):
 
                 if len(values) != len(ys[group]):
                     raise ValueError(
-                        f"Error series must have the same length as y for group {group}."
+                        "Error series must have the same length as y for "
+                        + f"group {group}."
                     )
 
             if colors is not None:
@@ -418,8 +465,9 @@ class Reporter(ABC):
 
                     if len(color_values) != len(y):
                         raise ValueError(
-                            f"Color series must have the same length as y for group {group}: "
-                            f"color={len(color_values)}, y={len(y)}."
+                            "Color series must have the same length as y for "
+                            + f"group {group}: "
+                            + f"color={len(color_values)}, y={len(y)}."
                         )
 
         return (xs, yss, error_yss, colors)
