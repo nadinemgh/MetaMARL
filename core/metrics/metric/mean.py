@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import math
+
 from core.annotations import override
-from core.metrics.metric.base import PrimitiveType
+from core.metrics.metric.base import PrimitiveType, as_number
 from core.metrics.metric.series import SeriesMetric
 
 
@@ -11,8 +14,8 @@ class MeanMetric(SeriesMetric):
     """Metric reducing to the arithmetic mean of the pushed numbers.
 
     Only numbers are accepted (``int``, ``float`` and NumPy numeric scalars;
-    ``bool`` and ``np.bool_`` are rejected); ``peek``
-    returns ``None`` while empty or holding only gaps, which it skips.
+    ``bool`` and ``np.bool_`` are rejected); ``peek`` returns ``None`` while
+    empty. NaNs are logged and ignored during aggregation; all-NaN returns NaN.
 
     When to use: the default protocol, for per-step quantities averaged over an
     iteration (rewards, catches, losses).
@@ -48,12 +51,7 @@ class MeanMetric(SeriesMetric):
             If ``value`` is a ``bool`` (or ``np.bool_``) or not a number.
         """
 
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise TypeError(
-                f"MeanMetric only accepts int or float, got {type(value).__name__}."
-            )
-
-        self.values.append(value)
+        self.values.append(as_number(value, "MeanMetric"))
 
     def peek(self, compile: bool = True) -> float | list[float] | None:
         """Return the arithmetic mean (``None`` when empty).
@@ -68,9 +66,8 @@ class MeanMetric(SeriesMetric):
         Returns
         -------
         float or list[float] or None
-            The mean of the pushed values (gaps skipped), ``None`` while
-            empty, or the
-            history.
+            The mean of the pushed values (ignoring NaNs), ``None`` while
+            empty, or the history.
         """
 
         if not compile:
@@ -79,7 +76,17 @@ class MeanMetric(SeriesMetric):
         if not self.values:
             return None
 
-        return sum(self.values) / len(self.values)
+        # TODO (nadine) Add a user-configurable NaN policy (ignore or propagate).
+        values = [
+            v for v in self.values if not (isinstance(v, float) and math.isnan(v))
+        ]
+
+        if len(values) != len(self.values):
+            logging.getLogger(__name__).error(
+                "MeanMetric: NaN ignored during aggregation."
+            )
+
+        return sum(values) / len(values) if values else math.nan
 
     def reduce(self, compile: bool = True) -> float | MeanMetric | None:
         """Return the arithmetic mean and clear the history.

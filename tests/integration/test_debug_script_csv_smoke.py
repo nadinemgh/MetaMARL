@@ -1,22 +1,7 @@
-"""End-to-end smoke test of the fishery debug script with the CSV reporter.
+"""End-to-end smoke test of the fishery YAML CLI with the CSV reporter.
 
-This is the port of the August ``integration/test_fishery_reporting.py``. The
-August version built the configuration in-process and ran it inside the pytest
-process, which is what hung on an earlier version of the code. This version
-launches ``examples.bilevel_fishery.debug`` as a child process with a hard time
-limit, so a hang fails the test instead of blocking the suite.
-
-The script reads its command line at import time and writes its results below
-the working directory (``results/<project>/...``), so the child runs in a
-temporary directory. No test here starts Ray in the pytest process; the child
-starts and stops its own local Ray runtime, which is why the test is marked
-``integration`` and not ``unit``.
-
-The run is a two-generation, two-fisherman, twenty-step fishery. The first
-test checks that the run completes and reports its final summary. The others
-check that the CSV reporter leaves ``.csv`` files behind and that no query
-failed to render; until the optimizers received their reporter under the
-keyword they read, the directories appeared and no file was ever written.
+Launch the small experiment in a child process so Ray cannot hang pytest.
+Write results in a temporary directory; leave the main YAML unchanged.
 """
 
 from __future__ import annotations
@@ -27,45 +12,50 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CONFIG = REPO_ROOT / "examples" / "bilevel_fishery" / "config.yaml"
 CHILD_TIMEOUT_S = 180
-SCRIPT_ARGS = (
-    "--outer-iters",
-    "2",
-    "--train-iters",
-    "2",
-    "--num-agents",
-    "2",
-    "--horizon",
-    "20",
-    "--reporter",
-    "csv",
+OVERRIDES = (
+    "params.outer_iters=2",
+    "params.train_iters=2",
+    "params.num_agents=2",
+    "params.horizon=20",
 )
+
+
+def csv_config(tmp_path: Path) -> Path:
+    """Write a CSV-enabled copy of the existing experiment configuration."""
+
+    data = yaml.safe_load(CONFIG.read_text())
+    reporter = next(
+        c["reporter"] for c in data["experiment"]["_calls_"] if "reporter" in c
+    )
+    reporter["config"] = {
+        "_target_": "core.reporting.csv.CSVConfig",
+        "project": "bilevel",
+    }
+    result = tmp_path / "fishery_csv.yaml"
+
+    result.write_text(yaml.safe_dump(data, sort_keys=False))
+
+    return result
 
 
 @pytest.fixture(scope="module")
 def csv_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
-    """Run the debug script once and share the result between the tests.
+    """Execute the small YAML fishery once in a child Ray process."""
 
-    Returns
-    -------
-    dict
-        ``returncode``, ``output`` (stdout and stderr, concatenated) and
-        ``workdir`` (the directory the child ran in).
-    """
-
-    workdir = tmp_path_factory.mktemp("debug_csv_smoke")
+    workdir = tmp_path_factory.mktemp("fishery_csv_smoke")
+    config = csv_config(workdir)
     env = dict(os.environ, WANDB_MODE="offline", PYTHONPATH=str(REPO_ROOT))
 
-    # A fixed hash seed would make the child's world identifiers repeat across runs.
     env.pop("PYTHONHASHSEED", None)
-
-    command = [sys.executable, "-m", "examples.bilevel_fishery.debug", *SCRIPT_ARGS]
 
     try:
         done = subprocess.run(
-            command,
+            [sys.executable, "-m", "core.config.cli", "run", str(config), *OVERRIDES],
             cwd=workdir,
             env=env,
             capture_output=True,
@@ -73,9 +63,7 @@ def csv_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
             timeout=CHILD_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired as exc:
-        tail = (exc.stdout or b"")[-500:]
-
-        pytest.fail(f"debug script exceeded {CHILD_TIMEOUT_S} s; stdout tail: {tail!r}")
+        pytest.fail(f"Fishery YAML run exceeded {CHILD_TIMEOUT_S}s: {exc}")
 
     return {
         "returncode": done.returncode,
@@ -86,7 +74,9 @@ def csv_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
 
 @pytest.mark.integration
 def test_debug_script_runs_to_completion(csv_run):
-    assert csv_run["returncode"] == 0, csv_run["output"][-2000:]
+    """The YAML CLI completes both ES generations."""
+
+    assert csv_run["returncode"] == 0, csv_run["output"][-4000:]
 
     assert "Run finished | iters=2" in csv_run["output"]
 
@@ -95,7 +85,7 @@ def test_debug_script_runs_to_completion(csv_run):
 def test_debug_script_creates_the_reporter_directory(csv_run):
     project_dir = csv_run["workdir"] / "results" / "bilevel"
 
-    assert project_dir.is_dir()
+    assert project_dir.is_dir(), f"Missing reporter directory: {project_dir}"
     assert any(project_dir.iterdir())
 
 
@@ -103,10 +93,10 @@ def test_debug_script_creates_the_reporter_directory(csv_run):
 def test_debug_script_writes_csv_files(csv_run):
     csv_files = sorted((csv_run["workdir"] / "results").rglob("*.csv"))
 
-    assert csv_files, "no CSV file under results/"
+    assert csv_files, f"No CSV files under {csv_run['workdir'] / 'results'}"
 
 
 @pytest.mark.integration
 def test_every_query_of_the_debug_script_renders(csv_run):
-    # ``Reporter.report`` logs a query it cannot render instead of raising.
-    assert "could not render query" not in csv_run["output"]
+    # The reporter logs a failed query instead of raising; keep this check.
+    assert "could not render query" not in csv_run["output"], csv_run["output"][-4000:]

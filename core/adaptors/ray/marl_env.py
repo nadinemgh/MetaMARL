@@ -29,14 +29,11 @@ from core.envs.marl_regulated import MultiAgentEnv
 from core.mechanism.base import MDPState
 from core.types import MultiAgentDict
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-
 logger = logging.getLogger(__name__)
 
 
-# TODO future enhancement. decouple gym inheritance to support MPC, trajectory optimization etc.
+# TODO future enhancement. decouple gym inheritance to support MPC, trajectory
+#   optimization etc.
 
 
 class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
@@ -60,11 +57,6 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         to agent configuration with ``observation_space`` and ``mechanisms``),
         ``mechanism_id``, ``seed``, ``policy_seed``, ``mode``, ``logger`` and
         ``reporter``, and the ``reset(mdp)`` and ``step(mdp)`` methods.
-    worker_index : int, optional
-        Index of the env runner that hosts the environment (0, the default,
-        for the local runner). ``RayOptimizerConfig`` passes RLlib's
-        ``EnvContext.worker_index``, which the exploration keys of
-        ``core.adaptors.ray.common_random`` read.
     **kwargs : Any
         Forwarded to ``ray.rllib.MultiAgentEnv.__init__``.
 
@@ -83,8 +75,6 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
         Copied from the wrapped environment: the mechanism candidate the
         environment trains against, its random seed, the seed of the policy it
         trains and the lifecycle status (``"train"`` or ``"eval"``).
-    worker_index : int
-        Index of the hosting env runner.
     logger, reporter
         The wrapped environment's ``MetricLogger`` and ``Reporter`` (either may
         be ``None``).
@@ -125,8 +115,6 @@ class RLlibMultiAgentEnvAdapter(RllibMultiAgentEnv):
     Box(0.0, 1.0, (1,), float32)
     >>> adapter.policy_seed
     22
-    >>> adapter.worker_index
-    0
     """
 
     _env: MultiAgentEnv

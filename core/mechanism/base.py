@@ -6,8 +6,9 @@ over and that the inner environment applies to its agents. This module defines
 and the rewards of an episode, and :class:`Mechanism`, the abstract class every
 mechanism inherits. A mechanism does not change the state it receives: it
 returns a residual :class:`MDPState`, which the owning agent adds to the shared
-state, and may return a second residual for the observations through
-:meth:`Mechanism.observe`. The time-indexed trees that hold the fields live in
+state, and may return an initial residual through :meth:`Mechanism.on_reset`,
+which the environment calls at reset and again after each transition. The
+time-indexed trees that hold the fields live in
 :mod:`core.mechanism.types`, and the configurations that build the concrete
 mechanisms in :mod:`core.mechanism.config`.
 """
@@ -15,22 +16,19 @@ mechanisms in :mod:`core.mechanism.config`.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional, SupportsFloat, TypeVar
 
 import numpy as np
 from gymnasium import spaces
 
 from core.mechanism.types import Trajectory
+from core.types import AgentID, MechanismID
 from core.utils import intersect
 
 StateType = TypeVar("StateType")
 ActType = TypeVar("ActType")
 ObsType = TypeVar("ObsType")
-
-from dataclasses import field
-
-from core.types import AgentID, MechanismID
 
 
 # TODO fix type annotations
@@ -63,23 +61,11 @@ class MDPState:
         Observation of each agent, one array per step. Default empty.
     actions : Trajectory or dict
         Action of each agent and mechanism, as ``actions[agent][mechanism]``.
-        A mechanism overwrites its entry of the current step with the action it
-        decoded, so after a mechanism has been called this is the action
-        delivered, not the one received. Default empty.
-    raw_actions : Trajectory or dict or None
-        The actions as they were received, before any mechanism decoded them:
-        the policy output of a follower, the candidate of a leader. The
-        residuals that :meth:`add` composes are added here as well, so within a
-        step a follower's entry already carries its leaders' residuals (a quota
-        lowers it) when the follower's own mechanism decodes it; the entry is
-        still undecoded. A mechanism decodes its entry from here, never from
-        ``actions``, so that the action in force of a leader, which is carried
-        forward from step to step, is decoded from the raw value at every step
-        and not from its own previous output. Everything that writes
-        ``actions`` through this class (construction, :meth:`add`,
-        :meth:`advance`, :meth:`update`) writes ``raw_actions`` too. Default
-        ``None``, which starts as a copy of ``actions``.
-    rewards : FlowTrajectory or dict
+        The entries are stored already decoded: the environment decodes the
+        leaders' actions at reset and the Ray adaptor decodes the followers'
+        actions at each step. A mechanism reads its entry as stored and does
+        not write it back. Default empty.
+    rewards : Trajectory or dict
         Reward of each agent at each step. Default empty.
     state_space, action_spaces, obs_space : gymnasium.spaces.Dict or None
         Spaces of the state, the actions and the observations. ``None`` means
@@ -133,9 +119,7 @@ class MDPState:
 
         The trajectories of the residuals are added to this state's at the
         current step ``t``: values are summed, and a field a residual does not
-        mention is left unchanged. The raw actions are summed like the actions,
-        so a residual that changes an action changes what the mechanism of that
-        action receives. ``params`` are merged, a later residual
+        mention is left unchanged. ``params`` are merged, a later residual
         overriding an earlier key, ``aids`` are united, the spaces are
         intersected, and the termination and truncation flags are combined with
         a logical or. The time ``t`` is kept.
@@ -191,8 +175,7 @@ class MDPState:
         """Return a copy one timestep later, with the given values appended.
 
         Each trajectory that is given receives one more step holding the
-        values; a trajectory left as ``None`` is not extended. The ``actions``
-        given are appended to ``raw_actions`` as well. This state is not
+        values; a trajectory left as ``None`` is not extended. This state is not
         modified.
 
         Parameters
@@ -240,9 +223,7 @@ class MDPState:
             Timestep to write. Default ``None``, the current step ``self.t``.
         state, obs, actions, rewards : dict or None
             Values to write in the matching trajectory, which is overwritten at
-            that step. A trajectory left as ``None`` is not touched. The
-            ``actions`` are written to ``raw_actions`` as well: they are the
-            actions as they arrive, and the mechanisms decode them.
+            that step. A trajectory left as ``None`` is not touched.
 
         Returns
         -------
@@ -274,10 +255,11 @@ class Mechanism(ABC):
     :class:`MDPState`, which the owning agent adds to the shared state. It does
     so in two steps: :meth:`decode` maps the raw action to the coordinates of
     the mechanism, and :meth:`apply` returns the residual of a transition. The
-    environment calls :meth:`observe` separately, for the mechanisms of the
-    leaders, to let a mechanism contribute to the observations. Subclasses
-    implement :meth:`apply`, and override :meth:`decode` and :meth:`observe`
-    when needed. They are usually built from a
+    caller decodes once, before the action is stored; the mechanism then reads
+    the stored action as is. The environment calls :meth:`on_reset` at reset
+    and after each transition, to let a mechanism contribute to the state.
+    Subclasses implement :meth:`apply`, and override :meth:`decode` and
+    :meth:`on_reset` when needed. They are usually built from a
     :class:`~core.mechanism.config.MechanismConfig`.
 
     Parameters
@@ -296,7 +278,7 @@ class Mechanism(ABC):
         Agent type and mechanism that the mechanism acts on, or ``None`` for a
         mechanism that targets nobody; the configuration passes ``None`` when
         none is given, and the mechanisms of this package then raise a
-        ``ValueError`` in ``apply`` or ``observe``. Keyword-only, with no
+        ``ValueError`` in ``apply`` or ``on_reset``. Keyword-only, with no
         default.
     obs_map : dict[str, str] or None
         Names under which the mechanism reads the environment state, for
@@ -319,7 +301,7 @@ class Mechanism(ABC):
     -----
     When to use: as the base class of a new regulatory mechanism. Use the
     ready-made ones (:class:`~core.mechanism.algorithms.quota.QuotaMechanism`,
-    :class:`~core.mechanism.algorithms.subsidy.SubsidyMechanism`,
+    :class:`~core.mechanism.algorithms.incentive.IncentiveMechanism`,
     :class:`~core.mechanism.algorithms.penalty.ThresholdPenaltyMechanism`,
     :class:`~core.mechanism.algorithms.social_influence.SocialInfluenceMechanism`)
     when they fit.
@@ -339,7 +321,7 @@ class Mechanism(ABC):
     >>> mechanism(mdp, 0.5).rewards["fisherman:0"]
     [-0.25]
     >>> mdp.actions["regulator"]["tax"]
-    [0.5]
+    [0.0]
     """
 
     def __init__(
@@ -363,20 +345,20 @@ class Mechanism(ABC):
     def __call__(
         self, mdp: MDPState, action: Optional[ActType] = None, *, reset: bool = False
     ) -> MDPState:
-        """Decode ``action``, record it in ``mdp`` and return the residual.
+        """Apply an already decoded action and return its residual.
 
-        The decoded action is written, in place, at step ``mdp.t`` of
-        ``mdp.actions[aid][id]``, which must already exist and be long enough.
-        ``mdp.raw_actions`` is left alone, so the raw action that is carried
-        forward to the next step is still the raw one. Then :meth:`apply` is
-        called with the decoded action.
+        The RLlib adapter decodes follower actions before storing them in
+        ``mdp.actions``. The environment decodes leader candidates and defaults
+        during reset. This call passes that decoded value to :meth:`apply`, or
+        to :meth:`on_reset` during initialization, without decoding it again
+        or writing it into the action trajectory.
 
         Parameters
         ----------
         mdp : MDPState
             Shared state at the current step.
         action : ActType, optional
-            Raw action for this mechanism, as held by ``mdp.raw_actions`` at the
+            Decoded action for this mechanism, as held by ``mdp.actions`` at the
             current step. :meth:`core.agents.base.Agent.action` passes it.
         reset : bool, optional
             During reset, invoke ``on_reset`` with the decoded action, or ``None`` when
@@ -385,7 +367,8 @@ class Mechanism(ABC):
         Returns
         -------
         MDPState
-            Residual of the transition, as returned by :meth:`apply`.
+            Residual returned by :meth:`apply`, or by :meth:`on_reset` when
+            ``reset`` is true. The caller composes it with the shared state.
         """
 
         if reset:
@@ -396,10 +379,11 @@ class Mechanism(ABC):
     def decode(self, mdp: MDPState, action: ActType) -> ActType:
         """Map optimizer/policy coordinates to mechanism coordinates.
 
-        ``action`` is always the raw action, as it arrived: the decoded value
-        is written to ``mdp.actions`` for the rest of the step to read, but the
-        raw one is what is carried forward to the following steps, so an
-        override does not have to be idempotent. The default is the identity.
+        ``action`` is the action as the policy or the optimizer produced it. The
+        environment decodes the leaders' actions at reset, and the Ray adaptor
+        decodes the followers' actions at each step; the result is written to
+        ``mdp.actions`` for the rest of the step to read. The default is the
+        identity.
 
         Parameters
         ----------

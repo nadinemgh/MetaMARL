@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import math
+
 from core.annotations import override
-from core.metrics.metric.base import PrimitiveType
+from core.metrics.metric.base import PrimitiveType, as_number
 from core.metrics.metric.series import SeriesMetric
 
 
@@ -11,12 +14,8 @@ class MinMetric(SeriesMetric):
     """Metric reducing to the minimum of the pushed numbers.
 
     Only numbers are accepted (``int``, ``float`` and NumPy numeric scalars;
-    ``bool`` and ``np.bool_`` are rejected); ``peek`` returns ``None`` while
-    empty or holding only gaps, which it skips. A NaN is ignored, because the
-    Ray adaptor logs NaN for the learner statistics RLlib did not report and a
-    missing value has no rank; the result therefore does not depend on the push
-    order.
-    A window holding only NaN reduces to NaN.
+    ``bool`` and ``np.bool_`` are rejected). NaNs are logged and ignored
+    during aggregation. A window holding only NaNs reduces to NaN.
 
     When to use: for floor values over an iteration, such as the lowest stock observed.
 
@@ -32,13 +31,6 @@ class MinMetric(SeriesMetric):
     2.0
     >>> metric.peek() is None
     True
-
-    A NaN is skipped whatever its position:
-
-    >>> metric.push(float("nan"))
-    >>> metric.push(4.0)
-    >>> metric.peek()
-    4.0
     """
 
     @override(SeriesMetric)
@@ -59,12 +51,7 @@ class MinMetric(SeriesMetric):
             If ``value`` is a ``bool`` (or ``np.bool_``) or not a number.
         """
 
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise TypeError(
-                f"MinMetric only accepts int or float, got {type(value).__name__}."
-            )
-
-        self.values.append(value)
+        self.values.append(as_number(value, "MinMetric"))
 
     def peek(self, compile: bool = True) -> int | float | list[int | float] | None:
         """Return the minimum (``None`` when empty).
@@ -79,7 +66,7 @@ class MinMetric(SeriesMetric):
         Returns
         -------
         int or float or list or None
-            The smallest pushed value, ignoring NaN (NaN when every value is NaN),
+            The smallest pushed value, ignoring NaNs (NaN when every value is NaN),
             ``None`` while empty, or the history.
         """
 
@@ -89,7 +76,17 @@ class MinMetric(SeriesMetric):
         if not self.values:
             return None
 
-        return min(self.values)
+        # TODO (nadine) Add a user-configurable NaN policy (ignore or propagate).
+        values = [
+            v for v in self.values if not (isinstance(v, float) and math.isnan(v))
+        ]
+
+        if len(values) != len(self.values):
+            logging.getLogger(__name__).error(
+                "MinMetric: NaN ignored during aggregation."
+            )
+
+        return min(values) if values else math.nan
 
     def reduce(self, compile: bool = True) -> int | float | MinMetric | None:
         """Return the minimum and clear the history.

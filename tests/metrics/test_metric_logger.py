@@ -1,15 +1,16 @@
-"""``MetricLogger``: schema build, push paths, dynamic nodes, peek and reduce.
+"""``MetricLogger`` with a schema hierarchy fixed at construction.
 
-The schemas come from ``conftest.py``. The logger is built with
-``MetricLogger.from_schema``; direct instantiation is forbidden on purpose, and
-the first test pins that. Ported from the August suite (all tests passed
-unchanged against the refactored code); the runtime-subtype test now also
-checks the message of the final error.
+Covers schema-tree construction, independent dynamic IDs, path-based and
+schema-based pushes, sparse histories, reduction, reset, and validation.
+Runtime IDs may appear or disappear, but the types of their metrics are
+already declared by the configured schema. An omitted value does not imply a
+new iteration or an automatic gap: callers can log time explicitly if needed.
 """
 
 from typing import Optional
 
 import pytest
+from pydantic import Field
 
 from core.metrics.logger import MetricLogger, Node
 from core.metrics.metric.base import Metric
@@ -95,66 +96,77 @@ class TestPush:
         with pytest.raises(TypeError, match="Expected RootSchema"):
             logger.push_data(Leaf())
 
-    def test_push_data_dynamic_and_runtime_subtype(self, metric_schemas):
-        Leaf, Rich, Group, Root = metric_schemas
-        logger = MetricLogger.from_schema(Root)
-        payload = Root(
-            static=Leaf(),
-            group=Group(
-                by_id={"a": Rich(mean_value=1.0, extra=5.0), "b": Leaf(mean_value=2.0)}
-            ),
-        )
+    def test_push_data_dynamic_ids_use_preconfigured_value_schema(self, metric_schemas):
+        _, Rich, _, _ = metric_schemas
 
-        logger.push_data(payload)
-        assert logger.peek_value(("group", "by_id", "a", "extra")) == 5.0
-        assert logger.peek_value(("group", "by_id", "b", "mean_value")) == 2.0
+        class ConfiguredGroup(MetricSchema):
+            by_id: dict[str, Rich] = Field(default_factory=dict)  # type: ignore
 
-        # a bound ID cannot silently change schema
-        with pytest.raises(TypeError, match="Runtime schema changed"):
-            logger.push_data(
-                Root(static=Leaf(), group=Group(by_id={"a": Leaf(mean_value=1.0)}))
+        class ConfiguredRoot(MetricSchema):
+            group: ConfiguredGroup = Field(default_factory=ConfiguredGroup)
+
+        logger = MetricLogger.from_schema(ConfiguredRoot)
+        dynamic_node = logger._tree["group"]["by_id"]
+
+        # The complete value schema is known before any dynamic ID appears.
+        assert dynamic_node.schema is Rich
+        assert not dynamic_node
+        logger.push_data(
+            ConfiguredRoot(
+                group=ConfiguredGroup(
+                    by_id={
+                        "a": Rich(mean_value=1.0, extra=5.0),
+                        "b": Rich(mean_value=2.0, extra=7.0),
+                    }
+                )
             )
+        )
+        logger.push_data(
+            ConfiguredRoot(group=ConfiguredGroup(by_id={"a": Rich(mean_value=3.0)}))
+        )
+        assert dynamic_node.schema is Rich
+        assert dynamic_node["a"].schema is Rich
+        assert dynamic_node["b"].schema is Rich
+        assert logger.peek().group.by_id["a"].mean_value == [1.0, 3.0]
+        assert logger.peek().group.by_id["b"].mean_value == [2.0]
+        assert logger.peek_value(("group", "by_id", "a", "extra")) == 5.0
+        assert logger.peek_value(("group", "by_id", "b", "extra")) == 7.0
 
-        # unrelated schema rejected
+    def test_push_data_rejects_unrelated_schema_for_dynamic_id(self, metric_schemas):
+        Leaf, _, Group, Root = metric_schemas
+        logger = MetricLogger.from_schema(Root)
+
         class Other(MetricSchema):
             x: float = 0.0
 
-        # pydantic rejects it at construction; bypass validation to reach the guard
-        bad = Root.model_construct(
+        # Bypass Pydantic input validation to exercise MetricLogger's guard.
+        invalid = Root.model_construct(
             static=Leaf(), group=Group.model_construct(by_id={"c": Other()})
         )
 
         with pytest.raises(TypeError, match="not a subclass"):
-            logger.push_data(bad)
+            logger.push_data(invalid)
 
-    def test_static_nested_runtime_subtype_binding(self, metric_schemas):
-        """A nested slot declared as ``MetricSchema`` is specialised by the first push.
+    def test_concrete_nested_schema_is_built_before_first_push(self, metric_schemas):
+        _, Rich, _, _ = metric_schemas
 
-        This is how an evolution-strategy logger ends up holding the concrete
-        schemas of the inner level.
-        """
+        class ConfiguredRoot(MetricSchema):
+            inner: Rich = Field(default_factory=Rich)  # type: ignore
 
-        Leaf, Rich, Group, Root = metric_schemas
-        logger = MetricLogger.from_schema(Root)
+        logger = MetricLogger.from_schema(ConfiguredRoot)
 
-        assert logger._tree["inner"].schema is MetricSchema
-        logger.push_data(
-            Root(static=Leaf(), group=Group(), inner=Rich(series_value=1.0, extra=1.0))
-        )
-        assert logger._tree["inner"].schema is Rich
-        assert logger.peek_value(("inner", "series_value")) == [1.0]
-        logger.push_data(
-            Root(static=Leaf(), group=Group(), inner=Rich(series_value=2.0))
-        )
-        assert logger.peek_value(("inner", "series_value")) == [1.0, 2.0]  # accumulates
+        # No first-push specialization: the child and all its leaves exist now.
+        inner_node = logger._tree["inner"]
 
-        class Incompatible(MetricSchema):
-            y: float = 0.0
-
-        # a sibling subtype of MetricSchema is accepted by subclass rule but must not
-        # silently reuse the Rich subtree: the declared node schema is Rich now
-        with pytest.raises(TypeError, match="Incompatible is not a subclass of"):
-            logger.push_data(Root(static=Leaf(), group=Group(), inner=Incompatible()))
+        assert inner_node.schema is Rich
+        assert ("inner", "series_value") in logger._refs
+        assert ("inner", "extra") in logger._refs
+        logger.push_data(ConfiguredRoot(inner=Rich(series_value=1.0, extra=4.0)))
+        logger.push_data(ConfiguredRoot(inner=Rich(series_value=2.0)))
+        assert logger._tree["inner"] is inner_node
+        assert logger.peek().inner.series_value == [1.0, 2.0]
+        assert logger.peek().inner.extra == [4.0]
+        assert logger.peek_value(("inner", "series_value")) == [1.0, 2.0]
 
 
 @pytest.mark.unit
@@ -204,7 +216,7 @@ class TestPeekReduce:
         with pytest.raises(KeyError):
             logger.peek_value(("static", "nope"))
 
-    def test_optional_static_branch_is_materialized_lazily(self, metric_schemas):
+    def test_optional_static_branch_uses_its_declared_schema(self, metric_schemas):
         Leaf, _, Group, Root = metric_schemas
         logger = MetricLogger.from_schema(Root)
 
@@ -217,83 +229,80 @@ class TestPeekReduce:
 
 
 @pytest.mark.unit
-class TestSpecialisationKeepsPushedValues:
-    """Specialising a node to a subclass must not lose what was pushed before."""
+class TestFixedSchemasPreservePushedValues:
+    """Values survive repeated pushes into a single configured schema tree."""
 
-    def test_values_pushed_by_path_survive(self, metric_schemas):
-        Leaf, Rich, Group, Root = metric_schemas
-        logger = MetricLogger.from_schema(Root)
+    def test_push_by_path_then_push_data_keeps_existing_values(self, metric_schemas):
+        _, Rich, _, _ = metric_schemas
 
-        logger.push(("optional_static", "mean_value"), 1.0)
-        logger.push(("optional_static", "series_value"), 5.0)
-        logger.push(("optional_static", "last_value"), 7)
-        logger.push_data(
-            Root(
-                static=Leaf(),
-                group=Group(),
-                optional_static=Rich(mean_value=3.0, extra=9.0),
-            )
-        )
-        assert logger._tree["optional_static"].schema is Rich
+        class ConfiguredRoot(MetricSchema):
+            inner: Rich = Field(default_factory=Rich)  # type: ignore
 
-        peeked = logger.peek().optional_static
+        logger = MetricLogger.from_schema(ConfiguredRoot)
+
+        logger.push(("inner", "mean_value"), 1.0)
+        logger.push(("inner", "series_value"), 5.0)
+        logger.push(("inner", "last_value"), 7)
+        logger.push_data(ConfiguredRoot(inner=Rich(mean_value=3.0, extra=9.0)))
+
+        peeked = logger.peek().inner
 
         assert peeked.mean_value == [1.0, 3.0]
         assert peeked.series_value == [5.0]
         assert peeked.last_value == [7]
         assert peeked.extra == [9.0]
+        assert logger._tree["inner"].schema is Rich
 
-    def test_values_pushed_by_a_declared_schema_survive(self, metric_schemas):
-        Leaf, Rich, Group, Root = metric_schemas
-        logger = MetricLogger.from_schema(Root)
+    def test_sum_accumulates_across_pushes_without_schema_changes(self, metric_schemas):
+        _, Rich, _, _ = metric_schemas
 
-        logger.push_data(
-            Root(static=Leaf(), group=Group(), optional_static=Leaf(sum_value=2.0))
-        )
-        logger.push_data(
-            Root(
-                static=Leaf(),
-                group=Group(),
-                optional_static=Rich(sum_value=3.0, extra=1.0),
-            )
-        )
-        assert logger.reduce().optional_static.sum_value == 5.0
+        class ConfiguredRoot(MetricSchema):
+            inner: Rich = Field(default_factory=Rich)  # type: ignore
 
-    def test_values_pushed_under_a_dynamic_id_survive(self):
-        from core.metrics.schemas import MetricSchema
+        logger = MetricLogger.from_schema(ConfiguredRoot)
 
+        logger.push_data(ConfiguredRoot(inner=Rich(sum_value=2.0)))
+        logger.push_data(ConfiguredRoot(inner=Rich(sum_value=3.0, extra=1.0)))
+
+        reduced = logger.reduce().inner
+
+        assert reduced.sum_value == 5.0
+        assert reduced.extra == 1.0
+        assert logger._tree["inner"].schema is Rich
+
+    def test_existing_dynamic_ids_retain_their_values_when_omitted(self):
         class Item(MetricSchema):
             value: Optional[float] = None
 
         class Inner(MetricSchema):
-            by_id: dict[str, Item] = {}
+            by_id: dict[str, Item] = Field(default_factory=dict)
 
-        class RichInner(Inner):
-            extra: Optional[float] = None
+        class ConfiguredRoot(MetricSchema):
+            inner: Inner = Field(default_factory=Inner)
 
-        class Slot(MetricSchema):
-            inner: Optional[Inner] = None
-
-        logger = MetricLogger.from_schema(Slot)
+        logger = MetricLogger.from_schema(ConfiguredRoot)
 
         logger.push(("inner", "by_id", "a", "value"), 1.0)
         logger.push(("inner", "by_id", "b", "value"), 10.0)
-        logger.push_data(Slot(inner=RichInner(by_id={"a": Item(value=3.0)}, extra=2.0)))
+        logger.push_data(ConfiguredRoot(inner=Inner(by_id={"a": Item(value=3.0)})))
 
         peeked = logger.peek().inner
 
-        assert type(peeked) is RichInner
         assert peeked.by_id["a"].value == [1.0, 3.0]
-
-        # "b" is left out of the push_data call, so it receives a gap.
-        assert peeked.by_id["b"].value == [10.0, None]
+        assert peeked.by_id["b"].value == [10.0]
         assert logger.peek_value(("inner", "by_id", "b", "value")) == 10.0
+        assert logger._tree["inner"].schema is Inner
 
-    def test_the_iteration_counter_of_an_open_slot_survives(self, metric_schemas):
-        Leaf, Rich, Group, Root = metric_schemas
-        logger = MetricLogger.from_schema(Root)
+    def test_explicit_iteration_field_accumulates_in_fixed_schema(self, metric_schemas):
+        _, Rich, _, _ = metric_schemas
+
+        class ConfiguredRoot(MetricSchema):
+            inner: Rich = Field(default_factory=Rich)  # type: ignore
+
+        logger = MetricLogger.from_schema(ConfiguredRoot)
 
         logger.push(("inner", "iter"), 4)
-        logger.push_data(Root(static=Leaf(), group=Group(), inner=Rich(iter=5)))
+        logger.push_data(ConfiguredRoot(inner=Rich(iter=5)))
         assert logger.peek().inner.iter == [4, 5]
         assert logger.reduce().inner.iter == 5
+        assert logger._tree["inner"].schema is Rich

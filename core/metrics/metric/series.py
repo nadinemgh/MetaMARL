@@ -14,10 +14,10 @@ class SeriesMetric(Metric):
     base of the scalar metrics, which reuse its ``values`` list and only
     override the reduction.
 
-    A gap (``None``, appended by :meth:`push_gap`) marks a push of the logger in
-    which this leaf had no value, so that entry ``i`` of every leaf below a
-    dynamic node belongs to the same push. The history keeps the gaps; the
-    scalar metrics skip them when they compile.
+    A gap (``None``) marks a push of the logger in which this leaf had no
+    value, so that entry ``i`` of every leaf below a dynamic node belongs
+    to the same push. The history keeps the gaps; the scalar metrics skip
+    them when they compile.
 
     Attributes
     ----------
@@ -42,10 +42,6 @@ class SeriesMetric(Metric):
     [0.5, 0.7]
     >>> len(metric)
     0
-    >>> metric.push(0.5)
-    >>> metric.push_gap()
-    >>> metric.peek(), metric.present_values()
-    ([0.5, None], [0.5])
     """
 
     def __init__(self) -> None:

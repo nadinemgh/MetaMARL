@@ -1,7 +1,7 @@
-"""``core.config.yaml``: resolving, loading and validating declarative configs.
+"""``core.config.yaml``: Hydra composition plus MetaMARL object resolution.
 
 Every document is a small YAML text written under ``tmp_path`` or a Python
-value passed to ``resolve``. Targets are standard-library classes
+value passed to ``resolve``. Hydra supplies overrides and interpolation. Targets are standard-library classes
 (``fractions.Fraction``, ``collections.OrderedDict``) and the ``Builder`` class
 below, which has fluent methods for the ``_calls_`` forms. Errors carry the
 YAML path of the failing node, so the tests assert on the paths too.
@@ -241,12 +241,17 @@ def test_load_yaml_reads_a_mapping(tmp_path):
 
 
 @pytest.mark.unit
-def test_load_yaml_expands_environment_variables(tmp_path, monkeypatch):
+def test_load_yaml_resolves_omegaconf_environment_variables(tmp_path, monkeypatch):
     monkeypatch.setenv("METAMARL_TEST_VALUE", "42")
 
-    path = write(tmp_path, "a: $METAMARL_TEST_VALUE\nb: ${METAMARL_TEST_VALUE}0\n")
+    path = write(
+        tmp_path,
+        'a: ${oc.env:METAMARL_TEST_VALUE}\nb: "${oc.env:METAMARL_TEST_VALUE}0"\n',
+    )
 
-    assert load_yaml(path) == {"a": 42, "b": 420}
+    # Hydra's oc.env interpolation returns strings; unlike the former
+    # os.path.expandvars implementation it does not silently infer integers.
+    assert load_yaml(path) == {"a": "42", "b": "420"}
 
 
 @pytest.mark.unit
@@ -420,3 +425,111 @@ def test_run_experiment_names_the_failing_run_call(tmp_path):
 @pytest.mark.unit
 def test_config_error_is_a_value_error():
     assert issubclass(ConfigError, ValueError)
+
+
+@pytest.mark.unit
+def test_load_yaml_applies_overrides_and_resolves_interpolations(tmp_path):
+    path = write(
+        tmp_path,
+        """
+        params:
+          train_iters: 50
+          learning_rate: 0.001
+        experiment:
+          iterations: ${params.train_iters}
+          lr: ${params.learning_rate}
+        """,
+    )
+    assert load_yaml(
+        path, overrides=["params.train_iters=2", "params.learning_rate=0.002"]
+    ) == {
+        "params": {"train_iters": 2, "learning_rate": 0.002},
+        "experiment": {"iterations": 2, "lr": 0.002},
+    }
+
+    # An override affects the composed configuration, not the YAML on disk.
+    assert load_yaml(path)["params"]["train_iters"] == 50
+
+
+@pytest.mark.unit
+def test_load_yaml_rejects_a_nonexistent_override_path(tmp_path):
+    path = write(tmp_path, "params:\n  train_iters: 50\n")
+
+    with pytest.raises(ConfigError, match="Could not compose configuration"):
+        load_yaml(path, overrides=["params.missing=2"])
+
+
+@pytest.mark.unit
+def test_load_yaml_rejects_malformed_hydra_overrides(tmp_path):
+    path = write(tmp_path, "params:\n  train_iters: 50\n")
+
+    with pytest.raises(ConfigError, match="Could not compose configuration"):
+        load_yaml(path, overrides=["not-an-override"])
+
+
+@pytest.mark.unit
+def test_load_yaml_supports_hydra_configuration_groups(tmp_path):
+    group = tmp_path / "optimizer"
+
+    group.mkdir()
+    (group / "ppo.yaml").write_text("lr: 0.001\nepisodes: 50\n")
+
+    path = write(
+        tmp_path,
+        """
+        defaults:
+          - optimizer: ppo
+          - _self_
+        experiment:
+          lr: ${optimizer.lr}
+        """,
+    )
+    result = load_yaml(path, overrides=["optimizer.lr=0.0003"])
+
+    assert result["optimizer"] == {"lr": 0.0003, "episodes": 50}
+    assert result["experiment"]["lr"] == 0.0003
+
+
+@pytest.mark.unit
+def test_load_experiment_accepts_hydra_overrides(tmp_path):
+    path = write(
+        tmp_path,
+        """
+        params:
+          denominator: 4
+        experiment:
+          _target_: fractions.Fraction
+          _args_:
+            - 6
+            - ${params.denominator}
+        """,
+    )
+
+    assert load_experiment(path) == fractions.Fraction(3, 2)
+
+    assert load_experiment(
+        path, overrides=["params.denominator=3"]
+    ) == fractions.Fraction(2, 1)
+
+
+@pytest.mark.unit
+def test_run_experiment_accepts_hydra_overrides(tmp_path):
+    path = write(
+        tmp_path,
+        """
+        params:
+          max_denominator: 2
+        experiment:
+          _target_: fractions.Fraction
+          _args_: [7, 3]
+        run:
+          - limit_denominator:
+              max_denominator: ${params.max_denominator}
+        """,
+    )
+
+    assert run_experiment(path) == fractions.Fraction(5, 2)
+
+    assert run_experiment(
+        path, overrides=["params.max_denominator=3"]
+    ) == fractions.Fraction(7, 3)

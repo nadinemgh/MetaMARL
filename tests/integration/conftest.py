@@ -48,7 +48,10 @@ ECOLOGY = {
 
 """Ecology of ``examples/bilevel_fishery/debug.py``, unchanged."""
 
-OBSERVATION_SIZE = 5
+# Nine slots, as in the fisher observation space of
+# examples/bilevel_fishery/debug.py: the quota and incentive mechanisms write
+# their legacy slots 1 and 3 to 8 there, so a smaller space cannot hold them.
+OBSERVATION_SIZE = 9
 REGULATOR = "fisheries_regulator"
 
 
@@ -94,7 +97,9 @@ def build_fishery(tmp_path, monkeypatch):
 
     Parameters of the returned builder: the regulator's mechanism
     configurations (positional), ``candidates`` (the script of the world),
-    ``num_agents`` (default 2), ``horizon`` (default 20) and ``seed``.
+    ``num_agents`` (default 2), ``horizon`` (default 20), ``seed`` and
+    ``observation_size`` (default 9, the size of ``debug.py``; a regulator that
+    appends entries after the nine legacy slots needs a larger space).
     It returns a namespace with the ``adapter``, the ``env`` and the ``world``.
     """
 
@@ -106,6 +111,7 @@ def build_fishery(tmp_path, monkeypatch):
         num_agents: int = 2,
         horizon: int = 20,
         seed: int = 0,
+        observation_size: int = OBSERVATION_SIZE,
     ) -> SimpleNamespace:
         unbounded = spaces.Box(-np.inf, np.inf, (1,), np.float32)
         fisherman = FishermanConfig(
@@ -116,7 +122,7 @@ def build_fishery(tmp_path, monkeypatch):
                 RestoreConfig(id="restore", action_space=unbounded),
             ),
             observation_space=spaces.Box(
-                -np.inf, np.inf, (OBSERVATION_SIZE,), np.float32
+                -np.inf, np.inf, (observation_size,), np.float32
             ),
         )
         followers = {

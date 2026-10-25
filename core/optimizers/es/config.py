@@ -59,7 +59,11 @@ class ESConfig(OptimizerConfig):
     typically passed to ``BilevelConfig.regulator``. Call ``agents`` with the
     regulator agents whose mechanisms define the search space, ``training`` for
     the hyperparameters and the number of generations, and ``debugging`` for
-    the seed.
+    the seed of the search generator (``base_seed``). ``debugging`` also
+    accepts ``num_seeds`` and fills ``seeds``, but the search does not read
+    that list: the training seeds of a bilevel run are those of the inner
+    configuration, which ``BilevelConfig`` passes to the regulator
+    environment.
 
     Examples
     --------
@@ -83,7 +87,7 @@ class ESConfig(OptimizerConfig):
         self.min_sigma: float = 1e-3
         self.max_sigma: float = 0.5
         self.break_symmetry: bool = False
-        self.convergence_eps: float = 1e-4
+        self.convergence_eps: float = 0.0
         self.convergence_patience: int = 10
         self.initial_mean: Optional[list[float]] = None
 

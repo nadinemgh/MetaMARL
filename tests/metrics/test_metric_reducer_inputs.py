@@ -195,8 +195,13 @@ class TestNonFiniteValues:
 
     @pytest.mark.parametrize("cls", [MeanMetric, SumMetric])
     @pytest.mark.parametrize("values", [[NAN, 1.0], [1.0, NAN], [1.0, NAN, 3.0]])
-    def test_mean_and_sum_propagate_nan_whatever_the_position(self, cls, values):
-        assert math.isnan(filled(cls, values).reduce())
+    def test_mean_and_sum_ignore_nan_whatever_the_position(self, cls, values):
+        # TODO (nadine) Expose a user-configurable NaN aggregation policy:
+        # ignore NaNs (current default) or propagate NaN if any occurs.
+        valid = [v for v in values if not math.isnan(v)]
+        expected = sum(valid) / len(valid) if cls is MeanMetric else sum(valid)
+
+        assert filled(cls, values).reduce() == pytest.approx(expected)
 
     @pytest.mark.parametrize(
         "cls, expected",
@@ -211,9 +216,11 @@ class TestNonFiniteValues:
     def test_opposite_infinities_in_a_mean_give_nan(self):
         assert math.isnan(filled(MeanMetric, [math.inf, -math.inf]).reduce())
 
-    def test_last_keeps_a_nan_only_when_it_is_the_last_value(self):
+    def test_last_ignores_nan(self):
+        # TODO (nadine) Allow users to choose whether NaN is ignored or propagated.
         assert filled(LastMetric, [1.0, NAN, 3.0]).reduce() == 3.0
-        assert math.isnan(filled(LastMetric, [1.0, NAN]).reduce())
+        assert filled(LastMetric, [1.0, NAN]).reduce() == 1.0
+        assert math.isnan(filled(LastMetric, [NAN, NAN]).reduce())
 
     @pytest.mark.parametrize("cls, expected", [(MaxMetric, 3.0), (MinMetric, 1.0)])
     @pytest.mark.parametrize(

@@ -115,12 +115,18 @@ class RayOptimizer(Optimizer):
 
         # self.eval_episodes = config.eval_episodes
         # TODO fallback if rollout_fragment_length not in eval_cfg
-        self.eval_episodes = (
-            config.rllib_cfg.evaluation_duration
-            // config.rllib_cfg.evaluation_config.get("rollout_fragment_length")
-        )
+        eval_config = config.rllib_cfg.evaluation_config or {}
+        fragment_length = eval_config.get("rollout_fragment_length")
 
-        # self.rollout_fragment_length = config.rollout_fragment_length
+        if fragment_length is None:
+            raise ValueError(
+                "RayOptimizer needs an evaluation setup: call "
+                + ".evaluation(evaluation_config={'rollout_fragment_length': ...}) "
+                + "on the society optimizer config."
+            )
+
+        self.eval_episodes = config.rllib_cfg.evaluation_duration // fragment_length
+        self._module_ids: tuple[str, ...] = tuple(config.rllib_cfg.policies)
 
         from core.adaptors.ray.policy_actor import PolicyActor
 
@@ -202,7 +208,8 @@ class RayOptimizer(Optimizer):
             # Policy API (older / classic)
             return self.algo.get_policy(policy_id)
 
-    # TODO (nadine) : in the future this could be separated into a different class if justified
+    # TODO (nadine) : in the future this could be separated into a different class if
+    #   justified
     def _to_logger_payload(
         self, result: ResultDict, is_eval: bool = False
     ) -> RaySchema:
@@ -222,7 +229,7 @@ class RayOptimizer(Optimizer):
 
         train = TrainSchema(
             rollout=build_rollout(result),
-            learner=build_learner(result),
+            learner=build_learner(result, module_ids=self._module_ids),
             performance=build_performance(result),
         )
         eval_result = result.get("evaluation")
@@ -288,9 +295,9 @@ class RayOptimizer(Optimizer):
             self._training_losses.append(policy_loss)
             logger.info(
                 "[Ray] Training step completed | "
-                "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
-                "ep_return=%.4f | env_steps_iter=%d | "
-                "env_steps_lifetime=%d | policy_loss=%s",
+                + "outer_iter=%d | inner_iter=%d | rllib_iter_lifetime=%d | "
+                + "ep_return=%.4f | env_steps_iter=%d | "
+                + "env_steps_lifetime=%d | policy_loss=%s",
                 self._es_round,
                 episode,
                 rllib_training_iteration,
@@ -305,7 +312,8 @@ class RayOptimizer(Optimizer):
 
         return self.logger.peek()
 
-    # TODO (nadine) future support for async eval, otherwise must publish eval mechanism obj
+    # TODO (nadine) future support for async eval, otherwise must publish eval mechanism
+    #   obj
     @override(Optimizer)
     def evaluate(self) -> None:
         """Run one evaluation pass on the policy actor and log start/end.
@@ -362,7 +370,7 @@ class RayOptimizer(Optimizer):
         ray.get(self.policy_actor.stop.remote())
         logger.info("[Ray] Algorithm stopped")
 
-        return self.logger.reduce(complie=True)
+        return self.logger.reduce()
 
     @override(Optimizer)
     def save(self, checkpoint_dir: Optional[str] = None) -> _TrainingResult:
