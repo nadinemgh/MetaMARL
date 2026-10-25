@@ -127,7 +127,7 @@ class RayOptimizer(Optimizer):
 
         self.eval_episodes = config.rllib_cfg.evaluation_duration // fragment_length
 
-        # self.rollout_fragment_length = config.rollout_fragment_length
+        self._module_ids: tuple[str, ...] = tuple(config.rllib_cfg.policies)
 
         from core.adaptors.ray.policy_actor import PolicyActor
 
@@ -230,7 +230,7 @@ class RayOptimizer(Optimizer):
 
         train = TrainSchema(
             rollout=build_rollout(result),
-            learner=build_learner(result),
+            learner=build_learner(result, module_ids=self._module_ids),
             performance=build_performance(result),
         )
         eval_result = result.get("evaluation")
