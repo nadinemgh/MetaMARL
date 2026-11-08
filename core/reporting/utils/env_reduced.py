@@ -796,6 +796,7 @@ def plot_env_reduced(
     reducers: list[ReductionSpec] | None = None,
     prefix: str = "env_reduced",
     agent_groups: dict[str, str] | None = None,  # optional fixed/learned experimental roles
+    log_plotly: bool = False,  # avoid per-iteration Plotly snapshots by default
 ) -> None:
     if wandb_run is None or not ctxs:
         return
@@ -1002,38 +1003,39 @@ def plot_env_reduced(
     # END RAW ANALYSIS TABLES
     # ============================================================
 
-    metric_tables = _build_metric_tables(rows)
+    if log_plotly:
+        metric_tables = _build_metric_tables(rows)
 
-    _log_02GA041_observed_vs_simulated(
-        wandb_run=wandb_run,
-        prefix=prefix,
-        metric_tables=metric_tables,
-        step=gs,
-    )
-
-    _log_02GA014_observed_vs_simulated(
-        wandb_run=wandb_run,
-        prefix=prefix,
-        metric_tables=metric_tables,
-        step=gs,
-    )
-
-    _log_West_Montrose_observed_vs_simulated(
-        wandb_run=wandb_run,
-        prefix=prefix,
-        metric_tables=metric_tables,
-        step=gs,
-    )
-
-    # 1. Raw rollout plots over horizon/env_step.
-    for metric_name, table in metric_tables.items():
-        _log_train_eval_shaded_plot(
+        _log_02GA041_observed_vs_simulated(
             wandb_run=wandb_run,
             prefix=prefix,
-            metric_name=metric_name,
-            table=table,
+            metric_tables=metric_tables,
             step=gs,
         )
+
+        _log_02GA014_observed_vs_simulated(
+            wandb_run=wandb_run,
+            prefix=prefix,
+            metric_tables=metric_tables,
+            step=gs,
+        )
+
+        _log_West_Montrose_observed_vs_simulated(
+            wandb_run=wandb_run,
+            prefix=prefix,
+            metric_tables=metric_tables,
+            step=gs,
+        )
+
+        # 1. Raw rollout plots over horizon/env_step.
+        for metric_name, table in metric_tables.items():
+            _log_train_eval_shaded_plot(
+                wandb_run=wandb_run,
+                prefix=prefix,
+                metric_name=metric_name,
+                table=table,
+                step=gs,
+            )
 
     # 2. Reduced plots over training iterations.
     iter_rows = _rows_to_iteration_metric_rows(
@@ -1073,7 +1075,7 @@ def plot_env_reduced(
         commit=False,
     )
 
-    for row in iter_rows:
+    for row in (iter_rows if log_plotly else []):
         metric_name = sanitize_key(row["metric"])
         cache_key = (id(wandb_run), metric_name)
 

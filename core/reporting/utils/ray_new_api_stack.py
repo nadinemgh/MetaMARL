@@ -830,6 +830,66 @@ def _log_multiline_table_as_plot(
     wandb_run.log(payload, step=step, commit=False)
 
 
+def _log_learner_snapshot_table(
+    *,
+    wandb_run: Run,
+    learner_by_policy: Dict[str, Dict[str, Any]],
+    outer_iter: int,
+    train_step: int,
+    prefix: str,
+) -> None:
+    """Archive all extracted finite learner metrics, for every learner, every step.
+
+    A *fresh* W&B table per call avoids the old immutable-table cache bug.
+    Wide format gives one row per learner, avoiding W&B's ~10k-row media cap.
+    """
+    if not learner_by_policy:
+        return
+
+    # Use all scalar metric names, not only the former five plot whitelist.
+    metric_names = sorted({
+        str(metric)
+        for stats in learner_by_policy.values()
+        if isinstance(stats, dict)
+        for metric, value in stats.items()
+        if finite(value) is not None
+    })
+    if not metric_names:
+        return
+
+    columns = ["outer_iter", "train_step", "step", "learner_id", "mechanism"] + metric_names
+    rows = []
+    for learner_id, stats in sorted(learner_by_policy.items()):
+        if not isinstance(stats, dict):
+            continue
+        values = {k: finite(v) for k, v in stats.items()}
+        if not any(values.get(metric) is not None for metric in metric_names):
+            continue
+        rows.append([
+            int(outer_iter), int(train_step), _global_step(outer_iter, train_step),
+            str(learner_id), _extract_mechanism_id(str(learner_id)),
+            *[values.get(metric) for metric in metric_names],
+        ])
+    if not rows:
+        return
+
+    # Independent compressed copy, recoverable even if W&B sync fails.
+    from core.reporting.utils.schelling_archive import archive_csv_rows
+    archive_csv_rows(
+        wandb_run=wandb_run, prefix=prefix, dataset="learner_metrics",
+        outer_iter=outer_iter, train_step=train_step,
+        columns=columns, rows=rows,
+    )
+
+    table = wandb.Table(columns=columns)
+    for row in rows:
+        table.add_data(*row)
+    wandb_run.log(
+        {f"{prefix}/tables/learner_metrics": table},
+        step=_global_step(outer_iter, train_step), commit=False,
+    )
+
+
 # --------------------------
 # main logger
 # --------------------------
@@ -856,6 +916,7 @@ def plot_training_results_new_stack(
     log_learner_multiline_plots: bool = False,
     log_mechanism_shaded_plots: bool = False,
     log_raw_rllib_episode_metrics: bool = False,
+    log_plotly: bool = False,  # opt in; keep raw learner data by default
 ) -> None:
     """
     Logs:
@@ -977,6 +1038,21 @@ def plot_training_results_new_stack(
         train_step=training_episode,
         prefix=prefix,
     )
+
+    # Independent per-step learner table: all scalar metrics, all learner IDs.
+    _log_learner_snapshot_table(
+        wandb_run=wandb_run,
+        learner_by_policy=learner_by_policy,
+        outer_iter=outer_iter,
+        train_step=training_episode,
+        prefix=prefix,
+    )
+
+    # Leave the old plotting code untouched but disabled by default.
+    # This prevents repeated multi-megabyte Plotly snapshots and table caches.
+    if not log_plotly:
+        wandb_run.log({}, step=gs, commit=False)
+        return
 
     # --------------------------
     # 2) MULTI-LINE PLOT: returns (ONE plot, lines=series)
