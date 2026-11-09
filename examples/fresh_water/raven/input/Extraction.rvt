@@ -1,0 +1,21 @@
+# File containing time series of water extraction to be written by transition kernel
+
+#####################################################
+# Gauge name = GRAND RIVER AT WEST MONTROSE
+# Gauge ID = 02GA034
+# Gauge source = WSC
+# Drainage area = 1159.24 km2
+# Delineated area = 1159.63 km2
+# DA Diff = 0.0340%
+# Water body = River
+# Data type = discharge
+# Data Range = 1980/01/01-2024/12/31
+# Data time-step = 24 hr
+# Available data period 1 = 1980/01/01-1998/03/31
+# Available data period 2 = 2002/04/01-2024/12/31
+# Missing data are indicated by a flag of -1.2345
+#####################################################
+:BasinInflowHydrograph 29012889 m3/s
+    1980-01-01 00:00:00 1 1
+    0.0
+:EndObservationData

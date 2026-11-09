@@ -38,6 +38,9 @@ venv/
 ENV/
 env/
 
+# cache
+.cache/
+
 # IDEs
 .vscode/*
 !.vscode/settings.json
@@ -105,7 +108,7 @@ CLAUDE.md
 .claude
 
 # Raven model outputs, binaries and helpers
-examples/fresh_water/raven/
+!examples/fresh_water/raven/input/Extraction.rvt
 
 # GeoJSONs directory (project-specific large files)
 geojsons/
